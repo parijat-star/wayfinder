@@ -40,6 +40,7 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material.icons.outlined.ViewHeadline
 import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material.icons.outlined.ArrowDownward
@@ -148,19 +149,46 @@ private fun NavButton(icon: ImageVector, desc: String, enabled: Boolean, onClick
     FilledTonalIconButton(onClick, Modifier.size(40.dp), enabled = enabled) { Icon(icon, desc, Modifier.size(20.dp)) }
 }
 
-private fun resolveAddress(input: String): String? {
+internal fun resolveAddress(input: String, s: AppState? = null): String? {
     val t = input.trim()
     if (t.isEmpty()) return null
-    return when {
-        t.startsWith("/") -> FsPath.normalize(t)
-        t.equals("trash", true) -> FsPath.TRASH_ROOT
-        t.equals("network", true) -> FsPath.SMB_ROOT
-        t.equals("recents", true) || t == FsPath.RECENTS_ROOT -> FsPath.RECENTS_ROOT
-        t.equals("starred", true) || t == FsPath.STARRED_ROOT -> FsPath.STARRED_ROOT
-        t.startsWith(FsPath.TAG_PREFIX) && FsPath.tagOf(t) != null -> t
-        // Network addresses (smb://, \\server\share, dav(s)://, ftp(s)://, saf://) go through BrowserViewModel.openAddress.
-        else -> null
+    when {
+        t.startsWith("/") -> return FsPath.normalize(t)
+        t.equals("trash", true) -> return FsPath.TRASH_ROOT
+        t.equals("network", true) -> return FsPath.SMB_ROOT
+        t.equals("recents", true) || t == FsPath.RECENTS_ROOT -> return FsPath.RECENTS_ROOT
+        t.equals("starred", true) || t == FsPath.STARRED_ROOT -> return FsPath.STARRED_ROOT
+        t.startsWith(FsPath.TAG_PREFIX) && FsPath.tagOf(t) != null -> return t
+        FsPath.isDoc(t) || FsPath.isPhone(t) -> return FsPath.normalize(t)
     }
+    if (t.equals("phone", ignoreCase = true) || t.startsWith("phone/", ignoreCase = true)) {
+        val sub = if (t.length > 5) t.substring(6).trim('/') else ""
+        val phoneRoot = s?.pairedPhone?.takeIf { it.isMounted && it.path != FsPath.PHONE_ROOT }?.path
+        return when {
+            phoneRoot != null && FsPath.isDoc(phoneRoot) -> com.droid.wayfinder.data.SystemDocumentsBridge.childPath(phoneRoot, sub)
+            phoneRoot != null -> if (sub.isEmpty()) phoneRoot else FsPath.normalize("$phoneRoot/$sub")
+            sub.isEmpty() -> FsPath.PHONE_ROOT
+            else -> FsPath.normalize("${FsPath.PHONE_ROOT}$sub")
+        }
+    }
+    if (s != null) {
+        val match = s.rootLabels.entries
+            .sortedByDescending { it.value.length }
+            .firstOrNull { (_, label) ->
+                label.isNotBlank() && (t.equals(label, ignoreCase = true) || t.startsWith("$label/", ignoreCase = true))
+            }
+        if (match != null) {
+            val (rootPath, label) = match
+            val sub = if (t.length > label.length) t.substring(label.length + 1).trim('/') else ""
+            return when {
+                sub.isEmpty() -> rootPath
+                FsPath.isDoc(rootPath) -> com.droid.wayfinder.data.SystemDocumentsBridge.childPath(rootPath, sub)
+                else -> FsPath.normalize("$rootPath/$sub")
+            }
+        }
+    }
+    // Network addresses (smb://, \\server\share, dav(s)://, ftp(s)://, saf://) go through BrowserViewModel.openAddress.
+    return null
 }
 
 @Composable
@@ -170,7 +198,10 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
     val shape = RoundedCornerShape(24.dp)
     if (s.addressEditing) {
         val fr = remember { FocusRequester() }
-        var tf by remember(tab.path) { mutableStateOf(TextFieldValue(tab.path.removePrefix("trash://"), TextRange(0, tab.path.length))) }
+        val initialAddress = remember(tab.path, s.rootLabels) {
+            if (tab.path == FsPath.TRASH_ROOT) "" else s.displayPath(tab.path, "/")
+        }
+        var tf by remember(tab.path) { mutableStateOf(TextFieldValue(initialAddress, TextRange(0, initialAddress.length))) }
         var hadFocus by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) { fr.requestFocus() }
         Row(modifier.heightIn(min = 40.dp).clip(shape).background(cs.surfaceContainerLowest).padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -189,7 +220,7 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                 cursorBrush = SolidColor(cs.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = {
-                    val p = resolveAddress(tf.text)
+                    val p = resolveAddress(tf.text, s)
                     if (p != null) vm.navigate(p) else if (!vm.openAddress(tf.text)) vm.setAddressEditing(false)
                 }),
             )
@@ -218,6 +249,7 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                                 path == FsPath.TRASH_ROOT -> Icons.Outlined.Delete
                                 path == FsPath.RECENTS_ROOT -> Icons.Outlined.History
                                 path == FsPath.STARRED_ROOT -> Icons.Outlined.StarOutline
+                                com.droid.wayfinder.data.SystemDocumentsBridge.isPhonePath(path) -> Icons.Outlined.Smartphone
                                 FsPath.tagOf(path) != null -> Icons.Filled.Circle
                                 else -> rootIcon(s.roots.firstOrNull { it.path == path }?.removable == true)
                             }

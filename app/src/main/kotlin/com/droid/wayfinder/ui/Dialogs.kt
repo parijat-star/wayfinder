@@ -96,7 +96,7 @@ fun Dialogs(vm: BrowserViewModel, s: AppState) {
             },
             dismissButton = { TextButton(vm::dismissDialog) { Text("Cancel") } },
         )
-        is Dialog.Properties -> PropertiesDialog(d, vm::dismissDialog) { text, what -> vm.copyValue(text, what) }
+        is Dialog.Properties -> PropertiesDialog(d, s, vm::dismissDialog) { text, what -> vm.copyValue(text, what) }
         is Dialog.Connect -> ConnectDialog(vm, d.initial, s.savedServers, vm::dismissDialog)
         is Dialog.SmbAuth -> SmbDialog(
             "Sign in to ${d.host}", "This server requires a user name and password.",
@@ -137,7 +137,7 @@ private fun NameDialog(
 }
 
 @Composable
-private fun PropertiesDialog(d: Dialog.Properties, onDismiss: () -> Unit, onCopy: (text: String, what: String) -> Unit) {
+private fun PropertiesDialog(d: Dialog.Properties, s: AppState, onDismiss: () -> Unit, onCopy: (text: String, what: String) -> Unit) {
     val e = d.entries
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -146,9 +146,10 @@ private fun PropertiesDialog(d: Dialog.Properties, onDismiss: () -> Unit, onCopy
         text = {
             Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (e.size == 1) {
+                    val shownPath = if (FsPath.isDoc(e[0].path) || FsPath.isPhone(e[0].path)) s.displayPath(e[0].path, "/") else e[0].path
                     Row2("Name", e[0].name)
                     Row2("Kind", e[0].typeLabel)
-                    Row2("Path", e[0].path, mono = true) { onCopy(e[0].path, "Path") }
+                    Row2("Path", shownPath, mono = true) { onCopy(shownPath, "Path") }
                     Row2("Modified", formatDateFull(e[0].modified))
                 }
                 Row2("Size", d.bytes?.let { "${formatSize(it)} (${"%,d".format(it)} bytes)" } ?: "Calculating…")
