@@ -56,9 +56,10 @@
 * **Quick Look (`Space`):** Instant desktop preview for images, video frames, PDFs, audio waveforms, archives, and syntax-highlighted code with line numbers without launching heavy external viewers.
 * **Archive filesystem:** Navigate into `.zip`, `.tar.gz`, `.tgz`, and `.tar` archives as virtual read-only folders, view contents, copy files out, and compress selections with one shortcut.
 * **Network & cloud storage:** Connect directly to local and remote servers via **SMB 2/3** (NTLM), **WebDAV / WebDAVS**, **FTP / FTPS**, and Android **Storage Access Framework** providers (**Google Drive**, external USB SSDs).
-* **Paired Phone Integration (`phone://`):** Automatically detects paired and connected Android phones (over Googlebook Cross-Device Services, Bluetooth, or USB MTP/PTP) and presents the 13 standard Android phone folders (`Alarms`, `Android`, `Audiobooks`, `DCIM`, `Documents`, `Download`, `Movies`, `Music`, `Notifications`, `Pictures`, `Podcasts`, `Recordings`, `Ringtones`) with clean folder names and Quick Share integration.
+* **Connected Phone Integration:** Automatically discovers paired and connected Android phones over **Googlebook Cross-Device Services** (`QuickAccessDocumentsProvider`), **USB MTP**, and **Bluetooth**, browsing live phone directories (`Alarms`, `Android`, `DCIM`, `Documents`, `Download`, `Movies`, `Music`, `Pictures`, etc.) wirelessly with human-friendly breadcrumbs (`Pixel 8a / Documents`) and incoming **Quick Share** integration.
+* **Googlebook Ecosystem (`Linux files` & Work Profile):** Auto-discovers the Googlebook Linux development environment (`Linux files`) with one-click **Share with Linux** transfers and supports managed **Work / Personal Profile** switching via `CrossProfileApps`.
 * **Command palette (`Ctrl+K`):** Spotlight-style fuzzy command launcher to run any operation or jump to any folder in milliseconds.
-* **File picker mode:** Registers for `GET_CONTENT` and `OPEN_DOCUMENT`, allowing other Android apps and browsers to use Wayfinder as their system file picker.
+* **Complete system file & folder picker:** Registers for `GET_CONTENT`, `OPEN_DOCUMENT`, `OPEN_DOCUMENT_TREE` (folder access grants), and `ACTION_CREATE_DOCUMENT` ("Save As"), returning `DocumentsContract` URIs with persistable read/write permissions.
 
 ---
 
@@ -66,8 +67,8 @@
 
 Wayfinder integrates with your paired Android phone and Google Drive right from the left navigation sidebar:
 
-* **Paired Phone Quick Access (`Pixel 9`):** When your phone is paired with your Googlebook via Cross-Device Services, Bluetooth, or USB, Wayfinder displays your phone's name (`Pixel 9`) under **Quick access**. Clicking it opens a clean, distraction-free view of the 13 standard Android phone directories (`Download`, `DCIM`, `Pictures`, `Documents`, `Music`, `Movies`, etc.), with automatic bridging to incoming **Quick Share** transfers and USB MTP volumes.
-* **Google Drive in Network & Cloud:** Google Drive appears natively in the **Network & cloud** sidebar section with its multicolor Drive icon. Clicking **Google Drive** opens a guided pre-flight mount assistant that launches Android's document tree selector directly at your Google Drive root and persists read/write access across reboots.
+* **Wireless & Wired Phone Access (`Pixel 8a` / `Pixel 9`):** When your phone is paired with your Googlebook via Cross-Device Services, Wayfinder connects directly to `QuickAccessDocumentsProvider` with zero prompts—letting you browse, open, copy, and move files on your phone's live internal storage wirelessly using clean, logical paths (`Pixel 8a/Documents`). Wired USB MTP and incoming **Quick Share** folders are also supported out of the box.
+* **Google Drive in Network & Cloud:** Google Drive appears natively in the **Network & cloud** sidebar section with its multicolor Drive icon. Clicking **Google Drive** launches the system document tree selector directly at your Google Drive root and persists read/write access across reboots.
 
 <p align="center">
   <img src="docs/images/mock_4_phone_drive.jpg" width="900" alt="Wayfinder Phone and Google Drive integration showing Pixel 9 paired in Quick access with the 13 standard Android folders and Google Drive in Network and cloud" />
@@ -103,10 +104,10 @@ Mobile file managers were made for small touchscreens and vertical phone layouts
 
 <h2 id="limitations">Known Limitations</h2>
 
-Because Wayfinder is an independent, user-installed open-source application (rather than a privileged firmware app signed with the platform OS key), a few Android OS security boundaries apply:
+Because Wayfinder can be installed as a standalone open-source application (without requiring platform OS signing keys or the signature-level `MANAGE_DOCUMENTS` permission), a few Android OS security boundaries apply to specific providers:
 
-* **Wireless Phone Browsing vs. USB MTP:** When a phone is paired wirelessly via Googlebook Cross-Device Services or Bluetooth without a physical USB-C data cable, Android isolates the phone's raw remote block storage (`com.android.mtp.documents` and Cross-Device document providers require the signature-level `MANAGE_DOCUMENTS` permission held only by the built-in system Files app). In wireless mode, Wayfinder presents the standard 13-folder phone directory layout (`phone://`) backed by local phone-sync and Quick Share directories. To browse the phone's complete raw internal block storage directly from a third-party app, connect the phone via **USB-C in File Transfer (MTP) mode** or grant a folder via the system **Mount Phone Storage (SAF)** action in the toolbar.
-* **Google Drive One-Time SAF Folder Grant:** Android's Google Drive `DocumentsProvider` (`com.google.android.apps.docs.storage`) restricts zero-prompt root listing to pre-installed system apps, and standalone open-source APKs cannot embed a proprietary Google Cloud OAuth client secret tied to a single developer signing key. Wayfinder therefore integrates with Google Drive through Android's official **Storage Access Framework (`ACTION_OPEN_DOCUMENT_TREE`)**: clicking **Google Drive** guides you through a one-time folder selection in the system picker, after which Wayfinder persists the access token across reboots.
+* **Wired USB MTP One-Time Folder Grant (Wireless Cross-Device Works Directly):** Wireless phone browsing over **Googlebook Cross-Device Services** (`com.google.ambient.streaming.multidevicesync.quickaccess`) works directly out of the box with zero prompts. By contrast, Android's wired USB MTP provider (`com.android.mtp.documents`) restricts direct root enumeration to packages holding `MANAGE_DOCUMENTS`. When connecting a phone strictly via a USB-C MTP cable without Cross-Device Services, Wayfinder delegates a one-time **Mount Phone Storage (SAF)** folder grant to the system `DocumentsUI` picker and persists access.
+* **Google Drive One-Time SAF Folder Grant:** Android's Google Drive `DocumentsProvider` (`com.google.android.apps.docs.storage`) restricts zero-prompt root listing to pre-installed system apps holding `MANAGE_DOCUMENTS`, and standalone open-source APKs cannot embed a proprietary Google Cloud OAuth client secret tied to a single developer signing key. Wayfinder therefore integrates with Google Drive through Android's official **Storage Access Framework (`ACTION_OPEN_DOCUMENT_TREE`)**: clicking **Google Drive** delegates directly to the system `DocumentsUI` picker for a one-time folder selection, after which Wayfinder persists the access token across reboots.
 
 ---
 
@@ -127,9 +128,9 @@ Because Wayfinder is an independent, user-installed open-source application (rat
 
 * **Zero telemetry, zero ads:** Wayfinder contains no trackers, advertising SDKs, analytics, or third-party tracking scripts.
 * **Credentials secured with Keystore:** Server passwords for SMB, WebDAV, and FTP shares are encrypted using hardware-backed AES-256-GCM via the Android Keystore.
-* **Hardened file operations:** Built-in safeguards against zip-slip and tar-symlink vulnerabilities, symlink recursion loops, `phone://` and `gdrive://` path/query traversal attacks, and corrupted network data.
+* **Hardened file operations:** Built-in safeguards against zip-slip and tar-symlink vulnerabilities, symlink recursion loops, `FileProvider` symlink traversal, HMAC-authenticated internal window intents, and corrupted network data.
 * **Strict backup exclusions:** Credentials and server auth tokens are explicitly excluded from cloud backups (`dataExtractionRules` & `backup_rules`).
-* **Audited & tested:** Backed by 231 automated unit tests, property-based fuzzers (537,000+ iterations), and headless Robolectric UI integration tests. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
+* **Audited & tested:** Backed by 265+ automated unit tests, property-based fuzzers (537,000+ iterations), WCAG 2.1 AA accessibility checks, and headless Robolectric UI integration tests. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ---
 
