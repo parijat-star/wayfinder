@@ -715,7 +715,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun activatePane(right: Boolean) {
         val s = _state.value
         if (!s.dualPane || s.rightActive == right) return
-        _state.update { it.copy(rightActive = right, quickLook = null) }
+        _state.update { it.copy(rightActive = right, quickLook = null, addressEditing = false) }
         revealInTree(tab.path)
     }
 
@@ -1634,7 +1634,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
      */
     fun openAddress(input: String): Boolean {
         val t = input.trim()
-        if (FsPath.isSaf(t)) { navigate(t); return true }
+        if (FsPath.isSaf(t) || FsPath.isDoc(t) || FsPath.isPhone(t)) { navigate(t); return true }
         val a = RemoteUri.parse(t) ?: return false
         if (a.user != null) {
             val stored = servers.get(a.credKey)

@@ -23,11 +23,17 @@ import com.droid.wayfinder.data.SearchCategory
 import com.droid.wayfinder.data.SearchFilter
 import com.droid.wayfinder.data.SearchScope
 import com.droid.wayfinder.data.ServerEntryCodec
+import com.droid.wayfinder.data.SystemDocumentsBridge
 import com.droid.wayfinder.data.TrashManager
+import com.droid.wayfinder.data.WebDavXml
 import com.droid.wayfinder.data.duplicateName
 import com.droid.wayfinder.data.planBatchRename
 import com.droid.wayfinder.data.safeDisplayName
+import com.droid.wayfinder.ui.AppState
+import com.droid.wayfinder.ui.RootVolume
+import com.droid.wayfinder.ui.resolveAddress
 import org.apache.commons.net.ftp.FTPFile
+import org.kxml2.io.KXmlParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -348,6 +354,134 @@ class ParserFuzzTest {
             assertFalse(id == "." || id == "..")
             assertFalse(id.contains('\'') || id.contains('/') || id.contains('\\') || id.contains(' '))
             assertTrue(FsPath.isSafeName(id))
+        }
+    }
+
+    // ------------------------------------------------------------------ SystemDocumentsBridge & Friendly Address Resolution
+
+    @Test
+    fun systemDocumentsBridgeAndFriendlyAddressResolution() {
+        val quickAccessRoot = "doc://com.google.ambient.streaming.multidevicesync.quickaccess/pixel-8a-uuid"
+        val state = AppState(
+            roots = listOf(RootVolume(path = "/storage/emulated/0", label = "Internal storage", removable = false)),
+            pairedPhone = com.droid.wayfinder.data.PairedPhone(
+                name = "Pixel 8a",
+                path = quickAccessRoot,
+                isMounted = true,
+            ),
+            linuxRootPath = "doc://com.google.android.documents.linux/linux_root",
+        )
+        val authorities = listOf(
+            "com.google.ambient.streaming.multidevicesync.quickaccess",
+            "com.android.mtp.documents",
+            "com.google.android.apps.nbu.files.provider",
+            "com.google.android.documents.linux",
+            "com.android.externalstorage.documents",
+            "",
+        )
+        val prefixes = listOf(
+            "doc://com.google.ambient.streaming.multidevicesync.quickaccess/pixel-8a-uuid//",
+            "doc://com.google.ambient.streaming.multidevicesync.quickaccess/pixel-8a-uuid/",
+            "doc://com.android.mtp.documents/",
+            "doc://com.google.android.documents.linux/linux_root/",
+            "doc://",
+            "Pixel 8a/",
+            "Phone/",
+            "Internal storage/",
+            "Linux files/",
+            "phone://",
+            "/",
+            "",
+        )
+        k.run("SystemDocumentsBridge+resolveAddress", 30_000, { r ->
+            val pfx = prefixes[r.nextInt(prefixes.size)]
+            val body = k.input(r, 40)
+            val s = pfx + body
+            if (r.nextInt(4) == 0) k.mutate(r, s) else s
+        }, k.corpus) { raw ->
+            val auth = authorities[raw.length % authorities.size]
+            SystemDocumentsBridge.authorityOf(raw)
+            SystemDocumentsBridge.isPhonePath(raw)
+            SystemDocumentsBridge.normalizeDocId(auth, raw)
+            SystemDocumentsBridge.fallbackNameOf(raw)
+            SystemDocumentsBridge.splitParentAndChild(raw)
+
+            val cp = SystemDocumentsBridge.childPath(quickAccessRoot, raw)
+            assertEquals("childPath must be normalized", FsPath.normalize(cp), cp)
+
+            var cur: String? = FsPath.normalize(if (FsPath.isDoc(raw)) raw else "doc://$auth/$raw")
+            var steps = 0
+            while (cur != null) {
+                assertEquals("parentOf must return normalized path", FsPath.normalize(cur), cur)
+                val next = SystemDocumentsBridge.parentOf(cur)
+                if (next != null) assertFalse("self-parent cycle for ${k.escape(cur)}", next == cur)
+                cur = next
+                assertTrue("parentOf loop for ${k.escape(raw)}", ++steps <= raw.length + 10)
+            }
+
+            val friendly = FsPath.friendlyPath(raw, state.rootLabels)
+            assertNotNull(friendly)
+
+            val resolved = resolveAddress(raw, state)
+            if (resolved != null) {
+                assertEquals("resolveAddress must return normalized path for '${k.escape(raw)}'", FsPath.normalize(resolved), resolved)
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ WebDavXml multistatus & href fuzzing
+
+    private fun webDavXmlInput(r: Random): String {
+        if (r.nextInt(5) == 0) {
+            return listOf(
+                "<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/passwd\">]><d:multistatus xmlns:d=\"DAV:\">&xxe;</d:multistatus>",
+                "<?xml version=\"1.0\"?><!ENTITY lol \"lol\"><d:multistatus xmlns:d=\"DAV:\"/>",
+                k.input(r, 80),
+            )[r.nextInt(3)]
+        }
+        val sb = StringBuilder("""<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">""")
+        repeat(1 + r.nextInt(4)) {
+            val href = k.input(r, 30).replace("&", "&amp;").replace("<", "&lt;")
+            val size = listOf("-1", "0", "1024", "99999999999999999999999", k.input(r, 8))[r.nextInt(5)]
+                .replace("&", "&amp;").replace("<", "&lt;")
+            val status = listOf("HTTP/1.1 200 OK", "HTTP/1.1 404 Not Found", "HTTP/1.1 207 Multi-Status", k.input(r, 12))[r.nextInt(4)]
+                .replace("&", "&amp;").replace("<", "&lt;")
+            val date = listOf("Wed, 21 Oct 2015 07:28:00 GMT", "2026-10-29T12:00:00Z", k.input(r, 16))[r.nextInt(3)]
+                .replace("&", "&amp;").replace("<", "&lt;")
+            val dirTag = if (r.nextBoolean()) "<d:collection/>" else ""
+            sb.append(
+                "<d:response><d:href>$href</d:href><d:propstat><d:prop>" +
+                    "<d:resourcetype>$dirTag</d:resourcetype>" +
+                    "<d:getcontentlength>$size</d:getcontentlength>" +
+                    "<d:getlastmodified>$date</d:getlastmodified>" +
+                    "</d:prop><d:status>$status</d:status></d:propstat></d:response>"
+            )
+        }
+        sb.append("</d:multistatus>")
+        val xml = sb.toString()
+        return if (r.nextInt(3) == 0) k.mutate(r, xml) else xml
+    }
+
+    @Test
+    fun webDavMultistatusAndHrefFuzz() {
+        k.run("WebDavXml.hrefToPath", 20_000, { r -> k.input(r, 50) }, k.corpus) { raw ->
+            val p = WebDavXml.hrefToPath(raw)
+            assertTrue("hrefToPath must start with '/': ${k.escape(p)}", p.startsWith("/"))
+            assertFalse("hrefToPath must not contain '//': ${k.escape(p)}", p.contains("//"))
+            if (p.length > 1) assertFalse("hrefToPath must not end with '/': ${k.escape(p)}", p.endsWith("/"))
+            WebDavXml.parseHttpDate(raw)
+        }
+        k.run(
+            "WebDavXml.parseMultistatus", 10_000, ::webDavXmlInput, k.corpus,
+            allowed = { it is IOException },
+        ) { xml ->
+            val resources = WebDavXml.parseMultistatus(xml, KXmlParser())
+            for (res in resources) {
+                assertTrue("size must be non-negative: ${res.size}", res.size >= 0L)
+                assertTrue("resource path must start with '/': ${k.escape(res.path)}", res.path.startsWith("/"))
+                assertFalse("resource path must not contain '//': ${k.escape(res.path)}", res.path.contains("//"))
+                if (res.isDir) assertEquals(0L, res.size)
+            }
         }
     }
 }

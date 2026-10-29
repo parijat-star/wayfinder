@@ -162,16 +162,26 @@ data class AppState(
     val otherPane: TabState? get() = if (!dualPane || secondary == null) null else if (rightActive) mainTab else secondary
     fun tabById(id: Long): TabState? = tabs.firstOrNull { it.id == id } ?: secondary?.takeIf { it.id == id }
     val rootLabels: Map<String, String>
-        get() = roots.associate { it.path to it.label } +
-            mounts.associate { it.path to it.label } +
-            driveAccounts.mapNotNull { acc -> acc.mountPath?.let { it to "Drive (${acc.email})" } }.toMap() +
+        get() = roots.associate { com.droid.wayfinder.data.FsPath.normalize(it.path) to it.label } +
+            mounts.associate { com.droid.wayfinder.data.FsPath.normalize(it.path) to it.label } +
+            driveAccounts.mapNotNull { acc -> acc.mountPath?.let { com.droid.wayfinder.data.FsPath.normalize(it) to "Drive (${acc.email})" } }.toMap() +
             pairedPhone?.takeIf { it.isMounted && it.path != com.droid.wayfinder.data.FsPath.PHONE_ROOT }
-                ?.let { mapOf(it.path to it.name) }.orEmpty()
+                ?.let {
+                    mapOf(
+                        com.droid.wayfinder.data.FsPath.normalize(it.path) to it.name,
+                        com.droid.wayfinder.data.FsPath.PHONE_ROOT to it.name,
+                    )
+                }.orEmpty() +
+            linuxRootPath?.let { mapOf(com.droid.wayfinder.data.FsPath.normalize(it) to "Linux files") }.orEmpty()
 
     fun titleOf(path: String): String = when {
-        com.droid.wayfinder.data.FsPath.isVirtual(path) -> com.droid.wayfinder.data.FsPath.name(path)
-        else -> rootLabels[path.trimEnd('/')] ?: com.droid.wayfinder.data.FsPath.name(path)
+        com.droid.wayfinder.data.FsPath.isVirtual(path) -> rootLabels[path] ?: com.droid.wayfinder.data.FsPath.name(path)
+        else -> rootLabels[com.droid.wayfinder.data.FsPath.normalize(path)] ?: com.droid.wayfinder.data.FsPath.name(path)
     }
+
+    /** Human-readable path for headers, details, and the editable address bar (e.g. `Pixel 8a/Documents`). */
+    fun displayPath(path: String, separator: String = "/"): String =
+        com.droid.wayfinder.data.FsPath.friendlyPath(path, rootLabels, separator)
 }
 
 val Conflict.label: String

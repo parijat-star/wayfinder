@@ -60,7 +60,7 @@ object FsPath {
             val sub = p.removePrefix(PHONE_ROOT).split('/').filter { it.isNotEmpty() }.joinToString("/")
             if (sub.isEmpty()) PHONE_ROOT else "$PHONE_ROOT$sub"
         }
-        isDoc(p) -> p.trimEnd('/')
+        isDoc(p) -> "doc://" + p.removePrefix("doc://").trimEnd('/')
         isRemote(p) -> {
             val scheme = p.substringBefore("://") + "://"
             scheme + p.removePrefix(scheme).split('/').filter { it.isNotEmpty() }.joinToString("/")
@@ -76,7 +76,7 @@ object FsPath {
         p == STARRED_ROOT -> "Starred"
         p == PHONE_ROOT || (isPhone(p) && normalize(p) == PHONE_ROOT) -> "Phone"
         isPhone(p) -> normalize(p).removePrefix(PHONE_ROOT).substringAfterLast('/')
-        isDoc(p) -> SystemDocumentsBridge.displayNameOf(p) ?: normalize(p).substringAfterLast('/')
+        isDoc(p) -> SystemDocumentsBridge.displayNameOf(p) ?: SystemDocumentsBridge.fallbackNameOf(p)
         p.startsWith(TAG_PREFIX) -> tagOf(p)?.label ?: p.removePrefix(TAG_PREFIX)
         p == "/" -> "/"
         else -> {
@@ -242,6 +242,22 @@ object FsPath {
             }
         }
         return out
+    }
+
+    /**
+     * Formats [p] as a human-friendly path using [rootLabels] and [breadcrumbs] (e.g. `Pixel 8a/Documents`
+     * or `Internal storage/Download`) instead of raw `doc://...` or `/storage/emulated/...` URIs.
+     */
+    fun friendlyPath(p: String, rootLabels: Map<String, String>, separator: String = "/"): String {
+        val n = normalize(p)
+        if (isVirtual(n)) return rootLabels[n] ?: name(n)
+        val crumbs = breadcrumbs(n, rootLabels)
+        val displayCrumbs = if ((isSaf(n) || isGdrive(n)) && crumbs.size >= 2 && crumbs[0].second == SMB_ROOT) {
+            crumbs.drop(1)
+        } else {
+            crumbs
+        }
+        return displayCrumbs.joinToString(separator) { it.first }
     }
 
     private fun crumbLabel(seg: String) = if (seg.endsWith('!')) seg.dropLast(1) else seg

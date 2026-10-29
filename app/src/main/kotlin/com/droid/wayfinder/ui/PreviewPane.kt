@@ -90,7 +90,7 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                     e.subtitle?.takeIf { it.isNotBlank() }?.let { Fact("Summary", it) }
                     if (!e.isDir) Fact("Size", formatSize(e.size))
                     Fact("Modified", formatDateFull(e.modified))
-                    Fact("Location", FsPath.parent(e.path) ?: e.path)
+                    Fact("Location", s.displayPath(FsPath.parent(e.path) ?: e.path, " / "))
                     if (FsPath.isLocalFile(e.path)) PosixFact(e)
                     if (!e.isServer && !e.isShare) MarksEditor(vm, s, e)
                     val btnPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
