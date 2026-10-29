@@ -41,6 +41,14 @@ object SystemDocumentsBridge {
 
     fun isPhoneAuthority(authority: String?): Boolean = PhoneDetector.isPhoneAuthority(authority)
 
+    fun authorityOf(path: String): String? {
+        if (!FsPath.isDoc(path)) return null
+        return path.removePrefix("doc://").substringBefore('/').takeIf { it.isNotBlank() }
+    }
+
+    fun isPhonePath(path: String): Boolean =
+        FsPath.isPhone(path) || (FsPath.isDoc(path) && isPhoneAuthority(authorityOf(path)))
+
     fun registerNode(path: String, displayName: String, parentPath: String? = null) {
         val norm = FsPath.normalize(path)
         if (displayName.isNotBlank()) {
@@ -52,6 +60,45 @@ object SystemDocumentsBridge {
     }
 
     fun displayNameOf(path: String): String? = displayNames[FsPath.normalize(path)]
+
+    /**
+     * Human-friendly fallback name for a `doc://` path when [displayNames] has not cached the node yet,
+     * avoiding exposing raw provider authorities or device UUIDs in breadcrumbs and titles.
+     */
+    fun fallbackNameOf(path: String): String {
+        val norm = FsPath.normalize(path)
+        val trimmed = norm.removePrefix("doc://")
+        val auth = trimmed.substringBefore('/')
+        val docId = normalizeDocId(auth, trimmed.substringAfter('/', ""))
+        if (docId.contains("//")) {
+            val remotePath = docId.substringAfter("//").trim('/')
+            return if (remotePath.isEmpty()) "Phone" else remotePath.substringAfterLast('/')
+        }
+        if (!docId.contains('/')) {
+            return when {
+                isPhoneAuthority(auth) -> "Phone"
+                GooglebookEcosystem.isLinuxAuthority(auth) -> "Linux files"
+                auth == GoogleDriveManager.DOCS_AUTHORITY -> "Google Drive"
+                docId.contains(':') -> docId.substringAfter(':').trim('/').substringAfterLast('/').ifEmpty { docId.substringBefore(':') }
+                else -> docId.ifEmpty { auth }
+            }
+        }
+        return docId.substringAfterLast('/')
+    }
+
+    /** Joins a relative sub-path onto a `doc://` root path, preserving QuickAccess `//` separator conventions. */
+    fun childPath(rootPath: String, relativePath: String): String {
+        val normRoot = FsPath.normalize(rootPath)
+        val cleanRel = relativePath.trim('/')
+        if (cleanRel.isEmpty()) return normRoot
+        val auth = authorityOf(normRoot)
+        val docId = normRoot.removePrefix("doc://${auth.orEmpty()}/")
+        return if (auth == PhoneDetector.QUICK_ACCESS_AUTHORITY && !docId.contains("//")) {
+            "doc://$auth/$docId//$cleanRel"
+        } else {
+            "$normRoot/$cleanRel"
+        }
+    }
 
     fun parentOf(path: String): String? {
         val norm = FsPath.normalize(path)

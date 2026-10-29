@@ -171,9 +171,14 @@ private fun Pane(vm: BrowserViewModel, s: AppState, tab: TabState, right: Boolea
                 .dropTarget(tab.path.takeIf { !FsPath.isVirtual(it) }).padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Outlined.FolderOpen, null, Modifier.size(16.dp), tint = if (active) cs.onSecondaryContainer else cs.onSurfaceVariant)
+            val paneIcon = if (com.droid.wayfinder.data.SystemDocumentsBridge.isPhonePath(tab.path)) {
+                Icons.Outlined.Smartphone
+            } else {
+                Icons.Outlined.FolderOpen
+            }
+            Icon(paneIcon, null, Modifier.size(16.dp), tint = if (active) cs.onSecondaryContainer else cs.onSurfaceVariant)
             Text(
-                if (FsPath.isVirtual(tab.path)) s.titleOf(tab.path) else tab.path, Modifier.weight(1f).padding(start = 8.dp),
+                s.displayPath(tab.path, " / "), Modifier.weight(1f).padding(start = 8.dp),
                 style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.StartEllipsis,
                 color = if (active) cs.onSecondaryContainer else cs.onSurfaceVariant,
             )

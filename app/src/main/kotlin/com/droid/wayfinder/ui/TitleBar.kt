@@ -184,11 +184,11 @@ private fun TabItem(
     ) {
         Row(Modifier.padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             val icon = when {
+                com.droid.wayfinder.data.SystemDocumentsBridge.isPhonePath(tab.path) -> if (s.phoneConnected || FsPath.isDoc(tab.path)) Icons.Outlined.Smartphone else pinIcon(tab.path)
                 tab.path == FsPath.SMB_ROOT || FsPath.isRemote(tab.path) -> Icons.Outlined.Dns
                 tab.path == FsPath.TRASH_ROOT -> Icons.Outlined.Delete
                 tab.path == FsPath.RECENTS_ROOT -> Icons.Outlined.History
                 tab.path == FsPath.STARRED_ROOT -> Icons.Outlined.StarOutline
-                tab.path == FsPath.PHONE_ROOT -> if (s.phoneConnected) Icons.Outlined.Smartphone else pinIcon(tab.path)
                 FsPath.tagOf(tab.path) != null -> Icons.AutoMirrored.Outlined.Label
                 FsPath.isZip(tab.path) -> Icons.Outlined.FolderZip
                 else -> pinIcon(tab.path)
