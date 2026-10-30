@@ -213,4 +213,37 @@ class DocumentsContractPickerTest {
         assertFalse(clean.hasExtra(BrowserViewModel.EXTRA_PICKER_MODE))
         assertFalse(clean.hasExtra(BrowserViewModel.EXTRA_PICKER_TITLE))
     }
+
+    @Test fun buildSystemDocumentTreePickerIntentTargetsSystemDocumentsUiInsteadOfSelf() {
+        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val initialUri = DocumentsContract.buildRootsUri("com.google.android.apps.docs.storage")
+        val spm = org.robolectric.Shadows.shadowOf(ctx.packageManager)
+
+        val selfRi = android.content.pm.ResolveInfo().apply {
+            activityInfo = android.content.pm.ActivityInfo().apply {
+                packageName = ctx.packageName
+                name = "com.droid.wayfinder.MainActivity"
+            }
+        }
+        val sysRi = android.content.pm.ResolveInfo().apply {
+            activityInfo = android.content.pm.ActivityInfo().apply {
+                packageName = "com.google.android.documentsui"
+                name = "com.android.documentsui.picker.PickActivity"
+            }
+        }
+        val baseIntent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
+        }
+        @Suppress("DEPRECATION")
+        spm.addResolveInfoForIntent(baseIntent, selfRi)
+        @Suppress("DEPRECATION")
+        spm.addResolveInfoForIntent(baseIntent, sysRi)
+
+        val targeted = com.droid.wayfinder.ui.buildSystemDocumentTreePickerIntent(ctx, initialUri)
+        assertNotNull(targeted)
+        assertEquals("com.google.android.documentsui", targeted!!.component?.packageName)
+        assertEquals("com.android.documentsui.picker.PickActivity", targeted.component?.className)
+        @Suppress("DEPRECATION")
+        assertEquals(initialUri, targeted.getParcelableExtra(DocumentsContract.EXTRA_INITIAL_URI))
+    }
 }
