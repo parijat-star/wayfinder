@@ -119,9 +119,21 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             }
         }
     }
-    val phoneRows = remember(s.pairedPhone, s.tree, s.showHidden) {
+    val phoneRows = remember(s.pairedPhone, s.quickAccessAvailable, s.tree, s.showHidden) {
         buildList {
-            val phone = s.pairedPhone
+            val phone = s.pairedPhone ?: if (s.quickAccessAvailable) {
+                com.droid.wayfinder.data.PairedPhone(
+                    name = "Phone",
+                    subtitle = "Cross-Device · Browse or import",
+                    path = FsPath.PHONE_ROOT,
+                    isConnected = true,
+                    authority = com.droid.wayfinder.data.PhoneDetector.QUICK_ACCESS_AUTHORITY,
+                    isMounted = false,
+                    transport = com.droid.wayfinder.data.PhoneTransport.QUICK_ACCESS,
+                )
+            } else {
+                null
+            }
             if (phone != null) {
                 if (phone.isMounted && phone.path != FsPath.PHONE_ROOT) {
                     flatten(phone.path, phone.name, Icons.Outlined.Smartphone, null, 0, s, this, phone.subtitle, pairedPhone = phone)
@@ -210,6 +222,19 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         }; n++
         locStart[0] = n
         items(locations, key = { "loc${it.path}" }) { r -> TreeItem(vm, s, r, treePath, menu) }
+        if (s.linuxProviderAuthority != null && s.linuxRootPath == null) {
+            item(key = "linux_mount_prompt") {
+                SidebarItem(
+                    label = "Linux files",
+                    icon = Icons.Outlined.Dns,
+                    depth = 0,
+                    selected = false,
+                    dropPath = null,
+                    subtitle = "Click to mount Linux folder",
+                    onClick = { vm.requestMountLinuxFiles() },
+                )
+            }
+        }
 
         // Paired phone (e.g. Pixel 9 · Internal storage) matching the system Files app layout
         items(phoneRows, key = { "phone${it.depth}${it.path}" }) { r ->

@@ -87,4 +87,9 @@ class Settings(context: Context) {
     var showSafMountTip: Boolean
         get() = p.getBoolean("showSafMountTip", true)
         set(v) = p.edit().putBoolean("showSafMountTip", v).apply()
+
+    /** Last observed Cross-Device `QuickAccessDocumentsProvider` `COLUMN_ROOT_ID` (`<deviceId>`) for `EXTRA_INITIAL_URI`. */
+    var lastQuickAccessRootId: String?
+        get() = p.getString("lastQuickAccessRootId", null)?.takeIf { it.isNotBlank() }
+        set(v) = p.edit().putString("lastQuickAccessRootId", v?.trim()).apply()
 }

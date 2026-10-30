@@ -168,8 +168,15 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private var hashJob: Job? = null
     private var recentsCache: Pair<Long, List<FileEntry>>? = null
     private var phoneReceiver: BroadcastReceiver? = null
+    private var packageReceiver: BroadcastReceiver? = null
     private var rootsObserver: android.database.ContentObserver? = null
+    private val observedPhoneTreeUris = HashSet<String>()
+    private var phoneRetryJob: Job? = null
+    private var storageVolumeCallback: Any? = null
     private var pendingMountAccount: String? = null
+    internal var phoneConnectRetryDelaysMs: LongArray = longArrayOf(0L, 1_000L, 3_000L, 6_000L)
+    internal var phoneDisconnectRetryDelaysMs: LongArray = longArrayOf(0L, 1_000L)
+    internal var safPhoneMountReachabilityOverride: ((SafMount) -> Boolean)? = null
 
     init {
         SharedUi.init(app)
@@ -190,8 +197,11 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }
         val tabs = startPaths.map { newTabState(it) }
         val initialDrive = GoogleDriveManager.discoverAccounts(app, safMounts)
-        val initialPhone = PhoneDetector.detectPairedPhone(app, safMounts = safMounts)
-        val initialLinux = GooglebookEcosystem.discoverLinuxRoot(app, primary)?.path
+        val initialPhone = detectPhone(emptyList(), safMounts)
+        val initialBtGranted = PhoneDetector.hasBluetoothConnectPermission(app)
+        val initialQuickAccess = PhoneDetector.isQuickAccessProviderAvailable(app)
+        val initialLinux = GooglebookEcosystem.discoverLinuxRoot(app, primary, safMounts = safMounts)?.path
+        val initialLinuxProvider = GooglebookEcosystem.findInstalledLinuxProviderAuthority(app)
         val initialWorkProfiles = GooglebookEcosystem.discoverWorkProfiles(app)
         _state.value = AppState(
             tabs = tabs,
@@ -206,7 +216,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             driveAccounts = initialDrive,
             pairedPhone = initialPhone,
             phoneConnected = initialPhone != null,
+            bluetoothPermissionGranted = initialBtGranted,
+            quickAccessAvailable = initialQuickAccess,
             linuxRootPath = initialLinux,
+            linuxProviderAuthority = initialLinuxProvider,
             workProfiles = initialWorkProfiles,
         )
         refreshMounts()
@@ -233,21 +246,84 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }
         viewModelScope.launch { SharedUi.theme.collect { t -> _state.update { it.copy(theme = t) } } }
 
+        PhoneDetector.warmConnectedClassicProfiles(app) { refreshPhoneStatus() }
         refreshPhoneStatus()
         phoneReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                refreshPhoneStatus()
+                val btDevice = intent?.let {
+                    androidx.core.content.IntentCompat.getParcelableExtra(it, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                }
+                when (intent?.action) {
+                    BluetoothDevice.ACTION_ACL_CONNECTED -> {
+                        PhoneDetector.onBluetoothAclChanged(btDevice, connected = true)
+                        refreshPhoneStatus(stagedRetry = true)
+                    }
+                    BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+                        PhoneDetector.onBluetoothAclChanged(btDevice, connected = false)
+                        refreshPhoneStatus(disconnectRetry = true)
+                    }
+                    BluetoothAdapter.ACTION_STATE_CHANGED -> {
+                        val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                        if (state == BluetoothAdapter.STATE_OFF || state == BluetoothAdapter.STATE_TURNING_OFF) {
+                            PhoneDetector.clearActiveBluetoothPhones()
+                            refreshPhoneStatus(disconnectRetry = true)
+                        } else if (state == BluetoothAdapter.STATE_ON) {
+                            PhoneDetector.warmConnectedClassicProfiles(app) { refreshPhoneStatus() }
+                            refreshPhoneStatus(stagedRetry = true)
+                        }
+                    }
+                    UsbManager.ACTION_USB_DEVICE_DETACHED -> refreshPhoneStatus(disconnectRetry = true)
+                    else -> refreshPhoneStatus(stagedRetry = true)
+                }
             }
         }
         val phoneFilter = IntentFilter().apply {
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
             addAction(BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED)
+            addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
         }
         runCatching {
             ContextCompat.registerReceiver(app, phoneReceiver, phoneFilter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        }
+        packageReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val pkg = intent?.data?.schemeSpecificPart.orEmpty()
+                if (
+                    pkg.isEmpty() ||
+                    pkg == "com.google.ambient.streaming" ||
+                    pkg == "com.android.mtp" ||
+                    pkg == "com.google.android.apps.docs" ||
+                    pkg.contains("virtualization.terminal")
+                ) {
+                    refreshMounts()
+                    refreshPhoneStatus(stagedRetry = true)
+                }
+            }
+        }
+        val pkgFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_CHANGED)
+            addAction(Intent.ACTION_PACKAGE_ADDED)
+            addAction(Intent.ACTION_PACKAGE_REPLACED)
+            addDataScheme("package")
+        }
+        runCatching {
+            ContextCompat.registerReceiver(app, packageReceiver, pkgFilter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            runCatching {
+                val sm = app.getSystemService(StorageManager::class.java)
+                val cb = object : StorageManager.StorageVolumeCallback() {
+                    override fun onStateChanged(volume: android.os.storage.StorageVolume) {
+                        _state.update { it.copy(roots = loadRoots()) }
+                        refreshPhoneStatus(stagedRetry = true)
+                    }
+                }
+                sm?.registerStorageVolumeCallback(ContextCompat.getMainExecutor(app), cb)
+                storageVolumeCallback = cb
+            }
         }
         val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
@@ -259,6 +335,20 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             runCatching {
                 val rootsUri = android.provider.DocumentsContract.buildRootsUri(auth)
                 app.contentResolver.registerContentObserver(rootsUri, true, observer)
+            }
+        }
+        registerPhoneTreeObservers()
+    }
+
+    /** Registers [rootsObserver] on persisted phone tree URIs so 3P installs receive live Cross-Device / MTP updates. */
+    private fun registerPhoneTreeObservers() {
+        val observer = rootsObserver ?: return
+        for (sm in safMounts) {
+            if (!isPhoneSafMount(sm)) continue
+            if (observedPhoneTreeUris.add(sm.uri)) {
+                runCatching {
+                    app.contentResolver.registerContentObserver(Uri.parse(sm.uri), true, observer)
+                }
             }
         }
     }
@@ -273,19 +363,185 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     override fun onCleared() {
         discovery.stop()
+        phoneRetryJob?.cancel()
+        phoneRetryJob = null
         phoneReceiver?.let {
             runCatching { app.unregisterReceiver(it) }
             phoneReceiver = null
+        }
+        packageReceiver?.let {
+            runCatching { app.unregisterReceiver(it) }
+            packageReceiver = null
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            (storageVolumeCallback as? StorageManager.StorageVolumeCallback)?.let { cb ->
+                runCatching { app.getSystemService(StorageManager::class.java)?.unregisterStorageVolumeCallback(cb) }
+            }
+            storageVolumeCallback = null
         }
         rootsObserver?.let {
             runCatching { app.contentResolver.unregisterContentObserver(it) }
             rootsObserver = null
         }
+        observedPhoneTreeUris.clear()
     }
 
-    fun refreshPhoneStatus() {
-        val phone = PhoneDetector.detectPairedPhone(app, _state.value.mounts, safMounts)
-        _state.update { it.copy(pairedPhone = phone, phoneConnected = phone != null) }
+    private fun detectPhone(
+        mounts: List<Mount>,
+        safs: List<SafMount> = safMounts,
+    ): com.droid.wayfinder.data.PairedPhone? {
+        val override = safPhoneMountReachabilityOverride
+        return if (override != null) {
+            PhoneDetector.detectPairedPhone(app, mounts, safs, override)
+        } else {
+            PhoneDetector.detectPairedPhone(app, mounts, safs)
+        }
+    }
+
+    private fun isPhoneSafMount(m: SafMount): Boolean {
+        val auth = runCatching { Uri.parse(m.uri).authority }.getOrNull()
+        return PhoneDetector.isPhoneAuthority(auth) || PhoneDetector.isPhoneMount(m.label)
+    }
+
+    /**
+     * Updates tabs and sidebar tree state when a phone dynamically mounts or disconnects:
+     *  - On auto-mount: tabs waiting at `phone://` automatically enter the newly mounted phone path.
+     *  - On disconnect: tabs inside the disconnected phone mount fall back cleanly to `phone://`.
+     */
+    private fun applyPhoneTransition(
+        previousPhone: com.droid.wayfinder.data.PairedPhone?,
+        newPhone: com.droid.wayfinder.data.PairedPhone?,
+    ) {
+        val prevMountedPath = previousPhone?.takeIf { it.isMounted && it.path != FsPath.PHONE_ROOT }?.path
+        val newMountedPath = newPhone?.takeIf { it.isMounted && it.path != FsPath.PHONE_ROOT }?.path
+        if (prevMountedPath == newMountedPath) return
+
+        val tabsToReload = ArrayList<Long>()
+        if (newMountedPath != null) {
+            _state.update { s ->
+                val updatedTabs = s.tabs.map { t ->
+                    if (t.path == FsPath.PHONE_ROOT) {
+                        tabsToReload += t.id
+                        t.navigatedTo(newMountedPath)
+                    } else {
+                        t
+                    }
+                }
+                val updatedSecondary = s.secondary?.let { t ->
+                    if (t.path == FsPath.PHONE_ROOT) {
+                        tabsToReload += t.id
+                        t.navigatedTo(newMountedPath)
+                    } else {
+                        t
+                    }
+                }
+                s.copy(tabs = updatedTabs, secondary = updatedSecondary)
+            }
+        }
+        if (prevMountedPath != null && newMountedPath != prevMountedPath) {
+            val fallbackPath = newMountedPath ?: FsPath.PHONE_ROOT
+            _state.update { s ->
+                val updatedTabs = s.tabs.map { t ->
+                    if (FsPath.isWithin(prevMountedPath, t.path)) {
+                        tabsToReload += t.id
+                        t.navigatedTo(fallbackPath).copy(
+                            back = t.back.filterNot { FsPath.isWithin(prevMountedPath, it) },
+                        )
+                    } else {
+                        t
+                    }
+                }
+                val updatedSecondary = s.secondary?.let { t ->
+                    if (FsPath.isWithin(prevMountedPath, t.path)) {
+                        tabsToReload += t.id
+                        t.navigatedTo(fallbackPath).copy(
+                            back = t.back.filterNot { FsPath.isWithin(prevMountedPath, it) },
+                        )
+                    } else {
+                        t
+                    }
+                }
+                val prunedTree = s.tree.copy(
+                    expanded = s.tree.expanded.filterNotTo(HashSet()) { FsPath.isWithin(prevMountedPath, it) },
+                    children = s.tree.children.filterKeys { !FsPath.isWithin(prevMountedPath, it) },
+                    loading = s.tree.loading.filterNotTo(HashSet()) { FsPath.isWithin(prevMountedPath, it) },
+                )
+                s.copy(tabs = updatedTabs, secondary = updatedSecondary, tree = prunedTree)
+            }
+        }
+        if (tabsToReload.isNotEmpty()) {
+            persist()
+            tabsToReload.distinct().forEach { load(it) }
+        }
+    }
+
+    fun requestBluetoothPermission() {
+        emit(UiEvent.RequestBluetoothPermission)
+    }
+
+    fun onBluetoothPermissionResult(granted: Boolean) {
+        _state.update { it.copy(bluetoothPermissionGranted = granted || PhoneDetector.hasBluetoothConnectPermission(app)) }
+        if (granted) {
+            PhoneDetector.warmConnectedClassicProfiles(app) { refreshPhoneStatus() }
+        }
+        refreshPhoneStatus(stagedRetry = granted)
+    }
+
+    fun refreshPhoneStatus(stagedRetry: Boolean = false, disconnectRetry: Boolean = false) {
+        if (stagedRetry || disconnectRetry) {
+            phoneRetryJob?.cancel()
+        }
+        val delays = when {
+            stagedRetry -> phoneConnectRetryDelaysMs
+            disconnectRetry -> phoneDisconnectRetryDelaysMs
+            else -> longArrayOf(0L)
+        }
+        val job = viewModelScope.launch {
+            for (delayMs in delays) {
+                if (delayMs > 0L) withContext(Dispatchers.Default) { kotlinx.coroutines.delay(delayMs) }
+                val snapshot = withContext(Dispatchers.IO) {
+                    safMounts = settings.safMounts
+                    syncPersistedSafMounts()
+                    val saved = servers.saved()
+                    val serverMounts = saved.filter { it.mounted }.map { sv ->
+                        Mount(
+                            sv.rootPath,
+                            sv.label,
+                            "${sv.protocol.label}${if (sv.user.isNotEmpty() && !sv.guest) " · ${sv.user}" else ""}",
+                            sv.key,
+                            saf = false,
+                        )
+                    }
+                    val phone = detectPhone(serverMounts, safMounts)
+                    val btGranted = PhoneDetector.hasBluetoothConnectPermission(app)
+                    val qaAvailable = PhoneDetector.isQuickAccessProviderAvailable(app)
+                    val currentMounts = computeMounts(saved, phone?.takeIf { it.isMounted }?.path)
+                    Triple(saved, phone, currentMounts) to (btGranted to qaAvailable)
+                }
+                val (triple, flags) = snapshot
+                val (btGranted, qaAvailable) = flags
+                val (saved, phone, currentMounts) = triple
+                val prevPhone = _state.value.pairedPhone
+                _state.update {
+                    it.copy(
+                        savedServers = saved,
+                        mounts = currentMounts,
+                        network = networkEntries(saved, currentMounts),
+                        pairedPhone = phone,
+                        phoneConnected = phone != null,
+                        bluetoothPermissionGranted = btGranted,
+                        quickAccessAvailable = qaAvailable,
+                    )
+                }
+                registerPhoneTreeObservers()
+                applyPhoneTransition(prevPhone, phone)
+                if (stagedRetry && phone?.isMounted == true) break
+                if (disconnectRetry && phone?.isMounted != true) break
+            }
+        }
+        if (stagedRetry || disconnectRetry) {
+            phoneRetryJob = job
+        }
     }
 
     // ---------------------------------------------------------------- setup helpers
@@ -316,7 +572,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 }
             }
         }
-        GooglebookEcosystem.discoverLinuxRoot(app, primary)?.let { linuxRoot ->
+        GooglebookEcosystem.discoverLinuxRoot(app, primary, safMounts = safMounts)?.let { linuxRoot ->
             if (vols.none { it.path == linuxRoot.path }) {
                 vols += linuxRoot
             }
@@ -337,10 +593,16 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     )
 
     /** Saved (mounted) servers and SAF mounts for the sidebar's "Network & cloud" section. */
-    private fun computeMounts(saved: List<SavedServer>): List<Mount> =
+    private fun computeMounts(
+        saved: List<SavedServer>,
+        mountedPhonePath: String? = _state.value.pairedPhone?.takeIf { it.isMounted }?.path,
+        linuxPath: String? = _state.value.linuxRootPath,
+    ): List<Mount> =
         saved.filter { it.mounted }.map { sv ->
             Mount(sv.rootPath, sv.label, "${sv.protocol.label}${if (sv.user.isNotEmpty() && !sv.guest) " · ${sv.user}" else ""}", sv.key, saf = false)
-        } + safMounts.map { m -> Mount(m.path, m.label, "Cloud / storage provider", m.id, saf = true) }
+        } + safMounts
+            .filter { m -> (!isPhoneSafMount(m) || m.path == mountedPhonePath) && m.path != linuxPath }
+            .map { m -> Mount(m.path, m.label, "Cloud / storage provider", m.id, saf = true) }
 
     /**
      * Synchronizes any persisted SAF tree URI permissions held by the app into [safMounts]
@@ -386,27 +648,44 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         safMounts = settings.safMounts // other windows may have (un)mounted locations
         syncPersistedSafMounts()
         val saved = servers.saved()
-        val currentMounts = computeMounts(saved)
+        val serverMounts = saved.filter { it.mounted }.map { sv ->
+            Mount(sv.rootPath, sv.label, "${sv.protocol.label}${if (sv.user.isNotEmpty() && !sv.guest) " · ${sv.user}" else ""}", sv.key, saf = false)
+        }
         val driveAccs = GoogleDriveManager.discoverAccounts(app, safMounts)
-        val phone = PhoneDetector.detectPairedPhone(app, currentMounts, safMounts)
-        val linuxPath = GooglebookEcosystem.discoverLinuxRoot(app, primary)?.path
+        val phone = detectPhone(serverMounts, safMounts)
+        val btGranted = PhoneDetector.hasBluetoothConnectPermission(app)
+        val qaAvailable = PhoneDetector.isQuickAccessProviderAvailable(app)
+        val linuxPath = GooglebookEcosystem.discoverLinuxRoot(app, primary, safMounts = safMounts)?.path
+        val linuxProvider = GooglebookEcosystem.findInstalledLinuxProviderAuthority(app)
+        val currentMounts = computeMounts(saved, phone?.takeIf { it.isMounted }?.path, linuxPath)
         val workProfiles = GooglebookEcosystem.discoverWorkProfiles(app)
+        val prevPhone = _state.value.pairedPhone
+        val prevLinux = _state.value.linuxRootPath
+        val updatedRoots = if (linuxPath != prevLinux) loadRoots() else null
         _state.update { it.copy(
+            roots = updatedRoots ?: it.roots,
             savedServers = saved,
             mounts = currentMounts,
-            network = networkEntries(),
+            network = networkEntries(saved, currentMounts),
             driveAccounts = driveAccs,
             pairedPhone = phone,
             phoneConnected = phone != null,
+            bluetoothPermissionGranted = btGranted,
+            quickAccessAvailable = qaAvailable,
             linuxRootPath = linuxPath,
+            linuxProviderAuthority = linuxProvider,
             workProfiles = workProfiles,
         ) }
+        registerPhoneTreeObservers()
+        applyPhoneTransition(prevPhone, phone)
     }
 
     /** The Network root listing: mounts first, then servers seen this session or found on the LAN. */
-    private fun networkEntries(): List<FileEntry> {
-        val saved = servers.saved()
-        val mounts = computeMounts(saved).map { FileEntry(it.path, it.label, true, isServer = true, subtitle = it.subtitle) }
+    private fun networkEntries(
+        saved: List<SavedServer> = servers.saved(),
+        activeMounts: List<Mount> = computeMounts(saved),
+    ): List<FileEntry> {
+        val mounts = activeMounts.map { FileEntry(it.path, it.label, true, isServer = true, subtitle = it.subtitle) }
         val map = LinkedHashMap<String, FileEntry>()
         saved.filter { it.protocol == Protocol.SMB }.forEach { sv -> map[sv.host] = FileEntry("smb://${sv.host}", sv.host, true, isServer = true) }
         recentHosts.forEach { h -> map.putIfAbsent(h, FileEntry("smb://$h", h, true, isServer = true)) }
@@ -564,18 +843,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         )
         for (intent in intents) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (intent.resolveActivity(context.packageManager) != null) {
-                try {
-                    context.startActivity(intent)
-                    return
-                } catch (_: Exception) {}
-            }
+            try {
+                context.startActivity(intent)
+                return
+            } catch (_: Exception) {}
         }
-        try {
-            context.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (e: Exception) {
-            toast("Unable to open settings")
-        }
+        toast("Unable to open settings")
     }
 
     /** Recently modified files across all storage roots (bounded walk, cached for a short while). */
@@ -610,6 +883,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun refreshAll() {
         refreshMounts()
+        PhoneDetector.warmConnectedClassicProfiles(app) { refreshPhoneStatus() }
+        refreshPhoneStatus()
         val s = _state.value
         s.tabs.filter { it.id != s.activeId }.forEach { stale += it.id }
         load(s.activeId, keepSelection = true)
@@ -1551,6 +1826,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                     // Only content:// URIs from other apps: file:// (or our own provider) would let the dragging app
                     // make us copy our private files (e.g. saved server credentials) to shared storage.
                     if (!isImportable(uri)) throw java.io.IOException("Can't import this item (unsupported source)")
+                    PhoneDetector.extractQuickAccessRootId(uri)?.let { settings.lastQuickAccessRootId = it }
                     val raw = runCatching {
                         cr.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
                             if (c.moveToFirst()) c.getString(0) else null
@@ -1578,7 +1854,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }) { out ->
             if (out.isNotEmpty()) {
                 record(Undo.Created(out))
-                listOfNotNull(_state.value.active, _state.value.otherPane).firstOrNull { it.path == dest }?.let { t ->
+                if (dest == FsPath.PHONE_ROOT) {
+                    navigate(destDir, select = out.first())
+                }
+                listOfNotNull(_state.value.active, _state.value.otherPane).firstOrNull { it.path == destDir || it.path == dest }?.let { t ->
                     updateTab(t.id) { it.copy(selection = out.toSet()) }
                 }
                 toast(if (out.size == 1) "Copied \"${FsPath.name(out[0])}\" here" else "Copied ${out.size} items here")
@@ -1799,11 +2078,128 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     fun requestMountPhoneStorage(phone: com.droid.wayfinder.data.PairedPhone? = _state.value.pairedPhone) {
-        val targetAuth = phone?.authority ?: PhoneDetector.QUICK_ACCESS_AUTHORITY
+        // QuickAccessDocumentsProvider omits FLAG_SUPPORTS_IS_CHILD on user builds, so folder-tree
+        // mounting via ACTION_OPEN_DOCUMENT_TREE targets MTP (or another tree-capable provider).
+        val targetAuth = phone?.authority?.takeIf { it != PhoneDetector.QUICK_ACCESS_AUTHORITY }
+            ?: PhoneDetector.MTP_AUTHORITY
+        // Only pass a valid 2-segment DocumentsContract.buildRootUri(authority, rootId) when a concrete
+        // rootId is discoverable; passing 1-segment buildRootsUri causes DocumentsUI to fall back to its
+        // last-accessed folder (e.g. Movies).
         val initialUri = runCatching {
-            android.provider.DocumentsContract.buildRootsUri(targetAuth)
+            val root = com.droid.wayfinder.data.SystemDocumentsBridge.discoverRoots(app)
+                .firstOrNull { it.authority == targetAuth && it.rootId.isNotBlank() }
+            root?.let { android.provider.DocumentsContract.buildRootUri(targetAuth, it.rootId) }
         }.getOrNull()
         emit(UiEvent.PickDocumentTree(initialUri = initialUri))
+    }
+
+    fun openCrossDevicePhoneInSystemFiles() {
+        emit(UiEvent.OpenSystemPhoneFiles)
+    }
+
+    fun requestImportFromPhone() {
+        val initialUri = PhoneDetector.buildInitialQuickAccessRootUri(settings.lastQuickAccessRootId)
+        emit(UiEvent.ImportPhoneDocuments(initialUri = initialUri))
+    }
+
+    fun requestMountLinuxFiles() {
+        val auth = _state.value.linuxProviderAuthority
+            ?: GooglebookEcosystem.findInstalledLinuxProviderAuthority(app)
+        val initialUri = auth?.let {
+            runCatching { GooglebookEcosystem.buildInitialLinuxRootUri(it) }.getOrNull()
+        }
+        emit(UiEvent.PickDocumentTree(initialUri = initialUri))
+    }
+
+    /**
+     * Streams documents selected via `ACTION_OPEN_DOCUMENT` (such as wireless Cross-Device
+     * `QuickAccessDocumentsProvider` items on `user` builds) into the active writable local
+     * directory, or `<primaryStorage>/Download` when viewing a virtual/read-only root.
+     */
+    fun importExternalUrisToDownloads(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        uris.forEach { uri ->
+            PhoneDetector.extractQuickAccessRootId(uri)?.let { settings.lastQuickAccessRootId = it }
+        }
+        val currentPath = tab.path
+        val destDir = if (
+            FsPath.isLocalFile(currentPath) &&
+            !FsPath.isReadOnly(currentPath) &&
+            !trash.isInTrash(currentPath) &&
+            File(currentPath).isDirectory
+        ) {
+            currentPath
+        } else {
+            File(primary, Environment.DIRECTORY_DOWNLOADS).apply { mkdirs() }.path
+        }
+        launchOp(
+            title = "Importing",
+            work = { report ->
+                val created = mutableListOf<String>()
+                for ((idx, uri) in uris.withIndex()) {
+                    currentCoroutineContext().ensureActive()
+                    var displayName: String? = null
+                    var declaredSize = 0L
+                    runCatching {
+                        app.contentResolver.query(
+                            uri,
+                            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+                            null,
+                            null,
+                            null,
+                        )?.use { c ->
+                            if (c.moveToFirst()) {
+                                val nameIdx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                if (nameIdx >= 0 && !c.isNull(nameIdx)) displayName = c.getString(nameIdx)
+                                val sizeIdx = c.getColumnIndex(OpenableColumns.SIZE)
+                                if (sizeIdx >= 0 && !c.isNull(sizeIdx)) declaredSize = c.getLong(sizeIdx).coerceAtLeast(0L)
+                            }
+                        }
+                    }
+                    val baseName = sanitizeImportedFileName(
+                        displayName ?: uri.lastPathSegment?.substringAfterLast(':'),
+                    )
+                    val finalName = ops.uniqueName(destDir, baseName)
+                    val targetFile = File(destDir, finalName)
+                    report(Progress("Importing", 0L, declaredSize, idx, uris.size, finalName))
+                    try {
+                        val inp = app.contentResolver.openInputStream(uri)
+                            ?: throw java.io.IOException("Couldn't read \"$finalName\"")
+                        inp.use { src ->
+                            targetFile.outputStream().use { dst ->
+                                val buf = ByteArray(128 * 1024)
+                                var copied = 0L
+                                while (true) {
+                                    currentCoroutineContext().ensureActive()
+                                    val n = src.read(buf)
+                                    if (n < 0) break
+                                    dst.write(buf, 0, n)
+                                    copied += n
+                                    report(Progress("Importing", copied, declaredSize, idx, uris.size, finalName))
+                                }
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        runCatching { targetFile.delete() }
+                        throw t
+                    }
+                    created += targetFile.path
+                }
+                created
+            },
+            after = { imported ->
+                if (imported.isNotEmpty()) {
+                    record(Undo.Created(imported))
+                    if (tab.path != destDir) {
+                        navigate(destDir, select = imported.first())
+                    }
+                    updateTab(tab.id) {
+                        it.copy(selection = imported.toSet(), focused = imported.first())
+                    }
+                    toast("Imported ${imported.size} file(s) to ${FsPath.name(destDir)}", undo = true)
+                }
+            },
+        )
     }
 
     fun requestMountSaf(accountEmail: String? = null) {
@@ -1846,7 +2242,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (!persisted && cr.persistedUriPermissions.none { it.uri == uri }) {
             toast("Couldn't keep access to this location"); return
         }
-        safMounts.firstOrNull { it.uri == uri.toString() }?.let { navigate(it.path); return }
+        safMounts.firstOrNull { it.uri == uri.toString() }?.let { refreshMounts(); navigate(it.path); return }
         viewModelScope.launch {
             val targetAcc = pendingMountAccount
             pendingMountAccount = null
@@ -2010,4 +2406,29 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val data = runCatching { File(app.applicationInfo.dataDir).canonicalPath }.getOrDefault(app.applicationInfo.dataDir)
         return FsPath.isWithin(data, canonical) || FsPath.isWithin(app.applicationInfo.dataDir, path)
     }
+}
+
+internal fun sanitizeImportedFileName(raw: String?, fallback: String = "imported-file"): String {
+    if (raw.isNullOrBlank()) return fallback
+    val leaf = raw.replace('\\', '/').trim().trimEnd('/').substringAfterLast('/')
+    val cleaned = buildString(leaf.length) {
+        for (ch in leaf) {
+            if (ch == '/' || ch == '\\' || ch < ' ' || ch == '\u007f') append('_') else append(ch)
+        }
+    }.trim()
+    if (cleaned.isEmpty() || cleaned == "." || cleaned == "..") return fallback
+    if (cleaned.toByteArray(Charsets.UTF_8).size <= FsPath.MAX_NAME_BYTES) return cleaned
+    val dot = cleaned.lastIndexOf('.')
+    val ext = if (dot > 0 && cleaned.length - dot <= 16) cleaned.substring(dot) else ""
+    val maxBaseBytes = (FsPath.MAX_NAME_BYTES - ext.toByteArray(Charsets.UTF_8).size).coerceAtLeast(16)
+    val base = buildString {
+        var bytes = 0
+        for (ch in if (ext.isEmpty()) cleaned else cleaned.substring(0, dot)) {
+            val chBytes = ch.toString().toByteArray(Charsets.UTF_8).size
+            if (bytes + chBytes > maxBaseBytes) break
+            append(ch)
+            bytes += chBytes
+        }
+    }.trim().ifEmpty { fallback }
+    return (base + ext).takeIf { FsPath.nameError(it) == null } ?: fallback
 }

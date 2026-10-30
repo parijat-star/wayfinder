@@ -105,6 +105,9 @@ fun AppRoot(vm: BrowserViewModel) {
     val cs = MaterialTheme.colorScheme
     val ctx = LocalContext.current
     val menu = remember { MenuController() }
+    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        vm.onBluetoothPermissionResult(granted)
+    }
     val drag = remember { DragController() }
     val snackbar = remember { SnackbarHostState() }
     val rootFocus = remember { FocusRequester() }
@@ -118,6 +121,20 @@ fun AppRoot(vm: BrowserViewModel) {
     val accountLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == Activity.RESULT_OK) {
             vm.onGoogleAccountPicked(res.data?.getStringExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME))
+        }
+    }
+    val phoneImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == Activity.RESULT_OK) {
+            val data = res.data
+            val uris = buildList {
+                data?.data?.let { add(it) }
+                data?.clipData?.let { clip ->
+                    for (i in 0 until clip.itemCount) {
+                        clip.getItemAt(i)?.uri?.let { add(it) }
+                    }
+                }
+            }.distinct()
+            if (uris.isNotEmpty()) vm.importExternalUrisToDownloads(uris)
         }
     }
     SideEffect { drag.onDrop = { t, p, copy -> vm.dropOn(t, p, copy) } }
@@ -136,6 +153,11 @@ fun AppRoot(vm: BrowserViewModel) {
                     snackbar.showSnackbar("${e.what} copied", duration = SnackbarDuration.Short)
                 }
                 is UiEvent.NewWindow -> openNewWindow(ctx, e.path)
+                UiEvent.RequestBluetoothPermission -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    bluetoothPermissionLauncher.launch(android.Manifest.permission.BLUETOOTH_CONNECT)
+                } else {
+                    vm.onBluetoothPermissionResult(true)
+                }
                 is UiEvent.Toast -> {
                     snackbar.currentSnackbarData?.dismiss()
                     val r = snackbar.showSnackbar(e.message, if (e.undo) "Undo" else null, duration = SnackbarDuration.Short)
@@ -154,6 +176,23 @@ fun AppRoot(vm: BrowserViewModel) {
                     accountLauncher.launch(intent)
                 } catch (_: ActivityNotFoundException) {
                     vm.requestMountSaf()
+                }
+                is UiEvent.ImportPhoneDocuments -> try {
+                    phoneImportLauncher.launch(buildSystemDocumentOpenFilePickerIntent(ctx, e.initialUri))
+                } catch (_: ActivityNotFoundException) {
+                    snackbar.showSnackbar("No document provider is available", duration = SnackbarDuration.Short)
+                }
+                UiEvent.OpenSystemPhoneFiles -> {
+                    val sysIntent = buildSystemPhoneFilesWindowIntent(ctx)
+                    if (sysIntent != null) {
+                        try {
+                            ctx.startActivity(sysIntent)
+                        } catch (_: ActivityNotFoundException) {
+                            vm.requestImportFromPhone()
+                        }
+                    } else {
+                        vm.requestImportFromPhone()
+                    }
                 }
                 is UiEvent.PickResult -> returnPicked(ctx, e.paths)
                 is UiEvent.PickTreeResult -> returnPickedTree(ctx, e.path, e.uri)
@@ -445,6 +484,57 @@ private fun PickerBanner(vm: BrowserViewModel, s: AppState) {
             }
         }
     }
+}
+
+/**
+ * Builds an `ACTION_OPEN_DOCUMENT` picker intent routed explicitly to system `DocumentsUI`
+ * (never re-entering Wayfinder itself) so 3P installs on `user` builds can select and import
+ * files from `QuickAccessDocumentsProvider` even when the provider omits `FLAG_SUPPORTS_IS_CHILD`.
+ */
+internal fun buildSystemDocumentOpenFilePickerIntent(ctx: Context, initialUri: android.net.Uri?): Intent {
+    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = "*/*"
+        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        if (initialUri != null && android.os.Build.VERSION.SDK_INT >= 26) {
+            putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, initialUri)
+        }
+    }
+    val candidates = runCatching { ctx.packageManager.queryIntentActivities(intent, 0) }.getOrDefault(emptyList())
+    val systemDocUi = candidates.firstOrNull { ri ->
+        val pkg = ri.activityInfo?.packageName.orEmpty()
+        pkg != ctx.packageName && (pkg.contains("documentsui", ignoreCase = true) || pkg.contains("ScopedStorage", ignoreCase = true))
+    } ?: candidates.firstOrNull { it.activityInfo != null && it.activityInfo.packageName != ctx.packageName }
+    val ai = systemDocUi?.activityInfo
+    if (ai != null && ai.packageName.isNotBlank() && ai.name.isNotBlank()) {
+        intent.setClassName(ai.packageName, ai.name)
+    }
+    return intent
+}
+
+/**
+ * Builds an `ACTION_VIEW` intent targeting system `DocumentsUI` (`FilesActivity`) on the wireless
+ * Cross-Device `QuickAccessDocumentsProvider` roots URI (`vnd.android.document/root`) in a side-by-side
+ * window. Unlike `PickActivity`, `FilesActivity.ActionHandler` explicitly supports 1-segment `isRootsUri`
+ * via `loadFirstRoot(uri)`, opening directly inside the connected phone even when its `rootId` UUID rotates.
+ */
+internal fun buildSystemPhoneFilesWindowIntent(ctx: Context): Intent? {
+    val rootsUri = android.provider.DocumentsContract.buildRootsUri(
+        com.droid.wayfinder.data.PhoneDetector.QUICK_ACCESS_AUTHORITY,
+    )
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(rootsUri, android.provider.DocumentsContract.Root.MIME_TYPE_ITEM)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+    }
+    val candidates = runCatching { ctx.packageManager.queryIntentActivities(intent, 0) }.getOrDefault(emptyList())
+    val systemDocUi = candidates.firstOrNull { ri ->
+        val pkg = ri.activityInfo?.packageName.orEmpty()
+        pkg != ctx.packageName && (pkg.contains("documentsui", ignoreCase = true) || pkg.contains("ScopedStorage", ignoreCase = true))
+    } ?: candidates.firstOrNull { it.activityInfo != null && it.activityInfo.packageName != ctx.packageName }
+    val ai = systemDocUi?.activityInfo ?: return null
+    if (ai.packageName.isBlank() || ai.name.isBlank()) return null
+    intent.setClassName(ai.packageName, ai.name)
+    return intent
 }
 
 /** Resolves [path] to a canonical file and rejects symbolic links so FileProvider cannot be bypassed via links. */
