@@ -14,8 +14,8 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.input.pointer.PointerEventPass
-import com.droid.wayfinder.data.formatItemCount
-import com.droid.wayfinder.data.formatSelectedCount
+import androidx.compose.ui.res.stringResource
+import com.droid.wayfinder.R
 import com.droid.wayfinder.data.sortEntries
 import android.app.Activity
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
@@ -334,12 +334,12 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
         when {
             tab.query.isNotBlank() -> if (tab.searching) Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
             else CenterMessage(
-                Icons.Outlined.SearchOff, "No results",
+                Icons.Outlined.SearchOff, stringResource(R.string.empty_search_title),
                 "Nothing matches “${tab.query}” " + (if (tab.searchFilter.scope == SearchScope.Everywhere) "on this device" else "in this folder or its subfolders") +
                     (if (tab.searchFilter.category.ordinal != 0 || tab.searchFilter.modified.ordinal != 0) " with the current filters." else "."),
             )
-            tab.path == FsPath.RECENTS_ROOT -> CenterMessage(Icons.Outlined.History, "No recent files", "Files changed in the last 30 days appear here.")
-            tab.path == FsPath.STARRED_ROOT -> CenterMessage(Icons.Outlined.StarOutline, "No starred items", "Right-click a file or folder and choose “Add to Starred”.")
+            tab.path == FsPath.RECENTS_ROOT -> CenterMessage(Icons.Outlined.History, stringResource(R.string.empty_recents_title), "Files changed in the last 30 days appear here.")
+            tab.path == FsPath.STARRED_ROOT -> CenterMessage(Icons.Outlined.StarOutline, stringResource(R.string.empty_starred_title), "Right-click a file or folder and choose “Add to Starred”.")
             tab.path == FsPath.PHONE_ROOT -> CenterMessage(
                 Icons.Outlined.Smartphone,
                 s.pairedPhone?.name ?: "Connect Phone Storage",
@@ -362,8 +362,8 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
                 Icons.Outlined.WifiFind, if (s.scanning) "Looking for servers…" else "No servers found",
                 "Connect to a server by address, e.g. smb://nas/media, davs://cloud/dav or ftp://host",
             ) { Button({ vm.showConnectDialog() }) { Text("Connect to server") }; OutlinedButton({ vm.refresh() }) { Text("Rescan") } }
-            tab.path == FsPath.TRASH_ROOT -> CenterMessage(Icons.Outlined.FolderOpen, "Trash is empty", "Deleted files appear here until you empty the Trash.")
-            else -> CenterMessage(Icons.Outlined.FolderOpen, "No files in this folder", "Right-click or press Ctrl+Shift+N to create a new folder.")
+            tab.path == FsPath.TRASH_ROOT -> CenterMessage(Icons.Outlined.FolderOpen, stringResource(R.string.empty_trash_title), "Deleted files appear here until you empty the Trash.")
+            else -> CenterMessage(Icons.Outlined.FolderOpen, stringResource(R.string.empty_folder_title), "Right-click or press Ctrl+Shift+N to create a new folder.")
         }
     }
 }
@@ -669,14 +669,17 @@ private fun StatusBar(vm: BrowserViewModel, s: AppState) {
     val tab = s.active
     val visible = remember(tab.entries, tab.searchResults, s.showHidden) { tab.visible(s.showHidden) }
     val sel = remember(visible, tab.selection) { visible.filter { it.path in tab.selection } }
+    val itemCountLabel = icuStringResource(R.string.item_count_plural, visible.size)
+    val selectedCountLabel = if (sel.isNotEmpty()) icuStringResource(R.string.selected_count_plural, sel.size) else ""
+    val searchingLabel = stringResource(R.string.status_searching)
     val text = buildString {
-        append(formatItemCount(visible.size))
+        append(itemCountLabel)
         if (sel.isNotEmpty()) {
-            append("  •  ${formatSelectedCount(sel.size)}")
+            append("  •  $selectedCountLabel")
             val bytes = sel.filter { !it.isDir }.sumOf { it.size }
             if (sel.any { !it.isDir }) append(" (${formatSize(bytes)})")
         }
-        if (tab.searching) append("  •  Searching…")
+        if (tab.searching) append("  •  $searchingLabel")
     }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
     val roomForHint = maxWidth > 720.dp && LocalDensity.current.fontScale <= 1.3f

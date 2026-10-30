@@ -10,7 +10,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Surface
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import com.droid.wayfinder.R
 import com.droid.wayfinder.data.RenameItem
 import com.droid.wayfinder.data.RenamePlan
 import com.droid.wayfinder.data.RenameRule
@@ -151,7 +153,7 @@ private fun PropertiesDialog(d: Dialog.Properties, onDismiss: () -> Unit, onCopy
                     Row2("Path", e[0].path, mono = true) { onCopy(e[0].path, "Path") }
                     Row2("Modified", formatDateFull(e[0].modified))
                 }
-                Row2("Size", d.bytes?.let { "${formatSize(it)} (${"%,d".format(it)} bytes)" } ?: "Calculating…")
+                Row2("Size", d.bytes?.let { "${formatSize(it)} (${icuStringResource(R.string.byte_count_plural, it)})" } ?: stringResource(R.string.properties_calculating))
                 d.items?.let { if (e.size > 1 || e[0].isDir) Row2("Files", it.toString()) }
                 if (e.size > 1) Row2("Contains", "${e.count { it.isDir }} folder(s), ${e.count { !it.isDir }} file(s)")
                 d.posix?.let { p ->

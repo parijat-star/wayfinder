@@ -65,6 +65,7 @@ import coil3.request.ImageRequest
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
+import com.droid.wayfinder.R
 import com.droid.wayfinder.data.Checksums
 import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FileInfo
@@ -232,7 +233,7 @@ private fun BinaryPreview(e: FileEntry, message: String = "No preview available 
     Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Icon(e.icon(), null, Modifier.size(96.dp), tint = e.tint())
         Text(message, style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
-        Text("${formatSize(e.size)}  (${"%,d".format(e.size)} bytes)", style = MaterialTheme.typography.bodyMedium)
+        Text("${formatSize(e.size)}  (${icuStringResource(R.string.byte_count_plural, e.size)})", style = MaterialTheme.typography.bodyMedium)
         val r = sums
         when {
             r == null -> Text(
