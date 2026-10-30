@@ -803,13 +803,16 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private fun openFile(path: String, chooser: Boolean = false) {
         if (FsPath.isLocalFile(path)) {
             if (isUnsafeToExpose(path)) { toast("This file can't be opened"); return }
-            emit(UiEvent.OpenFile(path, chooser))
-            return
+            if (isDirectlyServableByFileProvider(path)) {
+                emit(UiEvent.OpenFile(path, chooser))
+                return
+            }
         }
-        // Network files are downloaded and archive entries extracted to the cache, then opened from there.
+        // Network files, archive entries, and removable/Linux local volumes outside FileProvider roots
+        // are staged into cacheDir first so external apps receive a valid FileProvider URI.
         val zip = FsPath.isZip(path)
         val dir = File(app.cacheDir, "${if (zip) "zip-open" else "remote-open"}/${cacheKeyFor(path)}").apply { mkdirs() }
-        launchOp(if (zip) "Extracting" else "Downloading", { report ->
+        launchOp(if (zip) "Extracting" else if (FsPath.isLocalFile(path)) "Preparing" else "Downloading", { report ->
             ops.transfer(listOf(path), dir.path, move = false, conflict = Conflict.Replace, onProgress = report)
         }) { res ->
             val target = res.firstOrNull()?.target ?: File(dir, FileInfo.sanitizeFileName(FsPath.name(path), "file")).path
@@ -1454,7 +1457,17 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val files = tab.selectedEntries(hidden).filter { !it.isDir && FsPath.isLocalFile(it.path) }.map { it.path }
         if (files.isEmpty()) { toast("Select local files to share"); return }
         if (files.any { isUnsafeToExpose(it) }) { toast("This file can't be shared"); return }
-        emit(UiEvent.Share(files))
+        val (direct, needsStaging) = files.partition { isDirectlyServableByFileProvider(it) }
+        if (needsStaging.isEmpty()) {
+            emit(UiEvent.Share(direct))
+            return
+        }
+        val base = File(app.cacheDir, "remote-open")
+        val now = System.currentTimeMillis()
+        val dir = File(base, "share-$now").apply { mkdirs() }
+        launchOp("Preparing share", { report ->
+            ops.transfer(needsStaging, dir.path, move = false, conflict = Conflict.KeepBoth, onProgress = report).map { it.target }
+        }) { staged -> emit(UiEvent.Share(direct + staged)) }
     }
 
     /** Copies the selected items into the Googlebook Linux development environment (`Linux files`). */
@@ -1936,7 +1949,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (FsPath.isReadOnly(dir) || trash.isInTrash(dir)) {
             toast("Cannot save files in this location"); return
         }
-        if (FsPath.isLocalFile(dir) && (FileInfo.isSymlink(dir) || isPrivatePath(dir))) {
+        if (FsPath.isLocalFile(dir) && (FileInfo.isSymlink(dir) || isPrivatePath(dir) || !isDirectlyServableByFileProvider(dir))) {
             toast("Cannot save files in this location"); return
         }
         val name = _state.value.createFileName.trim()
@@ -1984,19 +1997,30 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (files.any { !acceptsForPick(it) }) { toast("The requesting app expects ${p.description ?: "a different kind of file"}"); return }
         // Never hand out symbolic links or the app's private files (settings, saved servers) to external apps.
         if (files.any { FsPath.isLocalFile(it.path) && isUnsafeToExpose(it.path) }) { toast("This file can't be shared"); return }
-        val local = files.filter { FsPath.isLocalFile(it.path) }.map { it.path }
-        val remote = files.filter { !FsPath.isLocalFile(it.path) }.map { it.path }
-        if (remote.isEmpty()) { emit(UiEvent.PickResult(local)); return }
+        val directLocal = files.filter { FsPath.isLocalFile(it.path) && isDirectlyServableByFileProvider(it.path) }.map { it.path }
+        val toStage = files.filter { !FsPath.isLocalFile(it.path) || !isDirectlyServableByFileProvider(it.path) }.map { it.path }
+        if (toStage.isEmpty()) { emit(UiEvent.PickResult(directLocal)); return }
         val base = File(app.cacheDir, "picker")
         val now = System.currentTimeMillis()
         base.listFiles()?.filter { now - it.lastModified() > 24 * 3600_000L }?.forEach { FileInfo.deleteTree(it) }
         val dir = File(base, now.toString()).apply { mkdirs() }
         launchOp("Downloading", { report ->
-            ops.transfer(remote, dir.path, move = false, conflict = Conflict.KeepBoth, onProgress = report).map { it.target }
-        }) { got -> emit(UiEvent.PickResult(local + got)) }
+            ops.transfer(toStage, dir.path, move = false, conflict = Conflict.KeepBoth, onProgress = report).map { it.target }
+        }) { got -> emit(UiEvent.PickResult(directLocal + got)) }
     }
 
     fun cancelPick() = emit(UiEvent.PickCancel)
+
+    /** True when [path] is a safe local path covered by `res/xml/file_paths.xml` so [androidx.core.content.FileProvider] can serve it directly. */
+    internal fun isDirectlyServableByFileProvider(path: String): Boolean {
+        if (!FsPath.isLocalFile(path) || isUnsafeToExpose(path)) return false
+        val target = runCatching { File(path).canonicalPath }.getOrDefault(FsPath.normalize(path))
+        val configuredRoots = listOfNotNull(
+            runCatching { Environment.getExternalStorageDirectory().canonicalPath }.getOrNull() ?: primary,
+            runCatching { app.getExternalFilesDir(null)?.canonicalPath }.getOrNull(),
+        )
+        return configuredRoots.any { root -> FsPath.isWithin(root, target) }
+    }
 
     /** True for symbolic links or files resolving inside the app's private storage, which must never leave the app. */
     private fun isUnsafeToExpose(path: String): Boolean {

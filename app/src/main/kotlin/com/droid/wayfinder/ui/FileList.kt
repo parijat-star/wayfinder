@@ -246,7 +246,7 @@ private fun PhoneQuickAccessBanner(vm: BrowserViewModel, phone: com.droid.wayfin
  */
 @Composable
 private fun Modifier.externalDrop(vm: BrowserViewModel, dest: String): Modifier {
-    val activity = LocalContext.current as? Activity
+    val activity = LocalContext.current.findActivity()
     val cs = MaterialTheme.colorScheme
     val hovering = remember { mutableStateOf(false) }
     val target = remember(dest, activity) {

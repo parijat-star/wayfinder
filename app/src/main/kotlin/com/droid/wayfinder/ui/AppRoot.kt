@@ -158,8 +158,8 @@ fun AppRoot(vm: BrowserViewModel) {
                 is UiEvent.PickResult -> returnPicked(ctx, e.paths)
                 is UiEvent.PickTreeResult -> returnPickedTree(ctx, e.path, e.uri)
                 is UiEvent.CreateDocumentResult -> returnCreatedDocument(ctx, e.path, e.uri, e.mimeType)
-                UiEvent.PickCancel -> (ctx as? Activity)?.let { a -> a.setResult(Activity.RESULT_CANCELED); a.finish() }
-                UiEvent.Finish -> (ctx as? Activity)?.let { a -> if (vm.state.value.secondaryWindow) a.finishAndRemoveTask() else a.finish() }
+                UiEvent.PickCancel -> ctx.findActivity()?.let { a -> a.setResult(Activity.RESULT_CANCELED); a.finish() }
+                UiEvent.Finish -> ctx.findActivity()?.let { a -> if (vm.state.value.secondaryWindow) a.finishAndRemoveTask() else a.finish() }
             }
         }
     }
@@ -476,35 +476,50 @@ private fun launchSystemDocumentTreePicker(ctx: Context, initialUri: android.net
     fallbackLaunch()
 }
 
-private fun resolveReturnUri(ctx: Context, path: String, preferredUri: android.net.Uri? = null): Pair<android.net.Uri, Boolean> {
+internal fun hasSelfReadUriGrant(ctx: Context, uri: android.net.Uri): Boolean {
+    val uriStr = uri.toString()
+    val hasPersisted = runCatching {
+        ctx.contentResolver.persistedUriPermissions.any { perm ->
+            perm.isReadPermission && (uri == perm.uri || uriStr.startsWith(perm.uri.toString().trimEnd('/') + "/"))
+        }
+    }.getOrDefault(false)
+    if (hasPersisted) return true
+    if (uri.authority == com.droid.wayfinder.data.SystemDocumentsBridge.EXTERNAL_STORAGE_AUTHORITY) {
+        return false
+    }
+    return ctx.checkUriPermission(
+        uri,
+        android.os.Process.myPid(),
+        android.os.Process.myUid(),
+        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+}
+
+internal fun resolveReturnUri(ctx: Context, path: String, preferredUri: android.net.Uri? = null): Pair<android.net.Uri, Boolean> {
     if (!path.startsWith("doc://") && !path.startsWith("saf://") && com.droid.wayfinder.data.FileInfo.isSymlink(path)) {
         throw IllegalArgumentException("Symbolic links cannot be shared with external apps")
     }
     val docUri = preferredUri ?: com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(path, tree = false)
-    if (docUri != null) {
-        val auth = docUri.authority.orEmpty()
-        val providerInstalled = runCatching { ctx.packageManager.resolveContentProvider(auth, 0) != null }.getOrDefault(false)
-        if (providerInstalled || path.startsWith("doc://") || path.startsWith("saf://")) {
-            return docUri to true
-        }
+    if (docUri != null && hasSelfReadUriGrant(ctx, docUri)) {
+        return docUri to true
     }
     return FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", safeFileProviderTarget(path)) to false
 }
 
-/** Returns picked files to the calling app as DocumentsContract URIs (or FileProvider fallback) with R/W + persistable grants. */
-private fun returnPicked(ctx: Context, paths: List<String>) {
-    val a = ctx as? Activity ?: return
+/** Returns picked files to the calling app as DocumentsContract URIs (or FileProvider fallback) with valid URI grants. */
+internal fun returnPicked(ctx: Context, paths: List<String>) {
+    val a = ctx.findActivity() ?: return
     if (paths.isEmpty()) return
     try {
         val resolved = paths.map { resolveReturnUri(ctx, it) }
         val uris = resolved.map { it.first }
-        val anyDocUri = resolved.any { it.second }
+        val allDocUris = resolved.all { it.second }
         val mime = if (paths.size == 1) MimeTypeMap.getSingleton().getMimeTypeFromExtension(File(paths[0]).extension.lowercase()) ?: "application/octet-stream" else "*/*"
         val clip = ClipData(ClipDescription("Selected files", arrayOf(mime)), ClipData.Item(uris[0]))
         uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
-        var flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-        if (anyDocUri) {
-            flags = flags or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        var flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        if (allDocUris) {
+            flags = flags or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
         }
         val result = Intent().setDataAndType(uris[0], mime).addFlags(flags)
         result.clipData = clip
@@ -516,16 +531,21 @@ private fun returnPicked(ctx: Context, paths: List<String>) {
     a.finish()
 }
 
-private fun returnPickedTree(ctx: Context, path: String, preferredUri: android.net.Uri?) {
-    val a = ctx as? Activity ?: return
+internal fun returnPickedTree(ctx: Context, path: String, preferredUri: android.net.Uri?) {
+    val a = ctx.findActivity() ?: return
     try {
-        val treeUri = preferredUri
+        val candidateDocUri = preferredUri
             ?: com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(path, tree = true)
-            ?: FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", safeFileProviderTarget(path))
-        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
-            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+        val hasDocGrant = candidateDocUri != null && hasSelfReadUriGrant(ctx, candidateDocUri)
+        val treeUri = if (candidateDocUri != null && hasDocGrant) {
+            candidateDocUri
+        } else {
+            FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", safeFileProviderTarget(path))
+        }
+        var flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        if (hasDocGrant) {
+            flags = flags or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+        }
         val result = Intent().setData(treeUri).addFlags(flags)
         a.setResult(Activity.RESULT_OK, result)
     } catch (e: Exception) {
@@ -535,13 +555,14 @@ private fun returnPickedTree(ctx: Context, path: String, preferredUri: android.n
     a.finish()
 }
 
-private fun returnCreatedDocument(ctx: Context, path: String, preferredUri: android.net.Uri?, mimeType: String) {
-    val a = ctx as? Activity ?: return
+internal fun returnCreatedDocument(ctx: Context, path: String, preferredUri: android.net.Uri?, mimeType: String) {
+    val a = ctx.findActivity() ?: return
     try {
-        val (uri, _) = resolveReturnUri(ctx, path, preferredUri)
-        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        val (uri, isDocUri) = resolveReturnUri(ctx, path, preferredUri)
+        var flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        if (isDocUri) {
+            flags = flags or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        }
         val result = Intent().setDataAndType(uri, mimeType).addFlags(flags)
         a.setResult(Activity.RESULT_OK, result)
     } catch (e: Exception) {
@@ -549,6 +570,12 @@ private fun returnCreatedDocument(ctx: Context, path: String, preferredUri: andr
         a.setResult(Activity.RESULT_CANCELED)
     }
     a.finish()
+}
+
+internal tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is android.content.ContextWrapper -> baseContext?.findActivity()
+    else -> null
 }
 
 /** Opens a new independent window (own task and view model), optionally showing [path]. */
