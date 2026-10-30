@@ -1818,10 +1818,14 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (dontShowAgain) settings.showSafMountTip = false
         dismissDialog()
         pendingMountAccount = accountEmail
-        val initialUri = runCatching {
-            android.provider.DocumentsContract.buildRootsUri(com.droid.wayfinder.data.GoogleDriveManager.DOCS_AUTHORITY)
-        }.getOrNull()
-        emit(UiEvent.PickDocumentTree(initialUri = if (accountEmail != null) initialUri else null, accountEmail = accountEmail))
+        val initialUri = if (accountEmail != null) {
+            runCatching {
+                GoogleDriveManager.buildInitialDriveRootUri(app, accountEmail, safMounts)
+            }.getOrNull()
+        } else {
+            null
+        }
+        emit(UiEvent.PickDocumentTree(initialUri = initialUri, accountEmail = accountEmail))
     }
 
     /** Keeps access to a tree picked with ACTION_OPEN_DOCUMENT_TREE and mounts it as `saf://<id>`. */
