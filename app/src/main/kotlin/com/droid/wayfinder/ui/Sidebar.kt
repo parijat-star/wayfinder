@@ -112,9 +112,9 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             s.driveAccounts.forEach { acc ->
                 val rootPath = acc.mountPath ?: "gdrive://${acc.email}/root"
                 if (acc.isMounted && acc.mountPath != null) {
-                    flatten(acc.mountPath, "Drive", Icons.Outlined.Cloud, null, 0, s, this, acc.email, driveAccount = acc)
+                    flatten(acc.mountPath, acc.title, Icons.Outlined.Cloud, null, 0, s, this, acc.email, driveAccount = acc)
                 } else {
-                    add(TreeRowData(rootPath, "Drive", Icons.Outlined.Cloud, null, 0, false, false, false, acc.email, driveAccount = acc))
+                    add(TreeRowData(rootPath, acc.title, Icons.Outlined.Cloud, null, 0, false, false, false, acc.email, driveAccount = acc))
                 }
             }
         }
@@ -237,7 +237,7 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         item {
             SectionTitle("Google Drive", trailing = {
                 HeaderAction(Icons.Outlined.AddToDrive, "Mount Google Drive folder") {
-                    if (s.driveAccounts.isEmpty()) vm.requestGoogleAccountSignIn() else vm.requestMountSaf()
+                    if (s.driveAccounts.isEmpty()) vm.requestGoogleAccountSignIn() else vm.requestMountSaf(s.driveAccounts.first().email)
                 }
             })
         }
