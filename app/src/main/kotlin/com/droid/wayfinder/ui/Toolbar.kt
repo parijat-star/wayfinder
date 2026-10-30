@@ -438,6 +438,7 @@ private fun OverflowMenu(vm: BrowserViewModel, s: AppState) {
             DropdownMenuItem({ Text("Command palette…") }, { open = false; vm.openPalette() }, trailingIcon = { Hint("Ctrl+K") })
             DropdownMenuItem({ Text("Connect to server…") }, { open = false; vm.showConnectDialog() }, trailingIcon = { Hint("Ctrl+Shift+K") })
             DropdownMenuItem({ Text("Keyboard shortcuts") }, { open = false; vm.showDialog(Dialog.Shortcuts) }, trailingIcon = { Hint("F1") })
+            DropdownMenuItem({ Text("About Wayfinder") }, { open = false; vm.showDialog(Dialog.About) })
         }
     }
 }

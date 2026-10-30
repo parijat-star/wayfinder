@@ -107,6 +107,7 @@ fun Dialogs(vm: BrowserViewModel, s: AppState) {
         Dialog.Shortcuts -> ShortcutsDialog(vm::dismissDialog)
         is Dialog.SafMountTip -> SafMountTipDialog(accountEmail = d.accountEmail, onDismiss = vm::dismissDialog, onProceed = { vm.confirmSafMountTip(it, d.accountEmail) })
         is Dialog.BatchRename -> BatchRenameDialog(d, vm::dismissDialog) { plan -> vm.batchRename(d.dir, plan) }
+        Dialog.About -> AboutDialog(vm::dismissDialog)
     }
 }
 
@@ -441,5 +442,68 @@ private fun SafMountTipDialog(accountEmail: String? = null, onDismiss: () -> Uni
         },
     )
 }
+
+@Composable
+private fun AboutDialog(onDismiss: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val cs = MaterialTheme.colorScheme
+    var showLicenses by remember { mutableStateOf(false) }
+    val versionName = remember(ctx) {
+        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull()?.takeIf { it.isNotBlank() } ?: "2.0"
+    }
+    val noticesText by androidx.compose.runtime.produceState<String?>(initialValue = null, key1 = showLicenses) {
+        if (showLicenses && value == null) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    ctx.assets.open("THIRD_PARTY_NOTICES.md").bufferedReader().use { it.readText() }
+                }.getOrDefault("Open-source notices unavailable.")
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
+        title = { Text(if (showLicenses) "Open-source licenses" else "About Wayfinder") },
+        text = {
+            if (!showLicenses) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Version $versionName", style = MaterialTheme.typography.titleSmall, color = cs.primary)
+                    Text(
+                        "Desktop-class file manager for Android laptops and tablets with multi-tab browsing, dual-pane transfers, archive support, and SMB / WebDAV / FTP networking.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = cs.onSurface,
+                    )
+                    Text(
+                        "Copyright 2026 The Wayfinder Authors. Licensed under the Apache License, Version 2.0.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.onSurfaceVariant,
+                    )
+                }
+            } else {
+                Surface(shape = RoundedCornerShape(12.dp), color = cs.surfaceContainerLow) {
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(
+                            text = noticesText ?: "Loading notices…",
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()).padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = cs.onSurface,
+                        )
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { showLicenses = !showLicenses }) {
+                Text(if (showLicenses) "Back" else "Open-source licenses")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+    )
+}
+
 
 

@@ -61,6 +61,8 @@ sealed interface Dialog {
     data class SafMountTip(val accountEmail: String? = null) : Dialog
     /** [existing] = every name in [dir], used for conflict detection. */
     data class BatchRename(val dir: String, val items: List<FileEntry>, val existing: List<String>) : Dialog
+    /** App version, Apache-2.0 license summary, and bundled open-source third-party notices. */
+    data object About : Dialog
 }
 
 sealed interface UiEvent {

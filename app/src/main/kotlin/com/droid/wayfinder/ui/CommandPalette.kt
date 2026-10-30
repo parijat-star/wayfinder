@@ -219,6 +219,7 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState): List<PaletteItem> {
             add(c("Show in enclosing folder", "Go to the folder that contains ${one.name}", null, Icons.Outlined.FindInPage) { vm.showInEnclosingFolder(one.path) })
         }
         add(c("Keyboard shortcuts", "Show all shortcuts", "F1", Icons.Outlined.Keyboard) { vm.showDialog(Dialog.Shortcuts) })
+        add(c("About Wayfinder", "Version and open-source licenses", null, Icons.Outlined.Info) { vm.showDialog(Dialog.About) })
     }
 }
 
