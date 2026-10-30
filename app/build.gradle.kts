@@ -37,6 +37,12 @@ android {
     shaders = false
   }
   testOptions { unitTests.isReturnDefaultValues = true; unitTests.isIncludeAndroidResources = true }
+  bundle {
+    language {
+      // Keep all packaged locale resources inside the base AAB so Android 13+ per-app language switching works offline.
+      enableSplit = false
+    }
+  }
   packaging {
     resources {
       excludes += "/META-INF/{AL2.0,LGPL2.1,DEPENDENCIES,INDEX.LIST,LICENSE*,NOTICE*}"
