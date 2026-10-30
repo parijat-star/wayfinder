@@ -181,72 +181,73 @@ class ServerStoreAndActivityCoverageTest {
     }
 
     @Test
-    @Config(sdk = [29])
+    @Config(sdk = [34])
     fun mainActivityIntentPreparationPermissionScreenAndTouchDispatch() {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
-        val perms = arrayOf(
-            android.Manifest.permission.READ_EXTERNAL_STORAGE,
-            android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
-        )
-        shadowOf(app).denyPermissions(*perms)
-
-        // Verify IntentGuard sign() preserves internal extras while untrusted sanitize() strips them
-        val signedIntent = IntentGuard.sign(
-            app,
-            Intent(app, MainActivity::class.java).putExtra(BrowserViewModel.EXTRA_PATH, "/storage/emulated/0"),
-        )
-        assertEquals("/storage/emulated/0", IntentGuard.sanitize(app, signedIntent).getStringExtra(BrowserViewModel.EXTRA_PATH))
-
-        // 1. Picker intent (ACTION_GET_CONTENT) with MIME types and allow-multiple
-        val pickerIntent = Intent(app, MainActivity::class.java).apply {
-            action = Intent.ACTION_GET_CONTENT
-            type = "image/*"
-            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/png", "application/pdf"))
-            // Untrusted internal extra from external caller should be stripped by IntentGuard first
-            putExtra(BrowserViewModel.EXTRA_PATH, "/data/data/com.droid.wayfinder")
-        }
-
-        Robolectric.buildActivity(MainActivity::class.java, pickerIntent).setup().use { controller ->
-            val activity = controller.get()
-            val sanitized = activity.intent
-            assertTrue(sanitized.getBooleanExtra(BrowserViewModel.EXTRA_PICKER, false))
-            assertTrue(sanitized.getBooleanExtra(BrowserViewModel.EXTRA_PICKER_MULTIPLE, false))
-            assertArrayEquals(
-                arrayOf("image/png", "application/pdf"),
-                sanitized.getStringArrayExtra(BrowserViewModel.EXTRA_PICKER_MIME),
+        MainActivity.hasAccessOverride = { false }
+        try {
+            // Verify IntentGuard sign() preserves internal extras while untrusted sanitize() strips them
+            val signedIntent = IntentGuard.sign(
+                app,
+                Intent(app, MainActivity::class.java).putExtra(BrowserViewModel.EXTRA_PATH, "/storage/emulated/0"),
             )
-            assertNull(sanitized.getStringExtra(BrowserViewModel.EXTRA_PATH))
+            assertEquals("/storage/emulated/0", IntentGuard.sanitize(app, signedIntent).getStringExtra(BrowserViewModel.EXTRA_PATH))
 
-            // Dispatch mouse MotionEvent to cover dispatchTouchEvent -> PointerSource.update
-            val now = SystemClock.uptimeMillis()
-            val mouseEvent = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 10f, 10f, 0).apply {
-                source = InputDevice.SOURCE_MOUSE
+            // 1. Picker intent (ACTION_GET_CONTENT) with MIME types and allow-multiple
+            val pickerIntent = Intent(app, MainActivity::class.java).apply {
+                action = Intent.ACTION_GET_CONTENT
+                type = "image/*"
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/png", "application/pdf"))
+                // Untrusted internal extra from external caller should be stripped by IntentGuard first
+                putExtra(BrowserViewModel.EXTRA_PATH, "/data/data/com.droid.wayfinder")
             }
-            activity.dispatchTouchEvent(mouseEvent)
-            assertTrue(PointerSource.precise)
-            mouseEvent.recycle()
 
-            // Invoke private requestAccess() and onRequestPermissionsResult()
-            val reqAccess = MainActivity::class.java.getDeclaredMethod("requestAccess").apply { isAccessible = true }
-            reqAccess.invoke(activity)
-            assertNotNull(shadowOf(activity).lastRequestedPermission)
+            Robolectric.buildActivity(MainActivity::class.java, pickerIntent).setup().use { controller ->
+                val activity = controller.get()
+                val sanitized = activity.intent
+                assertTrue(sanitized.getBooleanExtra(BrowserViewModel.EXTRA_PICKER, false))
+                assertTrue(sanitized.getBooleanExtra(BrowserViewModel.EXTRA_PICKER_MULTIPLE, false))
+                assertArrayEquals(
+                    arrayOf("image/png", "application/pdf"),
+                    sanitized.getStringArrayExtra(BrowserViewModel.EXTRA_PICKER_MIME),
+                )
+                assertNull(sanitized.getStringExtra(BrowserViewModel.EXTRA_PATH))
 
-            activity.onRequestPermissionsResult(1, emptyArray(), IntArray(0))
-            shadowOf(android.os.Looper.getMainLooper()).idle()
-        }
+                // Dispatch mouse MotionEvent to cover dispatchTouchEvent -> PointerSource.update
+                val now = SystemClock.uptimeMillis()
+                val mouseEvent = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 10f, 10f, 0).apply {
+                    source = InputDevice.SOURCE_MOUSE
+                }
+                activity.dispatchTouchEvent(mouseEvent)
+                assertTrue(PointerSource.precise)
+                mouseEvent.recycle()
 
-        // 2. ACTION_VIEW_DOWNLOADS intent with storage access granted
-        shadowOf(app).grantPermissions(*perms)
-        java.io.File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_DOWNLOADS).mkdirs()
-        val downloadsIntent = Intent(app, MainActivity::class.java).apply {
-            action = DownloadManager.ACTION_VIEW_DOWNLOADS
-        }
-        Robolectric.buildActivity(MainActivity::class.java, downloadsIntent).setup().use { controller ->
-            val activity = controller.get()
-            assertTrue(activity.intent.getBooleanExtra(BrowserViewModel.EXTRA_NEW_WINDOW, false))
-            val expectedDownloads = java.io.File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_DOWNLOADS).path
-            assertEquals(expectedDownloads, activity.intent.getStringExtra(BrowserViewModel.EXTRA_PATH))
+                // Invoke private requestAccess() and onRequestPermissionsResult()
+                val reqAccess = MainActivity::class.java.getDeclaredMethod("requestAccess").apply { isAccessible = true }
+                reqAccess.invoke(activity)
+                val started = shadowOf(activity).nextStartedActivity
+                assertNotNull(started)
+                assertEquals(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, started.action)
+
+                activity.onRequestPermissionsResult(1, emptyArray(), IntArray(0))
+                shadowOf(android.os.Looper.getMainLooper()).idle()
+            }
+
+            // 2. ACTION_VIEW_DOWNLOADS intent with storage access granted
+            MainActivity.hasAccessOverride = { true }
+            java.io.File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_DOWNLOADS).mkdirs()
+            val downloadsIntent = Intent(app, MainActivity::class.java).apply {
+                action = DownloadManager.ACTION_VIEW_DOWNLOADS
+            }
+            Robolectric.buildActivity(MainActivity::class.java, downloadsIntent).setup().use { controller ->
+                val activity = controller.get()
+                assertTrue(activity.intent.getBooleanExtra(BrowserViewModel.EXTRA_NEW_WINDOW, false))
+                val expectedDownloads = java.io.File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_DOWNLOADS).path
+                assertEquals(expectedDownloads, activity.intent.getStringExtra(BrowserViewModel.EXTRA_PATH))
+            }
+        } finally {
+            MainActivity.hasAccessOverride = null
         }
     }
 
