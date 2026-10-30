@@ -265,10 +265,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     /** Removes cached downloads (open / picker results) older than a day. */
     private fun cleanCaches() {
-        val now = System.currentTimeMillis()
-        for (sub in listOf("remote-open", "zip-open", "picker")) {
-            File(app.cacheDir, sub).listFiles()?.filter { now - it.lastModified() > 24 * 3600_000L }?.forEach { FileInfo.deleteTree(it) }
-        }
+        com.droid.wayfinder.data.CacheJanitor.pruneStaleCaches(app.cacheDir)
     }
 
     override fun onCleared() {
@@ -1190,6 +1187,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         opJobs[id] = viewModelScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
+                    com.droid.wayfinder.data.CacheJanitor.pruneIfDue(app.cacheDir)
                     work { p -> _state.update { s -> s.copy(ops = s.ops.map { if (it.id == id) it.copy(progress = p) else it }) } }
                 }
                 after(result)
