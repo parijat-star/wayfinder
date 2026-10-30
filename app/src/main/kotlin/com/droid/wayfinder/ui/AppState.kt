@@ -77,6 +77,10 @@ sealed interface UiEvent {
     data class PickDocumentTree(val initialUri: android.net.Uri? = null, val accountEmail: String? = null) : UiEvent
     /** Launch the system Google Account picker to grant account visibility to Wayfinder. */
     data object PickGoogleAccount : UiEvent
+    /** Launch ACTION_OPEN_DOCUMENT in system DocumentsUI to import files from a wireless Cross-Device phone. */
+    data class ImportPhoneDocuments(val initialUri: android.net.Uri? = null) : UiEvent
+    /** Request Android 12+ BLUETOOTH_CONNECT runtime permission for wireless phone detection. */
+    data object RequestBluetoothPermission : UiEvent
     /** Picker mode: return these local files (already downloaded if remote) to the calling app. */
     data class PickResult(val paths: List<String>) : UiEvent
     /** Folder picker mode (ACTION_OPEN_DOCUMENT_TREE): return the selected directory tree URI to the calling app. */
@@ -145,12 +149,16 @@ data class AppState(
     val createFileName: String = "",
     /** True when a phone is actively connected or paired (USB / Bluetooth / MTP). */
     val phoneConnected: Boolean = false,
+    /** True when BLUETOOTH_CONNECT is granted (or not required on API <= 30). */
+    val bluetoothPermissionGranted: Boolean = true,
     /** Discovered Google Drive accounts on the device. */
     val driveAccounts: List<com.droid.wayfinder.data.DriveAccount> = emptyList(),
     /** Paired smartphone (e.g. Pixel 9) details. */
     val pairedPhone: com.droid.wayfinder.data.PairedPhone? = null,
-    /** Discovered Linux development environment root path (`doc://...` or local `LinuxFiles`), if available. */
+    /** Discovered Linux development environment root path (`doc://...`, `saf://...`, or local `LinuxFiles`), if available. */
     val linuxRootPath: String? = null,
+    /** Installed Linux `DocumentsProvider` authority (e.g. AVF Terminal `guestdocuments`) when detected on device. */
+    val linuxProviderAuthority: String? = null,
     /** Discovered managed Work / Personal profiles via CrossProfileApps. */
     val workProfiles: List<com.droid.wayfinder.data.WorkProfileTarget> = emptyList(),
 ) {

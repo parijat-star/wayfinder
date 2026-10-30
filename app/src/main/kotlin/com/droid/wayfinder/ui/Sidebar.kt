@@ -210,6 +210,19 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         }; n++
         locStart[0] = n
         items(locations, key = { "loc${it.path}" }) { r -> TreeItem(vm, s, r, treePath, menu) }
+        if (s.linuxProviderAuthority != null && s.linuxRootPath == null) {
+            item(key = "linux_mount_prompt") {
+                SidebarItem(
+                    label = "Linux files",
+                    icon = Icons.Outlined.Dns,
+                    depth = 0,
+                    selected = false,
+                    dropPath = null,
+                    subtitle = "Click to mount Linux folder",
+                    onClick = { vm.requestMountLinuxFiles() },
+                )
+            }
+        }
 
         // Paired phone (e.g. Pixel 9 · Internal storage) matching the system Files app layout
         items(phoneRows, key = { "phone${it.depth}${it.path}" }) { r ->

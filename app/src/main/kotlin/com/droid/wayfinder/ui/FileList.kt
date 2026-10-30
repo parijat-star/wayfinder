@@ -340,21 +340,39 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
             )
             tab.path == FsPath.RECENTS_ROOT -> CenterMessage(Icons.Outlined.History, "No recent files", "Files changed in the last 30 days appear here.")
             tab.path == FsPath.STARRED_ROOT -> CenterMessage(Icons.Outlined.StarOutline, "No starred items", "Right-click a file or folder and choose “Add to Starred”.")
-            tab.path == FsPath.PHONE_ROOT -> CenterMessage(
-                Icons.Outlined.Smartphone,
-                s.pairedPhone?.name ?: "Connect Phone Storage",
-                if (s.pairedPhone != null && !s.pairedPhone.isMounted) {
-                    "Grant access to browse ${s.pairedPhone.name}'s files, or enable File access in Cross-Device Services (Phone Hub) or USB File Transfer (MTP)."
-                } else {
-                    "No phone storage is currently mounted. Link your phone in Cross-Device Services (Phone Hub) or connect via USB File Transfer (MTP)."
-                },
-            ) {
-                Button({ vm.requestMountPhoneStorage() }) {
-                    Icon(Icons.Outlined.Smartphone, null, Modifier.size(18.dp))
-                    Text("Connect phone storage…", Modifier.padding(start = 6.dp))
+            tab.path == FsPath.PHONE_ROOT -> {
+                val isUsbMtp = s.pairedPhone?.transport == com.droid.wayfinder.data.PhoneTransport.USB_MTP
+                CenterMessage(
+                    Icons.Outlined.Smartphone,
+                    s.pairedPhone?.name ?: "Connect Phone Storage",
+                    when {
+                        s.pairedPhone != null && !s.pairedPhone.isMounted && isUsbMtp ->
+                            "Select ${s.pairedPhone.name} in the system folder picker once to browse all folders over USB File Transfer (MTP)."
+                        s.pairedPhone != null && !s.pairedPhone.isMounted ->
+                            "Import files wirelessly from ${s.pairedPhone.name} via Cross-Device Services, or connect over USB File Transfer (MTP) to mount full phone folders."
+                        else ->
+                            "Import files wirelessly from a phone linked in Cross-Device Services (Phone Hub), or connect via USB File Transfer (MTP) to mount phone folders."
+                    },
+                ) {
+                    if (isUsbMtp) {
+                        Button({ vm.requestMountPhoneStorage(s.pairedPhone) }) {
+                            Icon(Icons.Outlined.Smartphone, null, Modifier.size(18.dp))
+                            Text("Mount USB phone folders…", Modifier.padding(start = 6.dp))
+                        }
+                        OutlinedButton({ vm.requestImportFromPhone() }) { Text("Import files…") }
+                    } else {
+                        Button({ vm.requestImportFromPhone() }) {
+                            Icon(Icons.Outlined.Smartphone, null, Modifier.size(18.dp))
+                            Text("Import files from phone…", Modifier.padding(start = 6.dp))
+                        }
+                        OutlinedButton({ vm.requestMountPhoneStorage(s.pairedPhone) }) { Text("Mount USB phone (MTP)…") }
+                    }
+                    if (!s.bluetoothPermissionGranted) {
+                        OutlinedButton({ vm.requestBluetoothPermission() }) { Text("Allow Bluetooth detection") }
+                    }
+                    OutlinedButton({ vm.openPhoneHubSettings() }) { Text("Phone Hub settings") }
+                    OutlinedButton({ vm.openQuickShareFolder() }) { Text("Quick Share folder") }
                 }
-                OutlinedButton({ vm.openPhoneHubSettings() }) { Text("Phone Hub settings") }
-                OutlinedButton({ vm.openQuickShareFolder() }) { Text("Quick Share folder") }
             }
             FsPath.tagOf(tab.path) != null -> CenterMessage(Icons.AutoMirrored.Outlined.Label, "Nothing tagged “${FsPath.name(tab.path)}”", "Right-click items and choose Color tags to label them.")
             FsPath.isZip(tab.path) -> CenterMessage(Icons.Outlined.FolderOpen, "This folder in the archive is empty", null)
