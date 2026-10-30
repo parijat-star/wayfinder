@@ -87,8 +87,10 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.droid.wayfinder.R
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.outlined.AppRegistration
 import androidx.compose.material.icons.outlined.Contrast
@@ -122,98 +124,98 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState): List<PaletteItem> {
     val tab = s.active
     fun c(name: String, desc: String, shortcut: String?, icon: ImageVector, action: () -> Unit) = PaletteItem(name, desc, shortcut, icon, action)
     return buildList {
-        add(c("New tab", "Open a new tab", "Ctrl+T", Icons.Outlined.Tab) { vm.newTab() })
-        add(c("Close tab", "Close the current tab", "Ctrl+W", Icons.Outlined.Tab) { vm.closeTab(s.activeId) })
-        add(c("Reopen closed tab", "Bring back the last closed tab", "Ctrl+Shift+T", Icons.Outlined.History) { vm.reopenClosedTab() })
-        add(c("New folder", "Create a folder here", "Ctrl+Shift+N", Icons.Outlined.CreateNewFolder) { vm.requestNewItem(true) })
-        add(c("New text file", "Create an empty file here", "Ctrl+Shift+M", Icons.AutoMirrored.Outlined.NoteAdd) { vm.requestNewItem(false) })
-        add(c("Copy", "Copy the selection to the clipboard", "Ctrl+C", Icons.Outlined.ContentCopy) { vm.copy() })
-        add(c("Cut", "Cut the selection", "Ctrl+X", Icons.Outlined.ContentCut) { vm.cut() })
-        add(c("Paste", "Paste into the current folder", "Ctrl+V", Icons.Outlined.ContentPaste) { vm.paste() })
-        add(c("Duplicate", "Make a copy next to the original", "Ctrl+D", Icons.Outlined.CopyAll) { vm.duplicate() })
-        add(c("Rename", "Rename the selected item", "F2", Icons.Outlined.Edit) { vm.requestRename() })
-        add(c("Batch rename", "Rename several items at once", "Ctrl+Shift+R", Icons.Outlined.DriveFileRenameOutline) { vm.requestBatchRename() })
-        add(c("Move to Trash", "Delete the selection", "Del", Icons.Outlined.Delete) { vm.requestDelete() })
-        add(c("Delete permanently", "Delete without using the Trash", "Shift+Del", Icons.Outlined.DeleteForever) { vm.requestDelete(true) })
-        add(c("Compress to ZIP", "Create an archive from the selection", null, Icons.Outlined.Archive) { vm.requestCompress() })
-        add(c("Copy path", "Copy the path of the selection", "Ctrl+Shift+C", Icons.Outlined.Link) { vm.copyPathToClipboard() })
-        add(c("Properties", "Show size and details", "Ctrl+I", Icons.Outlined.Info) { vm.showProperties() })
-        add(c("Undo", "Undo the last file operation", "Ctrl+Z", Icons.AutoMirrored.Outlined.Undo) { vm.undo() })
-        add(c("Redo", "Redo the last undone operation", "Ctrl+Y", Icons.AutoMirrored.Outlined.Redo) { vm.redo() })
-        add(c("Select all", "Select every item", "Ctrl+A", Icons.Outlined.SelectAll) { vm.selectAll() })
-        add(c("Invert selection", "Select everything that isn't selected", "Ctrl+Shift+I", Icons.Outlined.SelectAll) { vm.invertSelection() })
-        add(c("Clear selection", "Deselect everything", "Ctrl+Shift+A", Icons.Outlined.SelectAll) { vm.clearSelection() })
-        add(c("Details view", "Show items in a table", "Ctrl+1", Icons.AutoMirrored.Outlined.ViewList) { vm.setViewMode(ViewMode.Details) })
-        add(c("Grid view", "Show items as icons", "Ctrl+2", Icons.Outlined.GridView) { vm.setViewMode(ViewMode.Grid) })
-        add(c("Columns view", "Browse with Miller columns", "Ctrl+3", Icons.Outlined.ViewColumn) { vm.setViewMode(ViewMode.Columns) })
-        add(c("List view", "Show items in a compact list", null, Icons.Outlined.ViewHeadline) { vm.setViewMode(ViewMode.List) })
-        add(c(if (s.dualPane) "Close dual pane" else "Dual pane", "Two folders side by side", "Ctrl+4 / F3", Icons.Outlined.VerticalSplit) { vm.toggleDualPane() })
+        add(c(vm.str(R.string.palette_new_tab), vm.str(R.string.palette_new_tab_desc), "Ctrl+T", Icons.Outlined.Tab) { vm.newTab() })
+        add(c(vm.str(R.string.action_close_tab), vm.str(R.string.palette_close_tab_desc), "Ctrl+W", Icons.Outlined.Tab) { vm.closeTab(s.activeId) })
+        add(c(vm.str(R.string.palette_reopen_closed_tab), vm.str(R.string.palette_reopen_closed_tab_desc), "Ctrl+Shift+T", Icons.Outlined.History) { vm.reopenClosedTab() })
+        add(c(vm.str(R.string.action_new_folder), vm.str(R.string.palette_new_folder_desc), "Ctrl+Shift+N", Icons.Outlined.CreateNewFolder) { vm.requestNewItem(true) })
+        add(c(vm.str(R.string.action_new_text_file), vm.str(R.string.palette_new_text_file_desc), "Ctrl+Shift+M", Icons.AutoMirrored.Outlined.NoteAdd) { vm.requestNewItem(false) })
+        add(c(vm.str(R.string.action_copy), vm.str(R.string.palette_copy_desc), "Ctrl+C", Icons.Outlined.ContentCopy) { vm.copy() })
+        add(c(vm.str(R.string.action_cut), vm.str(R.string.palette_cut_desc), "Ctrl+X", Icons.Outlined.ContentCut) { vm.cut() })
+        add(c(vm.str(R.string.action_paste), vm.str(R.string.palette_paste_desc), "Ctrl+V", Icons.Outlined.ContentPaste) { vm.paste() })
+        add(c(vm.str(R.string.action_duplicate), vm.str(R.string.palette_duplicate_desc), "Ctrl+D", Icons.Outlined.CopyAll) { vm.duplicate() })
+        add(c(vm.str(R.string.action_rename), vm.str(R.string.palette_rename_desc), "F2", Icons.Outlined.Edit) { vm.requestRename() })
+        add(c(vm.str(R.string.palette_batch_rename), vm.str(R.string.palette_batch_rename_desc), "Ctrl+Shift+R", Icons.Outlined.DriveFileRenameOutline) { vm.requestBatchRename() })
+        add(c(vm.str(R.string.palette_move_to_trash), vm.str(R.string.palette_move_to_trash_desc), "Del", Icons.Outlined.Delete) { vm.requestDelete() })
+        add(c(vm.str(R.string.action_delete_permanently), vm.str(R.string.palette_delete_permanently_desc), "Shift+Del", Icons.Outlined.DeleteForever) { vm.requestDelete(true) })
+        add(c(vm.str(R.string.action_compress_to_zip), vm.str(R.string.palette_compress_desc), null, Icons.Outlined.Archive) { vm.requestCompress() })
+        add(c(vm.str(R.string.action_copy_path), vm.str(R.string.palette_copy_path_desc), "Ctrl+Shift+C", Icons.Outlined.Link) { vm.copyPathToClipboard() })
+        add(c(vm.str(R.string.action_properties), vm.str(R.string.palette_properties_desc), "Ctrl+I", Icons.Outlined.Info) { vm.showProperties() })
+        add(c(vm.str(R.string.action_undo), vm.str(R.string.palette_undo_desc), "Ctrl+Z", Icons.AutoMirrored.Outlined.Undo) { vm.undo() })
+        add(c(vm.str(R.string.action_redo), vm.str(R.string.palette_redo_desc), "Ctrl+Y", Icons.AutoMirrored.Outlined.Redo) { vm.redo() })
+        add(c(vm.str(R.string.action_select_all), vm.str(R.string.palette_select_all_desc), "Ctrl+A", Icons.Outlined.SelectAll) { vm.selectAll() })
+        add(c(vm.str(R.string.palette_invert_selection), vm.str(R.string.palette_invert_selection_desc), "Ctrl+Shift+I", Icons.Outlined.SelectAll) { vm.invertSelection() })
+        add(c(vm.str(R.string.palette_clear_selection), vm.str(R.string.palette_clear_selection_desc), "Ctrl+Shift+A", Icons.Outlined.SelectAll) { vm.clearSelection() })
+        add(c(vm.str(R.string.action_details_view), vm.str(R.string.palette_details_view_desc), "Ctrl+1", Icons.AutoMirrored.Outlined.ViewList) { vm.setViewMode(ViewMode.Details) })
+        add(c(vm.str(R.string.action_grid_view), vm.str(R.string.palette_grid_view_desc), "Ctrl+2", Icons.Outlined.GridView) { vm.setViewMode(ViewMode.Grid) })
+        add(c(vm.str(R.string.action_columns_view), vm.str(R.string.palette_columns_view_desc), "Ctrl+3", Icons.Outlined.ViewColumn) { vm.setViewMode(ViewMode.Columns) })
+        add(c(vm.str(R.string.action_list_view), vm.str(R.string.palette_list_view_desc), null, Icons.Outlined.ViewHeadline) { vm.setViewMode(ViewMode.List) })
+        add(c(if (s.dualPane) vm.str(R.string.action_close_dual_pane) else vm.str(R.string.action_dual_pane), vm.str(R.string.palette_dual_pane_desc), "Ctrl+4 / F3", Icons.Outlined.VerticalSplit) { vm.toggleDualPane() })
         if (s.dualPane) {
-            add(c("Switch pane", "Focus the other pane", "Tab", Icons.Outlined.SwapHoriz) { vm.switchPane() })
-            add(c("Copy to other pane", "Copy the selection to the other pane's folder", "F5", Icons.Outlined.ContentCopy) { vm.transferToOtherPane(false) })
-            add(c("Move to other pane", "Move the selection to the other pane's folder", "F6", Icons.AutoMirrored.Outlined.DriveFileMove) { vm.transferToOtherPane(true) })
+            add(c(vm.str(R.string.palette_switch_pane), vm.str(R.string.palette_switch_pane_desc), "Tab", Icons.Outlined.SwapHoriz) { vm.switchPane() })
+            add(c(vm.str(R.string.action_copy_to_other_pane), vm.str(R.string.palette_copy_other_pane_desc), "F5", Icons.Outlined.ContentCopy) { vm.transferToOtherPane(false) })
+            add(c(vm.str(R.string.action_move_to_other_pane), vm.str(R.string.palette_move_other_pane_desc), "F6", Icons.AutoMirrored.Outlined.DriveFileMove) { vm.transferToOtherPane(true) })
         }
-        add(c("Show hidden files", if (s.showHidden) "Currently shown" else "Currently hidden", "Ctrl+H", Icons.Outlined.Visibility) { vm.toggleHidden() })
-        add(c("Toggle sidebar", "Show or hide the sidebar", "Ctrl+\\", Icons.AutoMirrored.Outlined.ViewSidebar) { vm.toggleSidebar() })
-        add(c("Toggle details pane", "Show or hide the preview pane", "Alt+P", Icons.AutoMirrored.Outlined.ViewSidebar) { vm.togglePreview() })
-        add(c("Back", "Go to the previous folder", "Alt+←", Icons.AutoMirrored.Outlined.ArrowBack) { vm.back() })
-        add(c("Forward", "Go to the next folder", "Alt+→", Icons.AutoMirrored.Outlined.ArrowForward) { vm.forward() })
-        add(c("Up one level", "Go to the parent folder", "Alt+↑", Icons.Outlined.ArrowUpward) { vm.up() })
-        add(c("Refresh", "Reload the current folder", if (s.dualPane) "Ctrl+R" else "F5 / Ctrl+R", Icons.Outlined.Refresh) { vm.refresh() })
-        add(c("Edit address", "Type a path", "Ctrl+L", Icons.Outlined.Edit) { vm.setAddressEditing(true) })
-        add(c("Search", "Search this folder and subfolders", "Ctrl+F", Icons.Outlined.Search) { vm.requestSearchFocus() })
+        add(c(vm.str(R.string.palette_show_hidden_files), if (s.showHidden) vm.str(R.string.palette_currently_shown) else vm.str(R.string.palette_currently_hidden), "Ctrl+H", Icons.Outlined.Visibility) { vm.toggleHidden() })
+        add(c(vm.str(R.string.palette_toggle_sidebar), vm.str(R.string.palette_toggle_sidebar_desc), "Ctrl+\\", Icons.AutoMirrored.Outlined.ViewSidebar) { vm.toggleSidebar() })
+        add(c(vm.str(R.string.palette_toggle_details_pane), vm.str(R.string.palette_toggle_details_pane_desc), "Alt+P", Icons.AutoMirrored.Outlined.ViewSidebar) { vm.togglePreview() })
+        add(c(vm.str(R.string.action_back), vm.str(R.string.palette_back_desc), "Alt+←", Icons.AutoMirrored.Outlined.ArrowBack) { vm.back() })
+        add(c(vm.str(R.string.palette_forward), vm.str(R.string.palette_forward_desc), "Alt+→", Icons.AutoMirrored.Outlined.ArrowForward) { vm.forward() })
+        add(c(vm.str(R.string.palette_up_one_level), vm.str(R.string.palette_up_one_level_desc), "Alt+↑", Icons.Outlined.ArrowUpward) { vm.up() })
+        add(c(vm.str(R.string.action_refresh), vm.str(R.string.palette_refresh_desc), if (s.dualPane) "Ctrl+R" else "F5 / Ctrl+R", Icons.Outlined.Refresh) { vm.refresh() })
+        add(c(vm.str(R.string.palette_edit_address), vm.str(R.string.palette_edit_address_desc), "Ctrl+L", Icons.Outlined.Edit) { vm.setAddressEditing(true) })
+        add(c(vm.str(R.string.palette_search), vm.str(R.string.palette_search_desc), "Ctrl+F", Icons.Outlined.Search) { vm.requestSearchFocus() })
         val pinTargets = tab.selectedEntries(s.showHidden).filter { !it.isServer && !it.isShare && !FsPath.isZip(it.path) && !FsPath.isVirtual(it.path) }.map { it.path }
         val effectivePinTargets = pinTargets.ifEmpty { listOf(tab.path).filter { !FsPath.isVirtual(it) && !FsPath.isZip(it) } }
         val pinned = effectivePinTargets.isNotEmpty() && effectivePinTargets.all { it in s.pins }
         val pinLabel = when {
-            pinTargets.size > 1 -> if (pinned) "Unpin selection" else "Pin selection"
-            pinTargets.size == 1 && !tab.selectedEntries(s.showHidden).first().isDir -> if (pinned) "Unpin file" else "Pin file"
-            else -> if (pinned) "Unpin folder" else "Pin folder"
+            pinTargets.size > 1 -> if (pinned) vm.str(R.string.palette_unpin_selection) else vm.str(R.string.palette_pin_selection)
+            pinTargets.size == 1 && !tab.selectedEntries(s.showHidden).first().isDir -> if (pinned) vm.str(R.string.palette_unpin_file) else vm.str(R.string.palette_pin_file)
+            else -> if (pinned) vm.str(R.string.palette_unpin_folder) else vm.str(R.string.palette_pin_folder)
         }
-        add(c(pinLabel, "Pin or unpin in the sidebar", "Ctrl+B", Icons.Outlined.PushPin) { vm.togglePins(effectivePinTargets) })
-        add(c("Connect to server", "SMB, WebDAV or FTP location", "Ctrl+Shift+K", Icons.Outlined.Dns) { vm.showConnectDialog() })
-        add(c("Mount cloud / storage provider", "Google Drive, USB, … via the system picker", null, Icons.Outlined.Dns) { vm.requestMountSaf() })
-        add(c("Network", "Browse servers on your network", null, Icons.Outlined.Dns) { vm.navigate(FsPath.SMB_ROOT) })
-        add(c("Trash", "Open the Trash", null, Icons.Outlined.Delete) { vm.navigate(FsPath.TRASH_ROOT) })
-        add(c("Empty Trash", "Permanently delete everything in the Trash", null, Icons.Outlined.DeleteForever) { vm.emptyTrash() })
+        add(c(pinLabel, vm.str(R.string.palette_pin_desc), "Ctrl+B", Icons.Outlined.PushPin) { vm.togglePins(effectivePinTargets) })
+        add(c(vm.str(R.string.palette_connect_server), vm.str(R.string.palette_connect_server_desc), "Ctrl+Shift+K", Icons.Outlined.Dns) { vm.showConnectDialog() })
+        add(c(vm.str(R.string.palette_mount_provider), vm.str(R.string.palette_mount_provider_desc), null, Icons.Outlined.Dns) { vm.requestMountSaf() })
+        add(c(vm.str(R.string.palette_network), vm.str(R.string.palette_network_desc), null, Icons.Outlined.Dns) { vm.navigate(FsPath.SMB_ROOT) })
+        add(c(vm.str(R.string.nav_trash), vm.str(R.string.palette_trash_desc), null, Icons.Outlined.Delete) { vm.navigate(FsPath.TRASH_ROOT) })
+        add(c(vm.str(R.string.action_empty_trash), vm.str(R.string.palette_empty_trash_desc), null, Icons.Outlined.DeleteForever) { vm.emptyTrash() })
         listOf(SortKey.Name to "name", SortKey.Modified to "date modified", SortKey.Type to "type", SortKey.Size to "size").forEach { (k, l) ->
             add(c("Sort by $l", "Order items by $l", null, Icons.Outlined.SortByAlpha) { vm.setSort(k, if (tab.sortKey == k) tab.sortAsc else true) })
         }
-        add(c("New window", "Open another independent window", "Ctrl+N", Icons.Outlined.Web) { vm.newWindow() })
-        add(c("Zoom in", "Make the interface larger", "Ctrl+=", Icons.Outlined.ZoomIn) { vm.zoomBy(1) })
-        add(c("Zoom out", "Make the interface smaller", "Ctrl+-", Icons.Outlined.ZoomOut) { vm.zoomBy(-1) })
-        add(c("Reset zoom", "Interface zoom back to 100% (now ${(s.zoom * 100).toInt()}%)", "Ctrl+0", Icons.Outlined.ZoomIn) { vm.zoomBy(0) })
-        add(c("Cycle Light / Dark / System theme", "Currently ${s.theme.label}", null, Icons.Outlined.Contrast) { vm.cycleTheme() })
-        add(c("Locate active folder", "Reveal the current folder in the sidebar tree", "Alt+Shift+L", Icons.Outlined.MyLocation) { vm.locateInTree() })
-        add(c("Collapse folder tree", "Collapse every folder in the sidebar", null, Icons.Outlined.UnfoldLess) { vm.collapseTree() })
-        add(c("Recents", "Files changed in the last 30 days", null, Icons.Outlined.History) { vm.navigate(FsPath.RECENTS_ROOT) })
-        add(c("Starred", "Open your starred items", null, Icons.Outlined.StarOutline) { vm.navigate(FsPath.STARRED_ROOT) })
+        add(c(vm.str(R.string.action_open_in_new_window), vm.str(R.string.palette_new_window_desc), "Ctrl+N", Icons.Outlined.Web) { vm.newWindow() })
+        add(c(vm.str(R.string.palette_zoom_in), vm.str(R.string.palette_zoom_in_desc), "Ctrl+=", Icons.Outlined.ZoomIn) { vm.zoomBy(1) })
+        add(c(vm.str(R.string.palette_zoom_out), vm.str(R.string.palette_zoom_out_desc), "Ctrl+-", Icons.Outlined.ZoomOut) { vm.zoomBy(-1) })
+        add(c(vm.str(R.string.palette_reset_zoom), vm.str(R.string.palette_reset_zoom_desc, (s.zoom * 100).toInt()), "Ctrl+0", Icons.Outlined.ZoomIn) { vm.zoomBy(0) })
+        add(c(vm.str(R.string.palette_cycle_theme), vm.str(R.string.palette_cycle_theme_desc, s.theme.label), null, Icons.Outlined.Contrast) { vm.cycleTheme() })
+        add(c(vm.str(R.string.palette_locate_folder), vm.str(R.string.palette_locate_folder_desc), "Alt+Shift+L", Icons.Outlined.MyLocation) { vm.locateInTree() })
+        add(c(vm.str(R.string.palette_collapse_tree), vm.str(R.string.palette_collapse_tree_desc), null, Icons.Outlined.UnfoldLess) { vm.collapseTree() })
+        add(c(vm.str(R.string.nav_recents), vm.str(R.string.palette_recents_desc), null, Icons.Outlined.History) { vm.navigate(FsPath.RECENTS_ROOT) })
+        add(c(vm.str(R.string.nav_starred), vm.str(R.string.palette_starred_desc), null, Icons.Outlined.StarOutline) { vm.navigate(FsPath.STARRED_ROOT) })
         if (s.phoneConnected) {
-            add(c("Phone (Quick Access)", "Browse files from connected phone and Quick Share", null, Icons.Outlined.Smartphone) { vm.navigate(FsPath.PHONE_ROOT) })
+            add(c(vm.str(R.string.palette_phone_quick_access), vm.str(R.string.palette_phone_quick_access_desc), null, Icons.Outlined.Smartphone) { vm.navigate(FsPath.PHONE_ROOT) })
         }
         s.linuxRootPath?.let { linuxPath ->
-            add(c("Linux files", "Open the Googlebook Linux development environment", null, Icons.Outlined.Dns) { vm.navigate(linuxPath) })
+            add(c(vm.str(R.string.palette_linux_files), vm.str(R.string.palette_linux_files_desc), null, Icons.Outlined.Dns) { vm.navigate(linuxPath) })
             if (tab.selection.isNotEmpty() && tab.path != linuxPath) {
-                add(c("Copy to Linux files", "Copy selected items to the Linux development environment", null, Icons.AutoMirrored.Outlined.DriveFileMove) { vm.shareWithLinux() })
+                add(c(vm.str(R.string.action_copy_to_linux_files), vm.str(R.string.palette_copy_linux_desc), null, Icons.AutoMirrored.Outlined.DriveFileMove) { vm.shareWithLinux() })
             }
         }
         s.workProfiles.forEach { wp ->
-            add(c(wp.label, "Switch to managed profile (${wp.label})", null, Icons.Outlined.Folder) { vm.openWorkProfile(wp) })
+            add(c(wp.label, vm.str(R.string.palette_work_profile_desc, wp.label), null, Icons.Outlined.Folder) { vm.openWorkProfile(wp) })
         }
-        add(c("Add to / remove from Starred", "Star the selection (or the current folder)", null, Icons.Outlined.StarOutline) { vm.toggleStar() })
+        add(c(vm.str(R.string.palette_toggle_star), vm.str(R.string.palette_toggle_star_desc), null, Icons.Outlined.StarOutline) { vm.toggleStar() })
         ColorTag.entries.forEach { t ->
             add(c("Tag: ${t.label}", "Toggle the ${t.label} color tag on the selection", null, Icons.AutoMirrored.Outlined.Label) { vm.toggleTag(t) })
             add(c("Show ${t.label} items", "Open the ${t.label} color tag view", null, Icons.Filled.Circle) { vm.navigate(FsPath.tagPath(t)) })
         }
-        add(c(if (s.tagsColumn) "Hide Tags column" else "Show Tags column", "Details view column", null, Icons.AutoMirrored.Outlined.Label) { vm.toggleTagsColumn() })
-        add(c(if (s.permsColumn) "Hide Permissions column" else "Show Permissions column", "Details view column", null, Icons.Outlined.Lock) { vm.togglePermsColumn() })
+        add(c(if (s.tagsColumn) vm.str(R.string.palette_hide_tags_column) else vm.str(R.string.palette_show_tags_column), vm.str(R.string.palette_details_column_desc), null, Icons.AutoMirrored.Outlined.Label) { vm.toggleTagsColumn() })
+        add(c(if (s.permsColumn) vm.str(R.string.palette_hide_perms_column) else vm.str(R.string.palette_show_perms_column), vm.str(R.string.palette_details_column_desc), null, Icons.Outlined.Lock) { vm.togglePermsColumn() })
         val one = tab.selectedEntries(s.showHidden).singleOrNull()
-        if (one != null && !one.isDir) add(c("Open with…", "Choose an app for ${one.name}", null, Icons.Outlined.AppRegistration) { vm.openWith() })
+        if (one != null && !one.isDir) add(c(vm.str(R.string.action_open_with), vm.str(R.string.palette_open_with_desc, one.name), null, Icons.Outlined.AppRegistration) { vm.openWith() })
         if (one != null && vm.isBrowsableArchive(one)) {
-            add(c("Browse archive", "Open ${one.name} as a folder", null, Icons.Outlined.FolderZip) { vm.browseArchive(one.path) })
-            add(c("Extract archive here", "Unpack ${one.name} into this folder", null, Icons.Outlined.Unarchive) { vm.extractSelection() })
+            add(c(vm.str(R.string.action_browse_archive), vm.str(R.string.palette_browse_archive_desc, one.name), null, Icons.Outlined.FolderZip) { vm.browseArchive(one.path) })
+            add(c(vm.str(R.string.action_extract_archive_here), vm.str(R.string.palette_extract_one_desc, one.name), null, Icons.Outlined.Unarchive) { vm.extractSelection() })
         } else if (tab.selectedEntries(s.showHidden).any { vm.isBrowsableArchive(it) }) {
-            add(c("Extract archive here", "Unpack selected archives into this folder", null, Icons.Outlined.Unarchive) { vm.extractSelection() })
+            add(c(vm.str(R.string.action_extract_archive_here), vm.str(R.string.palette_extract_many_desc), null, Icons.Outlined.Unarchive) { vm.extractSelection() })
         }
         if (one != null && (tab.searchResults != null || FsPath.isCollection(tab.path))) {
             add(c("Show in enclosing folder", "Go to the folder that contains ${one.name}", null, Icons.Outlined.FindInPage) { vm.showInEnclosingFolder(one.path) })
@@ -230,11 +232,11 @@ fun paletteFolders(vm: BrowserViewModel, s: AppState): List<PaletteItem> {
         if (!seen.add(path)) return
         out += PaletteItem(s.titleOf(path), "$kind • $path", null, Icons.Outlined.Folder) { vm.navigate(path) }
     }
-    s.pins.forEach { add(it, "Pinned") }
-    s.roots.forEach { add(it.path, "Storage") }
-    if (s.phoneConnected) add(FsPath.PHONE_ROOT, "Quick access")
-    s.recentFolders.forEach { add(it, "Recent") }
-    s.active.visible(s.showHidden).filter { it.isDir && !it.isServer }.forEach { add(it.path, "In this folder") }
+    s.pins.forEach { add(it, vm.str(R.string.pinned_section)) }
+    s.roots.forEach { add(it.path, vm.str(R.string.palette_kind_storage)) }
+    if (s.phoneConnected) add(FsPath.PHONE_ROOT, vm.str(R.string.quick_access_section))
+    s.recentFolders.forEach { add(it, vm.str(R.string.nav_recents)) }
+    s.active.visible(s.showHidden).filter { it.isDir && !it.isServer }.forEach { add(it.path, vm.str(R.string.palette_kind_current_folder)) }
     return out
 }
 
@@ -277,7 +279,7 @@ fun CommandPalette(vm: BrowserViewModel, s: AppState) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.Search, null, Modifier.size(20.dp), tint = cs.onSurfaceVariant)
                     Box(Modifier.weight(1f).padding(start = 12.dp), contentAlignment = Alignment.CenterStart) {
-                        if (query.isEmpty()) Text("Type a command or jump to folder…", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
+                        if (query.isEmpty()) Text(stringResource(R.string.palette_placeholder), style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
                         BasicTextField(
                             query, { query = it },
                             Modifier.fillMaxWidth().focusRequester(fr)
@@ -302,7 +304,7 @@ fun CommandPalette(vm: BrowserViewModel, s: AppState) {
                 }
                 HorizontalDivider(color = cs.outlineVariant)
                 if (results.isEmpty()) {
-                    Text("No matching commands or folders", Modifier.padding(20.dp), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                    Text(stringResource(R.string.palette_empty), Modifier.padding(20.dp), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
                 } else LazyColumn(Modifier.heightIn(max = 420.dp).fillMaxWidth(), listState) {
                     itemsIndexed(results) { i, item ->
                         val sel = i == index

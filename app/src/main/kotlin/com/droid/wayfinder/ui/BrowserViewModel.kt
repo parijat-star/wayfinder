@@ -433,6 +433,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     private fun emit(e: UiEvent) { _events.tryEmit(e) }
     private fun toast(msg: String, undo: Boolean = false) = emit(UiEvent.Toast(msg, undo))
+    internal fun str(@androidx.annotation.StringRes id: Int, vararg args: Any): String =
+        if (args.isEmpty()) app.getString(id) else app.getString(id, *args)
+    internal fun icuStr(@androidx.annotation.StringRes id: Int, vararg args: Any): String = app.icuString(id, *args)
 
     private fun persist() {
         // Extra and picker windows keep their tabs to themselves so they don't overwrite the main window's session.
@@ -908,14 +911,14 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val z = if (steps == 0) 1f else (((_state.value.zoom * 10).roundToInt() + steps).coerceIn(7, 16)) / 10f
         settings.zoom = z
         _state.update { it.copy(zoom = z) }
-        toast("Interface zoom: ${(z * 100).roundToInt()}%")
+        toast(str(com.droid.wayfinder.R.string.toast_zoom_percent, (z * 100).roundToInt()))
     }
 
     /** System → Light → Dark → System. */
     fun cycleTheme() {
         val next = ThemeMode.entries[(_state.value.theme.ordinal + 1) % ThemeMode.entries.size]
         SharedUi.setTheme(next)
-        toast("Theme: ${next.label}")
+        toast(str(com.droid.wayfinder.R.string.toast_theme_changed, next.label))
     }
 
     fun toggleTagsColumn() { val v = !_state.value.tagsColumn; settings.tagsColumn = v; _state.update { it.copy(tagsColumn = v) } }
@@ -935,7 +938,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (paths.isEmpty()) return
         val starring = !paths.all { _state.value.marks.isStarred(it) }
         SharedUi.updateMarks { it.toggleStar(paths) }
-        toast(if (starring) "Added to Starred" else "Removed from Starred")
+        toast(if (starring) str(com.droid.wayfinder.R.string.toast_added_to_starred) else str(com.droid.wayfinder.R.string.toast_removed_from_starred))
     }
 
     fun toggleTag(tag: ColorTag, paths: List<String> = markTargets()) {
@@ -1106,16 +1109,16 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun togglePins(paths: List<String> = markTargets()) {
         val valid = paths.filter { !FsPath.isVirtual(it) }
         if (valid.isEmpty()) return
-        if (valid.any { FsPath.isZip(it) }) { toast("Items inside archives can't be pinned"); return }
+        if (valid.any { FsPath.isZip(it) }) { toast(str(com.droid.wayfinder.R.string.toast_archive_pin_unsupported)); return }
         val cur = _state.value.pins
         if (valid.all { it in cur }) {
             val next = cur.filter { it !in valid.toSet() }
             setPins(next)
-            toast(if (valid.size == 1) "Unpinned ${FsPath.name(valid[0])}" else "Unpinned ${valid.size} items")
+            toast(if (valid.size == 1) str(com.droid.wayfinder.R.string.toast_unpinned_single, FsPath.name(valid[0])) else icuStr(com.droid.wayfinder.R.string.toast_unpinned_many_plural, valid.size))
         } else {
             val added = valid.filter { it !in cur }
             setPins(cur + added)
-            toast(if (added.size == 1) "Pinned ${FsPath.name(added[0])}" else "Pinned ${added.size} items")
+            toast(if (added.size == 1) str(com.droid.wayfinder.R.string.toast_pinned_single, FsPath.name(added[0])) else icuStr(com.droid.wayfinder.R.string.toast_pinned_many_plural, added.size))
         }
     }
 
@@ -1123,7 +1126,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (path in _state.value.pins || FsPath.isVirtual(path)) return
         if (FsPath.isZip(path)) { toast("Folders inside archives can't be pinned"); return }
         setPins(_state.value.pins + path)
-        toast("Pinned ${FsPath.name(path)}")
+        toast(str(com.droid.wayfinder.R.string.toast_pinned_single, FsPath.name(path)))
     }
 
     fun unpin(path: String) {
@@ -1215,9 +1218,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private fun clip(cut: Boolean) {
         val p = selectionPaths().filter { !FsPath.isVirtual(it) }
         if (p.isEmpty()) return
-        if (cut && p.any { FsPath.isZip(it) }) { toast("Items in an archive can only be copied"); return }
+        if (cut && p.any { FsPath.isZip(it) }) { toast(str(com.droid.wayfinder.R.string.toast_archive_copy_only)); return }
         _state.update { it.copy(clipboard = Clipboard(p, cut)) }
-        toast(if (cut) "${p.size} item(s) ready to move" else "${p.size} item(s) copied")
+        toast(if (cut) icuStr(com.droid.wayfinder.R.string.toast_clipboard_cut_plural, p.size) else icuStr(com.droid.wayfinder.R.string.toast_clipboard_copy_plural, p.size))
     }
 
     fun paste() {
@@ -1225,7 +1228,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val dest = if (tab.path == FsPath.PHONE_ROOT) {
             quickShareDir().absolutePath
         } else tab.path
-        if (FsPath.isReadOnly(dest) || trash.isInTrash(dest)) { toast(if (FsPath.isZip(dest)) "Archives are read-only" else "Can't paste here"); return }
+        if (FsPath.isReadOnly(dest) || trash.isInTrash(dest)) { toast(if (FsPath.isZip(dest)) str(com.droid.wayfinder.R.string.toast_archives_read_only) else str(com.droid.wayfinder.R.string.toast_cannot_paste_here)); return }
         transferWithPrompt(c.paths, dest, move = c.cut)
     }
 
@@ -1233,11 +1236,11 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         // Dropping onto Starred or a color tag marks the items instead of moving them.
         if (targetDir == FsPath.STARRED_ROOT) {
             SharedUi.updateMarks { m -> m.copy(starred = m.starred + paths) }
-            toast("Added to Starred"); return
+            toast(str(com.droid.wayfinder.R.string.toast_added_to_starred)); return
         }
         FsPath.tagOf(targetDir)?.let { t ->
             SharedUi.updateMarks { m -> m.copy(tags = m.tags + paths.associateWith { p -> m.tagsOf(p) + t }) }
-            toast("Tagged ${t.label}"); return
+            toast(str(com.droid.wayfinder.R.string.toast_tagged_color, t.label)); return
         }
         if (targetDir == FsPath.TRASH_ROOT) {
             val local = paths.filter { !FsPath.isRemote(it) && !trash.isInTrash(it) }
@@ -1248,7 +1251,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             quickShareDir().absolutePath
         } else targetDir
         val real = paths.filter { p -> FsPath.parent(p) != dest && !FsPath.isWithin(p, dest) }
-        if (FsPath.isZip(dest)) { toast("Archives are read-only"); return }
+        if (FsPath.isZip(dest)) { toast(str(com.droid.wayfinder.R.string.toast_archives_read_only)); return }
         if (real.isEmpty() || FsPath.isVirtual(dest) || trash.isInTrash(dest)) return
         // Items dragged out of an archive are always copied.
         transferWithPrompt(real, dest, move = !copy && real.none { FsPath.isZip(it) })
@@ -1270,7 +1273,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     private fun runTransfer(sources: List<String>, dest: String, move: Boolean, how: Conflict) {
-        launchOp(if (move) "Moving" else "Copying", { report -> ops.transfer(sources, dest, move, how, report) }) { res ->
+        launchOp(if (move) str(com.droid.wayfinder.R.string.op_moving) else str(com.droid.wayfinder.R.string.op_copying), { report -> ops.transfer(sources, dest, move, how, report) }) { res ->
             if (res.isNotEmpty()) {
                 record(if (move) Undo.Moves(res) else Undo.Created(res.map { it.target }))
                 if (move) remapMarks(res.map { it.source to it.target })
@@ -1286,7 +1289,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun requestDelete(permanent: Boolean = false) {
         val paths = selectionPaths()
         if (paths.isEmpty()) return
-        if (paths.any { FsPath.isZip(it) }) { toast("Archives are read-only"); return }
+        if (paths.any { FsPath.isZip(it) }) { toast(str(com.droid.wayfinder.R.string.toast_archives_read_only)); return }
         val p = tab.path
         // Network and provider items can't go to the local Trash.
         val mustBePermanent = permanent || FsPath.isRemote(p) || paths.any { FsPath.isRemote(it) } || trash.isInTrash(p)
@@ -1294,25 +1297,29 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     private fun moveToTrash(paths: List<String>) {
-        launchOp("Moving to Trash", { _ -> trash.moveToTrash(paths) }) { res ->
+        launchOp(str(com.droid.wayfinder.R.string.op_moving_to_trash), { _ -> trash.moveToTrash(paths) }) { res ->
             record(Undo.TrashOp(res))
-            toast(if (res.size == 1) "Moved \"${FsPath.name(res[0].original)}\" to Trash" else "Moved ${res.size} items to Trash", undo = true)
+            toast(
+                if (res.size == 1) str(com.droid.wayfinder.R.string.toast_moved_single_to_trash, FsPath.name(res[0].original))
+                else icuStr(com.droid.wayfinder.R.string.toast_moved_many_to_trash_plural, res.size),
+                undo = true,
+            )
         }
     }
 
     fun confirmDelete(paths: List<String>) {
         dismissDialog()
-        launchOp("Deleting", { report ->
+        launchOp(str(com.droid.wayfinder.R.string.op_deleting), { report ->
             paths.forEach { p -> if (trash.isInTrash(p)) trash.deletePermanently(p) else ops.deletePermanently(listOf(p), report) }
         })
     }
 
     fun restoreFromTrash() {
         val paths = selectionPaths()
-        launchOp("Restoring", { _ -> paths.map { trash.restore(it) } }) { toast("Restored ${it.size} item(s)") }
+        launchOp(str(com.droid.wayfinder.R.string.op_restoring), { _ -> paths.map { trash.restore(it) } }) { toast(icuStr(com.droid.wayfinder.R.string.toast_restored_plural, it.size)) }
     }
 
-    fun emptyTrash() { launchOp("Emptying Trash", { _ -> trash.empty() }) { toast("Trash emptied") } }
+    fun emptyTrash() { launchOp(str(com.droid.wayfinder.R.string.op_emptying_trash), { _ -> trash.empty() }) { toast(str(com.droid.wayfinder.R.string.toast_trash_emptied)) } }
 
     fun requestRename() {
         val e = tab.selectedEntries(hidden).singleOrNull() ?: tab.focused?.let { f -> tab.visible(hidden).firstOrNull { it.path == f } } ?: return
@@ -1325,7 +1332,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val name = newName.trim()
         if (name.isEmpty() || name == FsPath.name(path)) return
         FsPath.nameError(name)?.let { toast(it); return }
-        launchOp("Renaming", { _ -> repo.fs(path).rename(path, name) }) { to ->
+        launchOp(str(com.droid.wayfinder.R.string.op_renaming), { _ -> repo.fs(path).rename(path, name) }) { to ->
             record(Undo.Renames(listOf(path to to)))
             remapMarks(listOf(path to to))
             updateTab(tab.id) { it.copy(selection = setOf(to), focused = to, anchor = to) }
@@ -1345,15 +1352,15 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun batchRename(dir: String, plan: List<RenamePlan>) {
         dismissDialog()
         if (plan.any { it.changed && (it.conflict != null || FsPath.nameError(it.new) != null || !FsPath.isSafeName(it.old)) }) {
-            toast("Some new names aren't valid"); return
+            toast(str(com.droid.wayfinder.R.string.toast_invalid_batch_names)); return
         }
         val pairs = plan.filter { it.changed }.map { FsPath.child(dir, it.old) to FsPath.child(dir, it.new) }
         if (pairs.isEmpty()) return
-        launchOp("Renaming", { _ -> applyRenames(pairs) }) { done ->
+        launchOp(str(com.droid.wayfinder.R.string.op_renaming), { _ -> applyRenames(pairs) }) { done ->
             record(Undo.Renames(done))
             val targets = done.map { it.second }.toSet()
             updateTab(tab.id) { it.copy(selection = targets) }
-            toast("Renamed ${done.size} item(s)")
+            toast(icuStr(com.droid.wayfinder.R.string.toast_renamed_plural, done.size))
         }
     }
 
@@ -1380,7 +1387,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }
         val err = error
         if (err != null && out.isEmpty()) throw err
-        error?.let { toast(it.message ?: "Some items couldn't be renamed") }
+        error?.let { toast(it.message ?: str(com.droid.wayfinder.R.string.toast_rename_partial_error)) }
         remapMarks(out)
         return out
     }
@@ -1461,16 +1468,16 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun shareWithLinux() {
         val linuxDest = _state.value.linuxRootPath ?: GooglebookEcosystem.discoverLinuxRoot(app, primary)?.path
         if (linuxDest == null) {
-            toast("Linux development environment is not enabled")
+            toast(str(com.droid.wayfinder.R.string.toast_linux_not_enabled))
             return
         }
         val sources = selectionPaths().filter { !FsPath.isVirtual(it) }
         if (sources.isEmpty()) {
-            toast("Select items to copy to Linux files")
+            toast(str(com.droid.wayfinder.R.string.toast_select_items_for_linux))
             return
         }
         if (tab.path == linuxDest) {
-            toast("Already in Linux files")
+            toast(str(com.droid.wayfinder.R.string.toast_already_in_linux))
             return
         }
         transferWithPrompt(sources, linuxDest, move = false)
@@ -1479,7 +1486,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     /** Switches to the selected managed Work / Personal profile via [CrossProfileApps]. */
     fun openWorkProfile(target: WorkProfileTarget) {
         if (!GooglebookEcosystem.switchToWorkProfile(app, target)) {
-            toast("Unable to switch to ${target.label}")
+            toast(str(com.droid.wayfinder.R.string.toast_unable_switch_profile, target.label))
         }
     }
 
@@ -1542,9 +1549,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val destDir = if (dest == FsPath.PHONE_ROOT) {
             quickShareDir().absolutePath
         } else dest
-        if (FsPath.isReadOnly(destDir) || trash.isInTrash(destDir)) { toast("Can't copy files here"); onDone(); return }
+        if (FsPath.isReadOnly(destDir) || trash.isInTrash(destDir)) { toast(str(com.droid.wayfinder.R.string.toast_cannot_copy_here)); onDone(); return }
         val cr = app.contentResolver
-        launchOp("Importing", { report ->
+        launchOp(str(com.droid.wayfinder.R.string.op_importing), { report ->
             val out = ArrayList<String>()
             try {
                 uris.forEachIndexed { i, uri ->
@@ -1687,7 +1694,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     /** "Connect & Mount": remembers the server (alias, credentials), shows it in the sidebar and opens it. */
     fun connectMount(cfg: ConnectConfig) {
         val addr = cfg.address
-        if (!RemoteUri.isValidHost(addr.host)) { toast("Enter a valid server address, e.g. smb://nas/media"); return }
+        if (!RemoteUri.isValidHost(addr.host)) { toast(str(com.droid.wayfinder.R.string.toast_invalid_server_address)); return }
         dismissDialog()
         val cred = effectiveCred(cfg)
         servers.save(
@@ -1756,7 +1763,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (m.saf) unmountSaf(m.key) else { servers.setMounted(m.key, false); disconnectKey(m.key) }
         leave(m.path)
         refreshMounts()
-        toast(if (m.saf) "Unmounted ${m.label}" else "Disconnected ${m.label}")
+        toast(if (m.saf) str(com.droid.wayfinder.R.string.toast_unmounted_label, m.label) else str(com.droid.wayfinder.R.string.toast_disconnected_label, m.label))
     }
 
     /** Forget: removes the mount and any remembered credentials. */
@@ -1866,7 +1873,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             settings.safMounts = safMounts
             refreshMounts()
             navigate(m.path)
-            toast("Mounted $label")
+            toast(str(com.droid.wayfinder.R.string.toast_mounted_label, label))
         }
     }
 
@@ -1917,7 +1924,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (p.mode != com.droid.wayfinder.data.PickerMode.OpenTree) return
         val folder = targetTreeFolder()
         if (!canPickFolder(folder)) {
-            toast("Select a local or document folder"); return
+            toast(str(com.droid.wayfinder.R.string.toast_select_tree_folder)); return
         }
         val uri = com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(
             path = folder,

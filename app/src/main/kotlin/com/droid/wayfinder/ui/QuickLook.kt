@@ -65,6 +65,7 @@ import coil3.request.ImageRequest
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
+import com.droid.wayfinder.R
 import com.droid.wayfinder.data.Checksums
 import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FileInfo
@@ -169,10 +170,15 @@ private fun FolderPreview(vm: BrowserViewModel, e: FileEntry) {
     val k = kids
     when {
         k == null -> CircularProgressIndicator()
-        k.isEmpty() -> Placeholder(e, "This folder is empty")
+        k.isEmpty() -> Placeholder(e, androidx.compose.ui.res.stringResource(R.string.quicklook_empty_folder))
         else -> Column(Modifier.fillMaxSize()) {
             Text(
-                "${k.size} item(s)  ·  ${k.count { it.isDir }} folder(s)", Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp),
+                androidx.compose.ui.res.stringResource(
+                    R.string.quicklook_folder_summary,
+                    icuStringResource(R.string.item_count_plural, k.size),
+                    icuStringResource(R.string.folder_count_plural, k.count { it.isDir }),
+                ),
+                Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp),
                 style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant,
             )
             LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
@@ -200,7 +206,12 @@ private fun ZipPreview(e: FileEntry) {
     val l = r.getOrNull() ?: run { BinaryPreview(e, "Couldn't read this archive: ${r.exceptionOrNull()?.message}"); return }
     Column(Modifier.fillMaxSize()) {
         Text(
-            "${l.total} entries  ·  ${formatSize(l.bytes)} uncompressed  ·  Enter to browse", Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp),
+            androidx.compose.ui.res.stringResource(
+                R.string.quicklook_archive_summary,
+                icuStringResource(R.string.archive_entry_count_plural, l.total),
+                formatSize(l.bytes),
+            ),
+            Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp),
             style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant,
         )
         LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
@@ -232,7 +243,7 @@ private fun BinaryPreview(e: FileEntry, message: String = "No preview available 
     Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Icon(e.icon(), null, Modifier.size(96.dp), tint = e.tint())
         Text(message, style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
-        Text("${formatSize(e.size)}  (${"%,d".format(e.size)} bytes)", style = MaterialTheme.typography.bodyMedium)
+        Text("${formatSize(e.size)}  (${icuStringResource(R.string.byte_count_plural, e.size)})", style = MaterialTheme.typography.bodyMedium)
         val r = sums
         when {
             r == null -> Text(

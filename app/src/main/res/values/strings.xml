@@ -9,11 +9,295 @@
     <string name="nav_recents" description="Navigation item label in the sidebar and breadcrumb bar for recently modified files. [CHAR_LIMIT=20]">Recents</string>
     <string name="nav_starred" description="Navigation item label in the sidebar and breadcrumb bar for user-starred files and folders. [CHAR_LIMIT=20]">Starred</string>
     <string name="nav_trash" description="Navigation item label in the sidebar and breadcrumb bar for the Trash bin. [CHAR_LIMIT=20]">Trash</string>
-    <string name="search_placeholder" description="Placeholder text shown inside the toolbar search input field. [CHAR_LIMIT=32]">Search files</string>
+    <string name="search_placeholder" description="Accessibility label for the toolbar search input field used to filter files by name. [CHAR_LIMIT=32]">Search files</string>
     <string name="search_files_placeholder" description="Placeholder hint text inside the top toolbar search input field when empty. [CHAR_LIMIT=25]">Search files</string>
     <string name="sort_button_label" description="Button label in the top toolbar that opens the file sorting menu (verb/noun action to sort files). [CHAR_LIMIT=15]">Sort</string>
     <string name="details_pane_title" description="Header title at the top of the right-hand file details and preview pane. [CHAR_LIMIT=20]">Details</string>
     <string name="item_count_plural" description="Status bar and properties dialog item count summary. {0} is the number of files/folders (e.g. 1, 42). [CHAR_LIMIT=30] applies across all plural branch variants.">{0, plural, =1 {# item} other {# items}}</string>
     <string name="selected_count_plural" description="Status bar and preview pane summary of currently selected items. {0} is the number of selected items (e.g. 1, 12). [CHAR_LIMIT=35] applies across all plural branch variants.">{0, plural, =1 {# selected} other {# selected}}</string>
     <string name="search_result_count_plural" description="Search filter bar count of matching files found. {0} is the number of matching results (e.g. 1, 150). [CHAR_LIMIT=30] applies across all plural branch variants.">{0, plural, =1 {# result} other {# results}}</string>
+    <string name="byte_count_plural" description="Exact file size in bytes shown inside parentheses in the Properties dialog and Quick Look binary preview. {0} is the integer byte count (e.g. 1, 1048576). [CHAR_LIMIT=40] applies across all plural branch variants.">{0, plural, =1 {# byte} other {# bytes}}</string>
+    <string name="status_searching" description="Progress indicator text appended to the bottom status bar while a folder search is actively running. [CHAR_LIMIT=25]">Searching…</string>
+    <string name="properties_calculating" description="Placeholder value shown in the Size row of the Properties dialog while folder byte size is still being computed. [CHAR_LIMIT=25]">Calculating…</string>
+    <string name="empty_folder_title" description="Centered heading shown inside the file list pane when the current folder contains zero items. [CHAR_LIMIT=40]">No files in this folder</string>
+    <string name="empty_trash_title" description="Centered heading shown inside the file list pane when the Trash folder contains zero deleted items. [CHAR_LIMIT=30]">Trash is empty</string>
+    <string name="empty_recents_title" description="Centered heading shown inside the file list pane when Recents has no recently modified files. [CHAR_LIMIT=30]">No recent files</string>
+    <string name="empty_starred_title" description="Centered heading shown inside the file list pane when the user has not starred any files or folders yet. [CHAR_LIMIT=30]">No starred items</string>
+    <string name="empty_search_title" description="Centered heading shown inside the file list pane when a search query matches zero files. [CHAR_LIMIT=25]">No results</string>
+
+    <!-- Shared actions, context menus, and command palette -->
+    <string name="action_open" description="Context menu item (verb action) to open the selected file or folder. [CHAR_LIMIT=20]">Open</string>
+    <string name="action_open_in_new_tab" description="Context menu item (verb action) to open a folder in a new browser tab. [CHAR_LIMIT=35]">Open in new tab</string>
+    <string name="action_open_in_new_window" description="Context menu and command palette action to open a folder in a separate desktop window. [CHAR_LIMIT=35]">Open in new window</string>
+    <string name="action_open_with" description="Context menu and command palette action to choose an external app to open the selected file. [CHAR_LIMIT=25]">Open with…</string>
+    <string name="action_show_in_enclosing_folder" description="Context menu and command palette action to reveal the selected item inside its parent folder. [CHAR_LIMIT=40]">Show in enclosing folder</string>
+    <string name="action_browse_archive" description="Context menu and command palette action to open a ZIP or TAR archive as a virtual folder. [CHAR_LIMIT=30]">Browse archive</string>
+    <string name="action_extract_archive_here" description="Context menu and command palette action to unpack the selected archive into the current folder. [CHAR_LIMIT=35]">Extract archive here</string>
+    <string name="action_compress_to_zip" description="Context menu, dialog title, and command palette action to create a ZIP archive from selected items. [CHAR_LIMIT=30]">Compress to ZIP</string>
+    <string name="action_cut" description="Context menu and command palette verb action to cut selected items to the clipboard. [CHAR_LIMIT=20]">Cut</string>
+    <string name="action_copy" description="Context menu and command palette verb action to copy selected items to the clipboard. [CHAR_LIMIT=20]">Copy</string>
+    <string name="action_paste" description="Context menu and command palette verb action to paste clipboard items into the current folder. [CHAR_LIMIT=20]">Paste</string>
+    <string name="action_paste_into_folder" description="Context menu verb action when right-clicking a folder to paste clipboard items inside it. [CHAR_LIMIT=35]">Paste into folder</string>
+    <string name="action_copy_path" description="Context menu and command palette action to copy the full path of selected items to the system clipboard. [CHAR_LIMIT=25]">Copy path</string>
+    <string name="action_duplicate" description="Context menu and command palette verb action to create a copy of selected items in the same folder. [CHAR_LIMIT=25]">Duplicate</string>
+    <string name="action_copy_to_other_pane" description="Context menu and command palette action in dual-pane mode to copy selected items to the opposite pane. [CHAR_LIMIT=35]">Copy to other pane</string>
+    <string name="action_move_to_other_pane" description="Context menu and command palette action in dual-pane mode to move selected items to the opposite pane. [CHAR_LIMIT=35]">Move to other pane</string>
+    <string name="action_rename" description="Context menu, dialog title, confirm button, and command palette verb action to rename an item. [CHAR_LIMIT=20]">Rename</string>
+    <string name="menu_batch_rename_plural" description="Context menu item to batch-rename multiple selected items. {0} is the selected item count (e.g. 2, 15). [CHAR_LIMIT=40] applies across all plural branch variants.">{0, plural, =1 {Batch rename # item…} other {Batch rename # items…}}</string>
+    <string name="action_share" description="Context menu verb action to share selected local files via the Android share sheet. [CHAR_LIMIT=20]">Share</string>
+    <string name="action_copy_to_linux_files" description="Context menu and command palette action to copy selected items into the Googlebook Linux development environment. [CHAR_LIMIT=35]">Copy to Linux files</string>
+    <string name="action_add_to_starred" description="Context menu action to star selected files or folders. [CHAR_LIMIT=30]">Add to Starred</string>
+    <string name="action_remove_from_starred" description="Context menu action to unstar selected files or folders. [CHAR_LIMIT=35]">Remove from Starred</string>
+    <string name="action_pin_to_sidebar" description="Context menu action to pin a folder or file to the Pinned sidebar section. [CHAR_LIMIT=30]">Pin to sidebar</string>
+    <string name="action_unpin_from_sidebar" description="Context menu action to remove a folder or file from the Pinned sidebar section. [CHAR_LIMIT=35]">Unpin from sidebar</string>
+    <string name="action_move_up" description="Sidebar context menu action to move a pinned item one position higher. [CHAR_LIMIT=20]">Move up</string>
+    <string name="action_move_down" description="Sidebar context menu action to move a pinned item one position lower. [CHAR_LIMIT=20]">Move down</string>
+    <string name="action_remove_server" description="Sidebar context menu action to remove a saved SMB server entry. [CHAR_LIMIT=30]">Remove server</string>
+    <string name="action_edit_connection" description="Sidebar mount context menu action to edit saved server connection settings. [CHAR_LIMIT=30]">Edit connection…</string>
+    <string name="action_unmount" description="Sidebar context menu action to unmount a Storage Access Framework folder mount. [CHAR_LIMIT=20]">Unmount</string>
+    <string name="action_disconnect" description="Sidebar context menu action to disconnect an active network server mount. [CHAR_LIMIT=25]">Disconnect</string>
+    <string name="action_forget" description="Sidebar context menu action to forget a saved server or cloud mount and clear stored credentials. [CHAR_LIMIT=20]">Forget</string>
+    <string name="action_duplicate_tab" description="Tab strip right-click menu action to duplicate the clicked tab. [CHAR_LIMIT=30]">Duplicate tab</string>
+    <string name="action_close_tab" description="Tab strip right-click menu and command palette action to close a tab. [CHAR_LIMIT=25]">Close tab</string>
+    <string name="action_close_other_tabs" description="Tab strip right-click menu action to close every tab except the clicked one. [CHAR_LIMIT=30]">Close other tabs</string>
+    <string name="action_browse_drive_rest" description="Google Drive sidebar menu action to browse My Drive directly. [CHAR_LIMIT=40]">Browse My Drive (REST API)</string>
+    <string name="action_mount_drive_saf" description="Google Drive sidebar menu action to mount a Drive folder via Android Storage Access Framework. [CHAR_LIMIT=45]">Mount folder via picker (SAF)…</string>
+    <string name="action_connect_phone_saf" description="Connected phone sidebar menu action to mount phone storage via Android Storage Access Framework. [CHAR_LIMIT=45]">Connect phone storage (SAF)…</string>
+    <string name="action_quick_share_folder" description="Connected phone sidebar menu action to open the local Quick Share downloads folder. [CHAR_LIMIT=35]">Quick Share folder</string>
+    <string name="action_phone_hub_settings" description="Connected phone sidebar menu action to open system Cross-Device / Phone Hub settings. [CHAR_LIMIT=35]">Phone Hub settings</string>
+    <string name="action_restore" description="Trash context menu verb action to restore selected items from Trash to their original location. [CHAR_LIMIT=20]">Restore</string>
+    <string name="action_delete" description="Context menu and dialog confirm button verb action to delete selected items. [CHAR_LIMIT=20]">Delete</string>
+    <string name="action_delete_permanently" description="Context menu and command palette action to permanently delete items without using Trash. [CHAR_LIMIT=35]">Delete permanently</string>
+    <string name="action_empty_trash" description="Context menu and command palette action to permanently delete all items currently in Trash. [CHAR_LIMIT=25]">Empty Trash</string>
+    <string name="action_properties" description="Context menu and command palette noun/action to open the file Properties dialog. [CHAR_LIMIT=25]">Properties</string>
+    <string name="action_select_all" description="Context menu and command palette action to select every item in the current folder. [CHAR_LIMIT=25]">Select all</string>
+    <string name="action_refresh" description="Context menu and command palette verb action to reload the current folder listing. [CHAR_LIMIT=20]">Refresh</string>
+    <string name="action_connect_to_server_ellipsis" description="Background context menu action on Network view to open the Connect to Server dialog. [CHAR_LIMIT=35]">Connect to server…</string>
+    <string name="action_rescan_network" description="Background context menu action on Network view to rescan local-network SMB servers. [CHAR_LIMIT=30]">Rescan network</string>
+    <string name="action_new_folder" description="Context menu, dialog title, default folder name, and command palette action to create a new folder. [CHAR_LIMIT=25]">New folder</string>
+    <string name="action_new_text_file" description="Context menu and command palette action to create a new empty text file. [CHAR_LIMIT=25]">New text file</string>
+    <string name="action_undo" description="Context menu and command palette verb action to undo the previous file operation. [CHAR_LIMIT=20]">Undo</string>
+    <string name="action_redo" description="Context menu and command palette verb action to redo the previously undone file operation. [CHAR_LIMIT=20]">Redo</string>
+    <string name="action_details_view" description="Context menu and command palette action to switch to the tabular Details view mode. [CHAR_LIMIT=25]">Details view</string>
+    <string name="action_list_view" description="Context menu and command palette action to switch to the compact List view mode. [CHAR_LIMIT=25]">List view</string>
+    <string name="action_grid_view" description="Context menu and command palette action to switch to the icon/thumbnail Grid view mode. [CHAR_LIMIT=25]">Grid view</string>
+    <string name="action_columns_view" description="Context menu and command palette action to switch to Miller Columns view mode. [CHAR_LIMIT=25]">Columns view</string>
+    <string name="action_dual_pane" description="Context menu and command palette action to enable side-by-side dual-pane mode. [CHAR_LIMIT=25]">Dual pane</string>
+    <string name="action_close_dual_pane" description="Context menu and command palette action to close the second pane and return to single-pane mode. [CHAR_LIMIT=30]">Close dual pane</string>
+    <string name="action_back" description="Submenu navigation item and command palette action to go back. [CHAR_LIMIT=18]">Back</string>
+    <string name="action_cancel" description="Button label in modal dialogs to cancel and dismiss without applying changes. [CHAR_LIMIT=18]">Cancel</string>
+    <string name="action_close" description="Button label in informational dialogs (Properties, Shortcuts, About) to close the dialog. [CHAR_LIMIT=18]">Close</string>
+    <string name="action_create" description="Confirm button label in the New folder / New file dialog to create the item. [CHAR_LIMIT=18]">Create</string>
+    <string name="action_compress" description="Confirm button label in the Compress to ZIP dialog to start archiving. [CHAR_LIMIT=20]">Compress</string>
+    <string name="action_apply" description="Confirm button label in the Batch Rename dialog to apply planned renames. [CHAR_LIMIT=18]">Apply</string>
+    <string name="action_replace" description="Conflict resolution dialog button to overwrite existing destination files. [CHAR_LIMIT=20]">Replace</string>
+    <string name="action_keep_both" description="Conflict resolution dialog button to keep both files by renaming the incoming copy. [CHAR_LIMIT=25]">Keep both</string>
+    <string name="action_skip" description="Conflict resolution dialog button to skip conflicting items. [CHAR_LIMIT=18]">Skip</string>
+    <string name="action_sign_in" description="Confirm button label in the server authentication dialog to sign in. [CHAR_LIMIT=20]">Sign in</string>
+
+    <!-- Command palette UI & descriptions -->
+    <string name="palette_placeholder" description="Placeholder prompt inside the Ctrl+K command palette input box when empty. [CHAR_LIMIT=50]">Type a command or jump to folder…</string>
+    <string name="palette_empty" description="Message shown inside the command palette when no commands or folders match the search query. [CHAR_LIMIT=50]">No matching commands or folders</string>
+    <string name="palette_new_tab" description="Command palette command title to open a new browser tab. [CHAR_LIMIT=25]">New tab</string>
+    <string name="palette_new_tab_desc" description="Command palette subtitle describing the New tab command. [CHAR_LIMIT=35]">Open a new tab</string>
+    <string name="palette_close_tab_desc" description="Command palette subtitle describing the Close tab command. [CHAR_LIMIT=35]">Close the current tab</string>
+    <string name="palette_reopen_closed_tab" description="Command palette command title to reopen the most recently closed tab. [CHAR_LIMIT=35]">Reopen closed tab</string>
+    <string name="palette_reopen_closed_tab_desc" description="Command palette subtitle describing Reopen closed tab. [CHAR_LIMIT=45]">Bring back the last closed tab</string>
+    <string name="palette_new_folder_desc" description="Command palette subtitle describing New folder. [CHAR_LIMIT=35]">Create a folder here</string>
+    <string name="palette_new_text_file_desc" description="Command palette subtitle describing New text file. [CHAR_LIMIT=40]">Create an empty file here</string>
+    <string name="palette_copy_desc" description="Command palette subtitle describing Copy. [CHAR_LIMIT=50]">Copy the selection to the clipboard</string>
+    <string name="palette_cut_desc" description="Command palette subtitle describing Cut. [CHAR_LIMIT=35]">Cut the selection</string>
+    <string name="palette_paste_desc" description="Command palette subtitle describing Paste. [CHAR_LIMIT=45]">Paste into the current folder</string>
+    <string name="palette_duplicate_desc" description="Command palette subtitle describing Duplicate. [CHAR_LIMIT=45]">Make a copy next to the original</string>
+    <string name="palette_rename_desc" description="Command palette subtitle describing Rename. [CHAR_LIMIT=40]">Rename the selected item</string>
+    <string name="palette_batch_rename" description="Command palette command title to open the Batch rename dialog. [CHAR_LIMIT=30]">Batch rename</string>
+    <string name="palette_batch_rename_desc" description="Command palette subtitle describing Batch rename. [CHAR_LIMIT=45]">Rename several items at once</string>
+    <string name="palette_move_to_trash" description="Command palette command title to move selected items to Trash. [CHAR_LIMIT=30]">Move to Trash</string>
+    <string name="palette_move_to_trash_desc" description="Command palette subtitle describing Move to Trash. [CHAR_LIMIT=35]">Delete the selection</string>
+    <string name="palette_delete_permanently_desc" description="Command palette subtitle describing Delete permanently. [CHAR_LIMIT=45]">Delete without using the Trash</string>
+    <string name="palette_compress_desc" description="Command palette subtitle describing Compress to ZIP. [CHAR_LIMIT=50]">Create an archive from the selection</string>
+    <string name="palette_copy_path_desc" description="Command palette subtitle describing Copy path. [CHAR_LIMIT=45]">Copy the path of the selection</string>
+    <string name="palette_properties_desc" description="Command palette subtitle describing Properties. [CHAR_LIMIT=35]">Show size and details</string>
+    <string name="palette_undo_desc" description="Command palette subtitle describing Undo. [CHAR_LIMIT=45]">Undo the last file operation</string>
+    <string name="palette_redo_desc" description="Command palette subtitle describing Redo. [CHAR_LIMIT=45]">Redo the last undone operation</string>
+    <string name="palette_select_all_desc" description="Command palette subtitle describing Select all. [CHAR_LIMIT=35]">Select every item</string>
+    <string name="palette_invert_selection" description="Command palette command title to invert the current file selection. [CHAR_LIMIT=30]">Invert selection</string>
+    <string name="palette_invert_selection_desc" description="Command palette subtitle describing Invert selection. [CHAR_LIMIT=55]">Select everything that isn\'t selected</string>
+    <string name="palette_clear_selection" description="Command palette command title to clear the current selection. [CHAR_LIMIT=30]">Clear selection</string>
+    <string name="palette_clear_selection_desc" description="Command palette subtitle describing Clear selection. [CHAR_LIMIT=35]">Deselect everything</string>
+    <string name="palette_details_view_desc" description="Command palette subtitle describing Details view. [CHAR_LIMIT=35]">Show items in a table</string>
+    <string name="palette_grid_view_desc" description="Command palette subtitle describing Grid view. [CHAR_LIMIT=35]">Show items as icons</string>
+    <string name="palette_columns_view_desc" description="Command palette subtitle describing Columns view. [CHAR_LIMIT=40]">Browse with Miller columns</string>
+    <string name="palette_list_view_desc" description="Command palette subtitle describing List view. [CHAR_LIMIT=40]">Show items in a compact list</string>
+    <string name="palette_dual_pane_desc" description="Command palette subtitle describing Dual pane. [CHAR_LIMIT=40]">Two folders side by side</string>
+    <string name="palette_switch_pane" description="Command palette command title to focus the opposite pane in dual-pane mode. [CHAR_LIMIT=25]">Switch pane</string>
+    <string name="palette_switch_pane_desc" description="Command palette subtitle describing Switch pane. [CHAR_LIMIT=35]">Focus the other pane</string>
+    <string name="palette_copy_other_pane_desc" description="Command palette subtitle describing Copy to other pane. [CHAR_LIMIT=60]">Copy the selection to the other pane\'s folder</string>
+    <string name="palette_move_other_pane_desc" description="Command palette subtitle describing Move to other pane. [CHAR_LIMIT=60]">Move the selection to the other pane\'s folder</string>
+    <string name="palette_show_hidden_files" description="Command palette command title to toggle visibility of dotfiles / hidden files. [CHAR_LIMIT=35]">Show hidden files</string>
+    <string name="palette_currently_shown" description="Command palette subtitle indicating hidden files are currently visible. [CHAR_LIMIT=30]">Currently shown</string>
+    <string name="palette_currently_hidden" description="Command palette subtitle indicating hidden files are currently hidden. [CHAR_LIMIT=30]">Currently hidden</string>
+    <string name="palette_toggle_sidebar" description="Command palette command title to show or hide the left navigation sidebar. [CHAR_LIMIT=30]">Toggle sidebar</string>
+    <string name="palette_toggle_sidebar_desc" description="Command palette subtitle describing Toggle sidebar. [CHAR_LIMIT=40]">Show or hide the sidebar</string>
+    <string name="palette_toggle_details_pane" description="Command palette command title to show or hide the right-hand details pane. [CHAR_LIMIT=35]">Toggle details pane</string>
+    <string name="palette_toggle_details_pane_desc" description="Command palette subtitle describing Toggle details pane. [CHAR_LIMIT=45]">Show or hide the preview pane</string>
+    <string name="palette_back_desc" description="Command palette subtitle describing Back navigation. [CHAR_LIMIT=40]">Go to the previous folder</string>
+    <string name="palette_forward" description="Command palette command title to navigate forward in folder history. [CHAR_LIMIT=20]">Forward</string>
+    <string name="palette_forward_desc" description="Command palette subtitle describing Forward navigation. [CHAR_LIMIT=35]">Go to the next folder</string>
+    <string name="palette_up_one_level" description="Command palette command title to navigate to the parent folder. [CHAR_LIMIT=25]">Up one level</string>
+    <string name="palette_up_one_level_desc" description="Command palette subtitle describing Up one level. [CHAR_LIMIT=35]">Go to the parent folder</string>
+    <string name="palette_refresh_desc" description="Command palette subtitle describing Refresh. [CHAR_LIMIT=40]">Reload the current folder</string>
+    <string name="palette_edit_address" description="Command palette command title to focus and edit the path address bar. [CHAR_LIMIT=25]">Edit address</string>
+    <string name="palette_edit_address_desc" description="Command palette subtitle describing Edit address. [CHAR_LIMIT=25]">Type a path</string>
+    <string name="palette_search" description="Command palette command title to focus the toolbar file search field. [CHAR_LIMIT=20]">Search</string>
+    <string name="palette_search_desc" description="Command palette subtitle describing Search. [CHAR_LIMIT=45]">Search this folder and subfolders</string>
+    <string name="palette_pin_selection" description="Command palette command title to pin multiple selected items. [CHAR_LIMIT=30]">Pin selection</string>
+    <string name="palette_unpin_selection" description="Command palette command title to unpin multiple selected items. [CHAR_LIMIT=30]">Unpin selection</string>
+    <string name="palette_pin_file" description="Command palette command title to pin a single selected file. [CHAR_LIMIT=25]">Pin file</string>
+    <string name="palette_unpin_file" description="Command palette command title to unpin a single selected file. [CHAR_LIMIT=25]">Unpin file</string>
+    <string name="palette_pin_folder" description="Command palette command title to pin the current or selected folder. [CHAR_LIMIT=25]">Pin folder</string>
+    <string name="palette_unpin_folder" description="Command palette command title to unpin the current or selected folder. [CHAR_LIMIT=25]">Unpin folder</string>
+    <string name="palette_pin_desc" description="Command palette subtitle describing pin/unpin sidebar commands. [CHAR_LIMIT=45]">Pin or unpin in the sidebar</string>
+    <string name="palette_connect_server" description="Command palette command title to open the Connect to server dialog. [CHAR_LIMIT=35]">Connect to server</string>
+    <string name="palette_connect_server_desc" description="Command palette subtitle describing Connect to server. [CHAR_LIMIT=40]">SMB, WebDAV or FTP location</string>
+    <string name="palette_mount_provider" description="Command palette command title to mount a cloud or external storage provider via SAF. [CHAR_LIMIT=45]">Mount cloud / storage provider</string>
+    <string name="palette_mount_provider_desc" description="Command palette subtitle describing Mount cloud / storage provider. [CHAR_LIMIT=55]">Google Drive, USB, … via the system picker</string>
+    <string name="palette_network" description="Command palette command title to navigate to the Network discovery view. [CHAR_LIMIT=20]">Network</string>
+    <string name="palette_network_desc" description="Command palette subtitle describing Network. [CHAR_LIMIT=45]">Browse servers on your network</string>
+    <string name="palette_trash_desc" description="Command palette subtitle describing Trash navigation. [CHAR_LIMIT=30]">Open the Trash</string>
+    <string name="palette_empty_trash_desc" description="Command palette subtitle describing Empty Trash. [CHAR_LIMIT=60]">Permanently delete everything in the Trash</string>
+    <string name="palette_new_window_desc" description="Command palette subtitle describing New window. [CHAR_LIMIT=45]">Open another independent window</string>
+    <string name="palette_zoom_in" description="Command palette command title to increase UI scale. [CHAR_LIMIT=20]">Zoom in</string>
+    <string name="palette_zoom_in_desc" description="Command palette subtitle describing Zoom in. [CHAR_LIMIT=40]">Make the interface larger</string>
+    <string name="palette_zoom_out" description="Command palette command title to decrease UI scale. [CHAR_LIMIT=20]">Zoom out</string>
+    <string name="palette_zoom_out_desc" description="Command palette subtitle describing Zoom out. [CHAR_LIMIT=40]">Make the interface smaller</string>
+    <string name="palette_reset_zoom" description="Command palette command title to reset UI scale to 100%. [CHAR_LIMIT=25]">Reset zoom</string>
+    <string name="palette_reset_zoom_desc" description="Command palette subtitle for Reset zoom. %1$d is the current integer zoom percentage (e.g. 110). [CHAR_LIMIT=55]">Interface zoom back to 100%% (now %1$d%%)</string>
+    <string name="palette_cycle_theme" description="Command palette command title to cycle between Light, Dark, and System theme modes. [CHAR_LIMIT=45]">Cycle Light / Dark / System theme</string>
+    <string name="palette_cycle_theme_desc" description="Command palette subtitle showing active theme mode. %1$s is the current theme name (e.g. System). [CHAR_LIMIT=35]">Currently %1$s</string>
+    <string name="palette_locate_folder" description="Command palette command title to reveal the active folder inside the sidebar folder tree. [CHAR_LIMIT=35]">Locate active folder</string>
+    <string name="palette_locate_folder_desc" description="Command palette subtitle describing Locate active folder. [CHAR_LIMIT=60]">Reveal the current folder in the sidebar tree</string>
+    <string name="palette_collapse_tree" description="Command palette command title to collapse all expanded folders in the sidebar tree. [CHAR_LIMIT=35]">Collapse folder tree</string>
+    <string name="palette_collapse_tree_desc" description="Command palette subtitle describing Collapse folder tree. [CHAR_LIMIT=55]">Collapse every folder in the sidebar</string>
+    <string name="palette_recents_desc" description="Command palette subtitle describing Recents. [CHAR_LIMIT=45]">Files changed in the last 30 days</string>
+    <string name="palette_starred_desc" description="Command palette subtitle describing Starred. [CHAR_LIMIT=35]">Open your starred items</string>
+    <string name="palette_phone_quick_access" description="Command palette command title for connected phone quick access. [CHAR_LIMIT=35]">Phone (Quick Access)</string>
+    <string name="palette_phone_quick_access_desc" description="Command palette subtitle describing Phone (Quick Access). [CHAR_LIMIT=65]">Browse files from connected phone and Quick Share</string>
+    <string name="palette_linux_files" description="Command palette command title to open the Googlebook Linux files directory. [CHAR_LIMIT=25]">Linux files</string>
+    <string name="palette_linux_files_desc" description="Command palette subtitle describing Linux files. [CHAR_LIMIT=65]">Open the Googlebook Linux development environment</string>
+    <string name="palette_copy_linux_desc" description="Command palette subtitle describing Copy to Linux files. [CHAR_LIMIT=70]">Copy selected items to the Linux development environment</string>
+    <string name="palette_work_profile_desc" description="Command palette subtitle for switching to a managed profile. %1$s is the profile label (e.g. Work profile). [CHAR_LIMIT=60]">Switch to managed profile (%1$s)</string>
+    <string name="palette_toggle_star" description="Command palette command title to star or unstar the current selection. [CHAR_LIMIT=40]">Add to / remove from Starred</string>
+    <string name="palette_toggle_star_desc" description="Command palette subtitle describing Add to / remove from Starred. [CHAR_LIMIT=60]">Star the selection (or the current folder)</string>
+    <string name="palette_show_tags_column" description="Command palette command title to show the Tags column in Details view. [CHAR_LIMIT=30]">Show Tags column</string>
+    <string name="palette_hide_tags_column" description="Command palette command title to hide the Tags column in Details view. [CHAR_LIMIT=30]">Hide Tags column</string>
+    <string name="palette_show_perms_column" description="Command palette command title to show the Permissions column in Details view. [CHAR_LIMIT=35]">Show Permissions column</string>
+    <string name="palette_hide_perms_column" description="Command palette command title to hide the Permissions column in Details view. [CHAR_LIMIT=35]">Hide Permissions column</string>
+    <string name="palette_details_column_desc" description="Command palette subtitle for Details view column visibility toggles. [CHAR_LIMIT=35]">Details view column</string>
+    <string name="palette_open_with_desc" description="Command palette subtitle for Open with. %1$s is the selected file name (e.g. notes.pdf). [CHAR_LIMIT=50]">Choose an app for %1$s</string>
+    <string name="palette_browse_archive_desc" description="Command palette subtitle for Browse archive. %1$s is the archive file name (e.g. backup.zip). [CHAR_LIMIT=50]">Open %1$s as a folder</string>
+    <string name="palette_extract_one_desc" description="Command palette subtitle for Extract archive here on one archive. %1$s is the archive file name (e.g. archive.zip). [CHAR_LIMIT=55]">Unpack %1$s into this folder</string>
+    <string name="palette_extract_many_desc" description="Command palette subtitle for Extract archive here when multiple archives are selected. [CHAR_LIMIT=55]">Unpack selected archives into this folder</string>
+    <string name="palette_kind_storage" description="Category badge in command palette folder jump entries for storage volumes. [CHAR_LIMIT=20]">Storage</string>
+    <string name="palette_kind_current_folder" description="Category badge in command palette folder jump entries for subfolders of the active directory. [CHAR_LIMIT=25]">In this folder</string>
+
+    <!-- Dialogs & Quick Look -->
+    <string name="dialog_new_file_title" description="Dialog title when creating a new empty file. [CHAR_LIMIT=25]">New file</string>
+    <string name="dialog_new_file_default" description="Default suggested filename pre-filled in the New file dialog. [CHAR_LIMIT=25]">New file.txt</string>
+    <string name="dialog_delete_permanent_title" description="Confirmation dialog title before permanently deleting items. [CHAR_LIMIT=35]">Delete permanently?</string>
+    <string name="dialog_delete_single_message" description="Confirmation dialog body when permanently deleting a single item. %1$s is the file or folder name (e.g. report.pdf). [CHAR_LIMIT=90]">“%1$s” will be deleted and can\'t be recovered.</string>
+    <string name="dialog_delete_many_plural" description="Confirmation dialog body when permanently deleting multiple items. {0} is the item count (e.g. 3). [CHAR_LIMIT=85] applies across all plural branch variants.">{0, plural, =1 {# item will be deleted and can\'\'t be recovered.} other {# items will be deleted and can\'\'t be recovered.}}</string>
+    <string name="dialog_conflict_single_title" description="Conflict dialog title when a single destination file already exists. %1$s is the file name (e.g. photo.jpg). [CHAR_LIMIT=60]">“%1$s” already exists</string>
+    <string name="dialog_conflict_many_plural" description="Conflict dialog title when multiple destination items already exist. {0} is the count of conflicting items (e.g. 4). [CHAR_LIMIT=50] applies across all plural branch variants.">{0, plural, =1 {# item already exists} other {# items already exist}}</string>
+    <string name="dialog_conflict_message" description="Conflict dialog body asking how to handle duplicate file names in the destination folder. [CHAR_LIMIT=110]">Choose what to do with items that have the same name in the destination folder.</string>
+    <string name="dialog_smb_sign_in_title" description="Authentication dialog title when signing in to a network server. %1$s is the server host or URI (e.g. nas.local). [CHAR_LIMIT=50]">Sign in to %1$s</string>
+    <string name="dialog_smb_sign_in_hint" description="Subtitle prompt inside the server authentication dialog requesting credentials. [CHAR_LIMIT=70]">This server requires a user name and password.</string>
+    <string name="dialog_server_address_label" description="Text field label for the server URI in the SMB authentication dialog. [CHAR_LIMIT=30]">Server address</string>
+    <string name="dialog_username_guest_label" description="Text field label for the account username in the server authentication dialog. [CHAR_LIMIT=40]">User name (blank = guest)</string>
+    <string name="dialog_password_label" description="Text field label for the account password in the server authentication dialog. [CHAR_LIMIT=25]">Password</string>
+    <string name="dialog_domain_optional_label" description="Text field label for the optional SMB domain or workgroup in the authentication dialog. [CHAR_LIMIT=45]">Domain / workgroup (optional)</string>
+    <string name="dialog_remember_password" description="Checkbox label in the server authentication dialog to encrypt and save the password in Android Keystore. [CHAR_LIMIT=55]">Remember password (stored encrypted)</string>
+    <string name="properties_size_label" description="Row label in the Properties dialog for total byte size. [CHAR_LIMIT=20]">Size</string>
+    <string name="properties_files_label" description="Row label in the Properties dialog for descendant file count. [CHAR_LIMIT=20]">Files</string>
+    <string name="properties_contains_label" description="Row label in the Properties dialog summarizing selected folders and files. [CHAR_LIMIT=20]">Contains</string>
+    <string name="folder_count_plural" description="Localized count of folders used in Properties and Quick Look summaries. {0} is the folder count (e.g. 1, 5). [CHAR_LIMIT=30] applies across all plural branch variants.">{0, plural, =1 {# folder} other {# folders}}</string>
+    <string name="file_count_plural" description="Localized count of files used in Properties summaries. {0} is the file count (e.g. 1, 10). [CHAR_LIMIT=30] applies across all plural branch variants.">{0, plural, =1 {# file} other {# files}}</string>
+    <string name="properties_contains_format" description="Combines localized folder count and file count in the Properties dialog. %1$s is the formatted folder count (e.g. 2 folders), %2$s is the formatted file count (e.g. 5 files). [CHAR_LIMIT=60]">%1$s, %2$s</string>
+    <string name="properties_permissions_label" description="Row label in the Properties dialog for POSIX permission bits. [CHAR_LIMIT=25]">Permissions</string>
+    <string name="properties_inode_label" description="Row label in the Properties dialog for POSIX inode number. [CHAR_LIMIT=20]">Inode</string>
+    <string name="properties_links_label" description="Row label in the Properties dialog for POSIX hard-link count. [CHAR_LIMIT=20]">Links</string>
+    <string name="properties_owner_label" description="Row label in the Properties dialog for POSIX numeric user and group IDs. [CHAR_LIMIT=20]">Owner</string>
+    <string name="properties_volume_label" description="Row label in the Properties dialog for storage volume capacity. [CHAR_LIMIT=20]">Volume</string>
+    <string name="properties_volume_free_of_total" description="Volume capacity summary in the Properties dialog. %1$s is formatted free space (e.g. 42.5 GB), %2$s is formatted total capacity (e.g. 256 GB). [CHAR_LIMIT=50]">%1$s free of %2$s</string>
+    <string name="properties_checksums_section" description="Section heading in the Properties dialog above SHA-256 and CRC32 file hashes. [CHAR_LIMIT=25]">Checksums</string>
+    <string name="shortcuts_trackpad_heading" description="Section heading in the F1 Shortcuts dialog describing trackpad gestures. [CHAR_LIMIT=25]">Trackpad</string>
+    <string name="shortcuts_trackpad_body" description="Instructional summary of desktop trackpad gestures in the F1 Shortcuts dialog. [CHAR_LIMIT=220]">Two-finger click = context menu • two-finger scroll • drag a file onto a folder, sidebar item or tab to move (hold Ctrl to copy) • drag in empty space to select a group</string>
+    <string name="batch_rename_mode_find_replace" description="Filter chip label in Batch Rename dialog for find-and-replace mode. [CHAR_LIMIT=25]">Find &amp; replace</string>
+    <string name="batch_rename_mode_affix" description="Filter chip label in Batch Rename dialog for prefix/suffix mode. [CHAR_LIMIT=30]">Add prefix / suffix</string>
+    <string name="batch_rename_mode_numbered" description="Filter chip label in Batch Rename dialog for numbered sequence mode. [CHAR_LIMIT=30]">Numbered sequence</string>
+    <string name="batch_rename_find_label" description="Input field label in Batch Rename dialog for text to find. [CHAR_LIMIT=20]">Find</string>
+    <string name="batch_rename_replace_label" description="Input field label in Batch Rename dialog for replacement text. [CHAR_LIMIT=25]">Replace with</string>
+    <string name="batch_rename_match_case" description="Checkbox label in Batch Rename dialog to make text matching case-sensitive. [CHAR_LIMIT=25]">Match case</string>
+    <string name="batch_rename_prefix_label" description="Input field label in Batch Rename dialog for text prepended to filenames. [CHAR_LIMIT=20]">Prefix</string>
+    <string name="batch_rename_suffix_label" description="Input field label in Batch Rename dialog for text inserted before the file extension. [CHAR_LIMIT=35]">Suffix (before extension)</string>
+    <string name="batch_rename_base_name_label" description="Input field label in Batch Rename dialog for the base filename in numbered sequence mode. [CHAR_LIMIT=25]">Base name</string>
+    <string name="batch_rename_start_num_label" description="Input field label in Batch Rename dialog for the starting sequence number. [CHAR_LIMIT=20]">Start #</string>
+    <string name="batch_rename_conflicts_plural" description="Error status line in Batch Rename dialog when planned names collide. {0} is the conflict count (e.g. 1, 3). [CHAR_LIMIT=60] applies across all plural branch variants.">{0, plural, =1 {# conflict — fix it to continue} other {# conflicts — fix them to continue}}</string>
+    <string name="batch_rename_no_changes" description="Status line in Batch Rename dialog when no filenames differ from their current names yet. [CHAR_LIMIT=30]">No changes yet</string>
+    <string name="batch_rename_changes_plural" description="Preview status line in Batch Rename dialog showing how many items will change. {0} is the count of items changing name (e.g. 1, 8). [CHAR_LIMIT=45] applies across all plural branch variants.">{0, plural, =1 {# item will be renamed} other {# items will be renamed}}</string>
+    <string name="saf_tip_drive_title" description="Dialog title for the Google Drive Storage Access Framework mount assistant. [CHAR_LIMIT=35]">Connect Google Drive</string>
+    <string name="saf_tip_generic_title" description="Dialog title for the Cloud or External Storage Access Framework mount assistant. [CHAR_LIMIT=45]">Mount Cloud or External Storage</string>
+    <string name="saf_tip_drive_intro" description="Introductory paragraph in the Google Drive mount dialog. %1$s is the user Google account email (e.g. alex@example.com). [CHAR_LIMIT=160]">Mount folders from Google Drive account %1$s directly into Wayfinder\'s sidebar for easy browsing and file management.</string>
+    <string name="saf_tip_generic_intro" description="Introductory paragraph in the generic cloud/USB storage mount dialog. [CHAR_LIMIT=150]">You can mount folders from Google Drive, external USB drives, SD cards, or local storage into Wayfinder\'s sidebar.</string>
+    <string name="saf_tip_drive_callout_title" description="Callout card heading in the Google Drive mount dialog. [CHAR_LIMIT=40]">Google Drive Selection Tip</string>
+    <string name="saf_tip_generic_callout_title" description="Callout card heading in the generic storage mount dialog. [CHAR_LIMIT=35]">Important Android Tip</string>
+    <string name="saf_tip_dont_show_again" description="Checkbox label in the storage mount tip dialog to skip showing the tip next time. [CHAR_LIMIT=40]">Don\'t show this tip again</string>
+    <string name="saf_tip_open_drive_picker" description="Primary button in the Google Drive mount dialog that launches the system folder picker. [CHAR_LIMIT=30]">Open Drive Picker</string>
+    <string name="saf_tip_open_folder_picker" description="Primary button in the generic storage mount dialog that launches the system folder picker. [CHAR_LIMIT=30]">Open Folder Picker</string>
+    <string name="quicklook_empty_folder" description="Placeholder message in Quick Look when previewing a folder with zero items. [CHAR_LIMIT=35]">This folder is empty</string>
+    <string name="quicklook_folder_summary" description="Header line in Quick Look folder preview combining item count and subfolder count. %1$s is formatted item count (e.g. 2 items), %2$s is formatted folder count (e.g. 1 folder). [CHAR_LIMIT=55]">%1$s · %2$s</string>
+    <string name="archive_entry_count_plural" description="Count of entries inside a ZIP/TAR archive in Quick Look. {0} is the entry count (e.g. 1, 24). [CHAR_LIMIT=30] applies across all plural branch variants.">{0, plural, =1 {# entry} other {# entries}}</string>
+    <string name="quicklook_archive_summary" description="Header line in Quick Look archive preview. %1$s is formatted entry count (e.g. 2 entries), %2$s is formatted uncompressed byte size (e.g. 1.4 MB). [CHAR_LIMIT=80]">%1$s · %2$s uncompressed · Enter to browse</string>
+
+    <!-- ViewModel status & toast messages -->
+    <string name="toast_zoom_percent" description="Toast notification shown when changing interface zoom level. %1$d is the zoom percentage (e.g. 110). [CHAR_LIMIT=35]">Interface zoom: %1$d%%</string>
+    <string name="toast_theme_changed" description="Toast notification shown when cycling Light/Dark/System theme. %1$s is the active theme mode name (e.g. Dark). [CHAR_LIMIT=30]">Theme: %1$s</string>
+    <string name="toast_added_to_starred" description="Toast notification shown after starring items. [CHAR_LIMIT=30]">Added to Starred</string>
+    <string name="toast_removed_from_starred" description="Toast notification shown after unstarring items. [CHAR_LIMIT=35]">Removed from Starred</string>
+    <string name="toast_tagged_color" description="Toast notification shown after applying a color tag by drag-and-drop. %1$s is the color tag label (e.g. Blue). [CHAR_LIMIT=30]">Tagged %1$s</string>
+    <string name="toast_archive_pin_unsupported" description="Toast message shown when attempting to pin items located inside an archive. [CHAR_LIMIT=55]">Items inside archives can\'t be pinned</string>
+    <string name="toast_pinned_single" description="Toast notification shown after pinning one folder or file. %1$s is the item name (e.g. Projects). [CHAR_LIMIT=50]">Pinned %1$s</string>
+    <string name="toast_pinned_many_plural" description="Toast notification shown after pinning multiple items. {0} is the count of pinned items (e.g. 3). [CHAR_LIMIT=40] applies across all plural branch variants.">{0, plural, =1 {Pinned # item} other {Pinned # items}}</string>
+    <string name="toast_unpinned_single" description="Toast notification shown after unpinning one folder or file. %1$s is the item name (e.g. Projects). [CHAR_LIMIT=50]">Unpinned %1$s</string>
+    <string name="toast_unpinned_many_plural" description="Toast notification shown after unpinning multiple items. {0} is the count of unpinned items (e.g. 3). [CHAR_LIMIT=40] applies across all plural branch variants.">{0, plural, =1 {Unpinned # item} other {Unpinned # items}}</string>
+    <string name="toast_archive_copy_only" description="Toast message shown when trying to cut items out of a read-only archive. [CHAR_LIMIT=55]">Items in an archive can only be copied</string>
+    <string name="toast_clipboard_cut_plural" description="Toast notification shown after cutting items to clipboard. {0} is the item count (e.g. 1, 4). [CHAR_LIMIT=45] applies across all plural branch variants.">{0, plural, =1 {# item ready to move} other {# items ready to move}}</string>
+    <string name="toast_clipboard_copy_plural" description="Toast notification shown after copying items to clipboard. {0} is the item count (e.g. 1, 4). [CHAR_LIMIT=40] applies across all plural branch variants.">{0, plural, =1 {# item copied} other {# items copied}}</string>
+    <string name="toast_archives_read_only" description="Toast message shown when attempting write operations inside an archive. [CHAR_LIMIT=35]">Archives are read-only</string>
+    <string name="toast_cannot_paste_here" description="Toast message shown when attempting to paste into a read-only folder or Trash. [CHAR_LIMIT=30]">Can\'t paste here</string>
+    <string name="toast_moved_single_to_trash" description="Undoable toast notification after moving one item to Trash. %1$s is the item name (e.g. notes.txt). [CHAR_LIMIT=60]">Moved \"%1$s\" to Trash</string>
+    <string name="toast_moved_many_to_trash_plural" description="Undoable toast notification after moving multiple items to Trash. {0} is the item count (e.g. 5). [CHAR_LIMIT=45] applies across all plural branch variants.">{0, plural, =1 {Moved # item to Trash} other {Moved # items to Trash}}</string>
+    <string name="toast_restored_plural" description="Toast notification after restoring items from Trash. {0} is the restored item count (e.g. 1, 3). [CHAR_LIMIT=40] applies across all plural branch variants.">{0, plural, =1 {Restored # item} other {Restored # items}}</string>
+    <string name="toast_trash_emptied" description="Toast notification shown after emptying the Trash. [CHAR_LIMIT=30]">Trash emptied</string>
+    <string name="toast_invalid_batch_names" description="Toast error shown when batch rename contains invalid target names. [CHAR_LIMIT=45]">Some new names aren\'t valid</string>
+    <string name="toast_renamed_plural" description="Toast notification shown after batch renaming items. {0} is the count of renamed items (e.g. 2, 10). [CHAR_LIMIT=40] applies across all plural branch variants.">{0, plural, =1 {Renamed # item} other {Renamed # items}}</string>
+    <string name="toast_rename_partial_error" description="Fallback toast error shown when one or more items failed during batch rename. [CHAR_LIMIT=45]">Some items couldn\'t be renamed</string>
+    <string name="toast_linux_not_enabled" description="Toast message shown when Linux development environment is not enabled on the Googlebook. [CHAR_LIMIT=60]">Linux development environment is not enabled</string>
+    <string name="toast_select_items_for_linux" description="Toast message shown when Copy to Linux files is invoked with an empty selection. [CHAR_LIMIT=50]">Select items to copy to Linux files</string>
+    <string name="toast_already_in_linux" description="Toast message shown when Copy to Linux files is invoked while already inside Linux files. [CHAR_LIMIT=35]">Already in Linux files</string>
+    <string name="toast_unable_switch_profile" description="Toast error shown if switching to a managed profile fails. %1$s is the profile label (e.g. Work profile). [CHAR_LIMIT=50]">Unable to switch to %1$s</string>
+    <string name="toast_cannot_copy_here" description="Toast message shown when dropping external files onto a read-only destination. [CHAR_LIMIT=35]">Can\'t copy files here</string>
+    <string name="toast_invalid_server_address" description="Validation toast when an invalid server host is entered in Connect to Server. [CHAR_LIMIT=65]">Enter a valid server address, e.g. smb://nas/media</string>
+    <string name="toast_unmounted_label" description="Toast notification after unmounting a SAF mount. %1$s is the mount display label (e.g. Drive). [CHAR_LIMIT=45]">Unmounted %1$s</string>
+    <string name="toast_disconnected_label" description="Toast notification after disconnecting a network server. %1$s is the server display label (e.g. nas). [CHAR_LIMIT=45]">Disconnected %1$s</string>
+    <string name="toast_mounted_label" description="Toast notification after mounting a SAF folder. %1$s is the mount display label (e.g. Work). [CHAR_LIMIT=45]">Mounted %1$s</string>
+    <string name="toast_select_tree_folder" description="Toast prompt when picking a folder in ACTION_OPEN_DOCUMENT_TREE mode on a virtual root. [CHAR_LIMIT=50]">Select a local or document folder</string>
+    <string name="op_moving" description="Progress banner title while moving files. [CHAR_LIMIT=20]">Moving</string>
+    <string name="op_copying" description="Progress banner title while copying files. [CHAR_LIMIT=20]">Copying</string>
+    <string name="op_moving_to_trash" description="Progress banner title while moving items to Trash. [CHAR_LIMIT=30]">Moving to Trash</string>
+    <string name="op_deleting" description="Progress banner title while permanently deleting items. [CHAR_LIMIT=20]">Deleting</string>
+    <string name="op_restoring" description="Progress banner title while restoring items from Trash. [CHAR_LIMIT=25]">Restoring</string>
+    <string name="op_emptying_trash" description="Progress banner title while emptying Trash. [CHAR_LIMIT=30]">Emptying Trash</string>
+    <string name="op_renaming" description="Progress banner title while renaming items. [CHAR_LIMIT=20]">Renaming</string>
+    <string name="op_importing" description="Progress banner title while importing dragged external files. [CHAR_LIMIT=25]">Importing</string>
 </resources>

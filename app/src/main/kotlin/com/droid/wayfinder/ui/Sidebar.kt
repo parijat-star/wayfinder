@@ -68,9 +68,11 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.droid.wayfinder.R
 import com.droid.wayfinder.data.FsPath
 
 private data class TreeRowData(
@@ -162,24 +164,24 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
     }
     LazyColumn(modifier.padding(horizontal = 8.dp), listState, verticalArrangement = Arrangement.spacedBy(1.dp)) {
         var n = 0
-        item { SectionTitle("Quick access") }; n++
+        item { SectionTitle(stringResource(R.string.quick_access_section)) }; n++
         item {
             SidebarItem(
-                "Recents", Icons.Outlined.History, 0, activePath == FsPath.RECENTS_ROOT, null,
+                stringResource(R.string.nav_recents), Icons.Outlined.History, 0, activePath == FsPath.RECENTS_ROOT, null,
                 onClick = { vm.navigate(FsPath.RECENTS_ROOT) }, onMiddle = { vm.newTab(FsPath.RECENTS_ROOT, activate = false) },
                 onSecondary = { menu.show(it, sidebarMenu(vm, s, FsPath.RECENTS_ROOT, false)) },
             )
         }; n++
         item {
             SidebarItem(
-                "Starred", Icons.Outlined.StarOutline, 0, activePath == FsPath.STARRED_ROOT, FsPath.STARRED_ROOT,
+                stringResource(R.string.nav_starred), Icons.Outlined.StarOutline, 0, activePath == FsPath.STARRED_ROOT, FsPath.STARRED_ROOT,
                 tint = if (s.marks.starred.isNotEmpty()) StarColor else null,
                 onClick = { vm.navigate(FsPath.STARRED_ROOT) }, onMiddle = { vm.newTab(FsPath.STARRED_ROOT, activate = false) },
                 onSecondary = { menu.show(it, sidebarMenu(vm, s, FsPath.STARRED_ROOT, false)) },
             )
         }; n++
         item { Divider() }; n++
-        item { SectionTitle("Pinned") }; n++
+        item { SectionTitle(stringResource(R.string.pinned_section)) }; n++
         if (s.pins.isEmpty()) {
             item {
                 Text("Right-click a file or folder and choose “Pin to sidebar”", Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
@@ -201,7 +203,7 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         n += s.pins.size
         item { Divider() }; n++
         item {
-            SectionTitle("Locations", trailing = {
+            SectionTitle(stringResource(R.string.locations_section), trailing = {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     HeaderAction(Icons.Outlined.MyLocation, "Locate active folder (Alt+Shift+L)") { vm.locateInTree() }
                     HeaderAction(Icons.Outlined.UnfoldLess, "Collapse folder tree") { vm.collapseTree() }
@@ -235,7 +237,7 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         // Google Drive integration matching system Files app
         item { Divider() }
         item {
-            SectionTitle("Google Drive", trailing = {
+            SectionTitle(stringResource(R.string.google_drive_section), trailing = {
                 HeaderAction(Icons.Outlined.AddToDrive, "Mount Google Drive folder") {
                     if (s.driveAccounts.isEmpty()) vm.requestGoogleAccountSignIn() else vm.requestMountSaf()
                 }
@@ -262,7 +264,7 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         }
         item { Divider() }
         item {
-            SectionTitle("Network & cloud", trailing = {
+            SectionTitle(stringResource(R.string.network_and_cloud_section), trailing = {
                 if (s.scanning) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                 else Icon(Icons.Outlined.Refresh, "Rescan", Modifier.size(16.dp).clip(RoundedCornerShape(8.dp))
                     .mouseGestures("rescan", onClick = { _, _, _ -> vm.navigate(FsPath.SMB_ROOT); vm.refresh() }), tint = cs.onSurfaceVariant)
@@ -281,13 +283,13 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         item { Divider() }
         item {
             SidebarItem(
-                "Trash", Icons.Outlined.Delete, 0, activePath == FsPath.TRASH_ROOT, FsPath.TRASH_ROOT,
+                stringResource(R.string.nav_trash), Icons.Outlined.Delete, 0, activePath == FsPath.TRASH_ROOT, FsPath.TRASH_ROOT,
                 onClick = { vm.navigate(FsPath.TRASH_ROOT) },
                 onSecondary = { menu.show(it, sidebarMenu(vm, s, FsPath.TRASH_ROOT, false)) },
             )
         }
         item { Divider() }
-        item { SectionTitle("Color tags") }
+        item { SectionTitle(stringResource(R.string.color_tags_section)) }
         items(ColorTag.entries, key = { "tag${it.name}" }) { t ->
             val path = FsPath.tagPath(t)
             val count = s.marks.tags.count { t in it.value }

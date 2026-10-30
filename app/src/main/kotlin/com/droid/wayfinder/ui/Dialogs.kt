@@ -10,7 +10,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Surface
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import com.droid.wayfinder.R
 import com.droid.wayfinder.data.RenameItem
 import com.droid.wayfinder.data.RenamePlan
 import com.droid.wayfinder.data.RenameRule
@@ -70,37 +72,39 @@ import com.droid.wayfinder.data.formatSize
 fun Dialogs(vm: BrowserViewModel, s: AppState) {
     when (val d = s.dialog) {
         null -> {}
-        is Dialog.Rename -> NameDialog("Rename", d.name, "Rename", selectBase = true, onDismiss = vm::dismissDialog) { vm.rename(d.path, it) }
+        is Dialog.Rename -> NameDialog(stringResource(R.string.action_rename), d.name, stringResource(R.string.action_rename), selectBase = true, onDismiss = vm::dismissDialog) { vm.rename(d.path, it) }
         is Dialog.NewItem -> NameDialog(
-            if (d.folder) "New folder" else "New file", if (d.folder) "New folder" else "New file.txt", "Create",
+            if (d.folder) stringResource(R.string.action_new_folder) else stringResource(R.string.dialog_new_file_title),
+            if (d.folder) stringResource(R.string.action_new_folder) else stringResource(R.string.dialog_new_file_default),
+            stringResource(R.string.action_create),
             selectBase = true, onDismiss = vm::dismissDialog,
         ) { vm.createItem(it, d.folder) }
-        is Dialog.Compress -> NameDialog("Compress to ZIP", d.suggested, "Compress", selectBase = false, onDismiss = vm::dismissDialog, suffix = ".zip") { vm.compress(d.sources, it) }
+        is Dialog.Compress -> NameDialog(stringResource(R.string.action_compress_to_zip), d.suggested, stringResource(R.string.action_compress), selectBase = false, onDismiss = vm::dismissDialog, suffix = ".zip") { vm.compress(d.sources, it) }
         is Dialog.Delete -> AlertDialog(
             onDismissRequest = vm::dismissDialog,
-            title = { Text("Delete permanently?") },
-            text = { Text(if (d.paths.size == 1) "“${FsPath.name(d.paths[0])}” will be deleted and can't be recovered." else "${d.paths.size} items will be deleted and can't be recovered.") },
-            confirmButton = { TextButton({ vm.confirmDelete(d.paths) }) { Text("Delete") } },
-            dismissButton = { TextButton(vm::dismissDialog) { Text("Cancel") } },
+            title = { Text(stringResource(R.string.dialog_delete_permanent_title)) },
+            text = { Text(if (d.paths.size == 1) stringResource(R.string.dialog_delete_single_message, FsPath.name(d.paths[0])) else icuStringResource(R.string.dialog_delete_many_plural, d.paths.size)) },
+            confirmButton = { TextButton({ vm.confirmDelete(d.paths) }) { Text(stringResource(R.string.action_delete)) } },
+            dismissButton = { TextButton(vm::dismissDialog) { Text(stringResource(R.string.action_cancel)) } },
         )
         is Dialog.ConflictPrompt -> AlertDialog(
             onDismissRequest = vm::dismissDialog,
-            title = { Text(if (d.names.size == 1) "“${d.names[0]}” already exists" else "${d.names.size} items already exist") },
-            text = { Text("Choose what to do with items that have the same name in the destination folder.") },
+            title = { Text(if (d.names.size == 1) stringResource(R.string.dialog_conflict_single_title, d.names[0]) else icuStringResource(R.string.dialog_conflict_many_plural, d.names.size)) },
+            text = { Text(stringResource(R.string.dialog_conflict_message)) },
             confirmButton = {
                 Row {
-                    TextButton({ vm.resolveConflict(d, Conflict.Replace) }) { Text("Replace") }
-                    TextButton({ vm.resolveConflict(d, Conflict.KeepBoth) }) { Text("Keep both") }
-                    TextButton({ vm.resolveConflict(d, Conflict.Skip) }) { Text("Skip") }
+                    TextButton({ vm.resolveConflict(d, Conflict.Replace) }) { Text(stringResource(R.string.action_replace)) }
+                    TextButton({ vm.resolveConflict(d, Conflict.KeepBoth) }) { Text(stringResource(R.string.action_keep_both)) }
+                    TextButton({ vm.resolveConflict(d, Conflict.Skip) }) { Text(stringResource(R.string.action_skip)) }
                 }
             },
-            dismissButton = { TextButton(vm::dismissDialog) { Text("Cancel") } },
+            dismissButton = { TextButton(vm::dismissDialog) { Text(stringResource(R.string.action_cancel)) } },
         )
         is Dialog.Properties -> PropertiesDialog(d, vm::dismissDialog) { text, what -> vm.copyValue(text, what) }
         is Dialog.Connect -> ConnectDialog(vm, d.initial, s.savedServers, vm::dismissDialog)
         is Dialog.SmbAuth -> SmbDialog(
-            "Sign in to ${d.host}", "This server requires a user name and password.",
-            d.host, d.user, d.domain, askAddress = false, confirm = "Sign in", onDismiss = vm::dismissDialog,
+            stringResource(R.string.dialog_smb_sign_in_title, d.host), stringResource(R.string.dialog_smb_sign_in_hint),
+            d.host, d.user, d.domain, askAddress = false, confirm = stringResource(R.string.action_sign_in), onDismiss = vm::dismissDialog,
             // Domains only exist for SMB; other protocols use `scheme://host` credential keys.
             askDomain = !d.host.contains("://"),
         ) { _, u, p, dom, r -> vm.submitAuth(d.host, u, p, dom, r) }
@@ -132,7 +136,7 @@ private fun NameDialog(
             )
         },
         confirmButton = { TextButton({ onConfirm(tf.text) }, enabled = tf.text.isNotBlank()) { Text(confirm) } },
-        dismissButton = { TextButton(onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }
 
@@ -151,21 +155,28 @@ private fun PropertiesDialog(d: Dialog.Properties, onDismiss: () -> Unit, onCopy
                     Row2("Path", e[0].path, mono = true) { onCopy(e[0].path, "Path") }
                     Row2("Modified", formatDateFull(e[0].modified))
                 }
-                Row2("Size", d.bytes?.let { "${formatSize(it)} (${"%,d".format(it)} bytes)" } ?: "Calculating…")
-                d.items?.let { if (e.size > 1 || e[0].isDir) Row2("Files", it.toString()) }
-                if (e.size > 1) Row2("Contains", "${e.count { it.isDir }} folder(s), ${e.count { !it.isDir }} file(s)")
+                Row2(stringResource(R.string.properties_size_label), d.bytes?.let { "${formatSize(it)} (${icuStringResource(R.string.byte_count_plural, it)})" } ?: stringResource(R.string.properties_calculating))
+                d.items?.let { if (e.size > 1 || e[0].isDir) Row2(stringResource(R.string.properties_files_label), formatLocalizedNumber(it.toLong())) }
+                if (e.size > 1) Row2(
+                    stringResource(R.string.properties_contains_label),
+                    stringResource(
+                        R.string.properties_contains_format,
+                        icuStringResource(R.string.folder_count_plural, e.count { it.isDir }),
+                        icuStringResource(R.string.file_count_plural, e.count { !it.isDir }),
+                    ),
+                )
                 d.posix?.let { p ->
                     Text("POSIX", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    Row2("Permissions", "${FileInfo.posixString(p.mode)}  (${FileInfo.octal(p.mode)})", mono = true)
-                    Row2("Inode", p.inode.toString(), mono = true)
-                    Row2("Links", p.links.toString(), mono = true)
-                    Row2("Owner", "uid ${p.uid}  •  gid ${p.gid}", mono = true)
+                    Row2(stringResource(R.string.properties_permissions_label), "${FileInfo.posixString(p.mode)}  (${FileInfo.octal(p.mode)})", mono = true)
+                    Row2(stringResource(R.string.properties_inode_label), p.inode.toString(), mono = true)
+                    Row2(stringResource(R.string.properties_links_label), p.links.toString(), mono = true)
+                    Row2(stringResource(R.string.properties_owner_label), "uid ${p.uid}  •  gid ${p.gid}", mono = true)
                 }
                 d.space?.let { sp ->
-                    Row2("Volume", "${formatSize(sp.free)} free of ${formatSize(sp.total)}")
+                    Row2(stringResource(R.string.properties_volume_label), stringResource(R.string.properties_volume_free_of_total, formatSize(sp.free), formatSize(sp.total)))
                 }
                 if (d.checksums != null || d.hashProgress != null) {
-                    Text("Checksums", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text(stringResource(R.string.properties_checksums_section), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     d.hashProgress?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     d.checksums?.let { c ->
                         Row2("SHA-256", c.sha256, mono = true) { onCopy(c.sha256, "SHA-256") }
@@ -174,7 +185,7 @@ private fun PropertiesDialog(d: Dialog.Properties, onDismiss: () -> Unit, onCopy
                 }
             }
         },
-        confirmButton = { TextButton(onDismiss) { Text("Close") } },
+        confirmButton = { TextButton(onDismiss) { Text(stringResource(R.string.action_close)) } },
     )
 }
 
@@ -209,31 +220,31 @@ private fun SmbDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(hint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (askAddress) OutlinedTextField(
-                    address, { address = it }, Modifier.fillMaxWidth().focusRequester(fr), singleLine = true, label = { Text("Server address") },
+                    address, { address = it }, Modifier.fillMaxWidth().focusRequester(fr), singleLine = true, label = { Text(stringResource(R.string.dialog_server_address_label)) },
                     placeholder = { Text("smb://server/share") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
                 )
                 OutlinedTextField(
                     user, { user = it }, Modifier.fillMaxWidth().then(if (!askAddress) Modifier.focusRequester(fr) else Modifier),
-                    singleLine = true, label = { Text("User name (blank = guest)") }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    singleLine = true, label = { Text(stringResource(R.string.dialog_username_guest_label)) }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 )
                 OutlinedTextField(
-                    pass, { pass = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Password") },
+                    pass, { pass = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.dialog_password_label)) },
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { go() }),
                 )
                 if (askDomain) OutlinedTextField(
-                    domain, { domain = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Domain / workgroup (optional)") },
+                    domain, { domain = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.dialog_domain_optional_label)) },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { go() }),
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(rememberPw, { rememberPw = it })
-                    Text("Remember password (stored encrypted)", style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.dialog_remember_password), style = MaterialTheme.typography.bodyMedium)
                 }
             }
         },
         confirmButton = { TextButton({ go() }, enabled = !askAddress || address.isNotBlank()) { Text(confirm) } },
-        dismissButton = { TextButton(onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }
 
@@ -279,15 +290,19 @@ private fun ShortcutsDialog(onDismiss: () -> Unit) {
                         }
                     }
                 }
-                Text("Trackpad", Modifier.padding(top = 10.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Text("Two-finger click = context menu • two-finger scroll • drag a file onto a folder, sidebar item or tab to move (hold Ctrl to copy) • drag in empty space to select a group", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.shortcuts_trackpad_heading), Modifier.padding(top = 10.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text(stringResource(R.string.shortcuts_trackpad_body), style = MaterialTheme.typography.bodyMedium)
             }
         },
-        confirmButton = { TextButton(onDismiss) { Text("Close") } },
+        confirmButton = { TextButton(onDismiss) { Text(stringResource(R.string.action_close)) } },
     )
 }
 
-private enum class RenameMode(val label: String) { FindReplace("Find & replace"), Affix("Add prefix / suffix"), Numbered("Numbered sequence") }
+private enum class RenameMode(@param:androidx.annotation.StringRes val labelRes: Int) {
+    FindReplace(R.string.batch_rename_mode_find_replace),
+    Affix(R.string.batch_rename_mode_affix),
+    Numbered(R.string.batch_rename_mode_numbered),
+}
 
 @Composable
 private fun BatchRenameDialog(d: Dialog.BatchRename, onDismiss: () -> Unit, onApply: (List<RenamePlan>) -> Unit) {
@@ -315,36 +330,36 @@ private fun BatchRenameDialog(d: Dialog.BatchRename, onDismiss: () -> Unit, onAp
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    RenameMode.entries.forEach { m -> FilterChip(m == mode, { mode = m }, label = { Text(m.label) }) }
+                    RenameMode.entries.forEach { m -> FilterChip(m == mode, { mode = m }, label = { Text(stringResource(m.labelRes)) }) }
                 }
                 when (mode) {
                     RenameMode.FindReplace -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(find, { find = it }, Modifier.weight(1f), singleLine = true, label = { Text("Find") })
-                            OutlinedTextField(replace, { replace = it }, Modifier.weight(1f), singleLine = true, label = { Text("Replace with") })
+                            OutlinedTextField(find, { find = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_find_label)) })
+                            OutlinedTextField(replace, { replace = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_replace_label)) })
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(matchCase, { matchCase = it })
-                            Text("Match case", style = MaterialTheme.typography.bodyMedium)
+                            Text(stringResource(R.string.batch_rename_match_case), style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                     RenameMode.Affix -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(prefix, { prefix = it }, Modifier.weight(1f), singleLine = true, label = { Text("Prefix") })
-                        OutlinedTextField(suffix, { suffix = it }, Modifier.weight(1f), singleLine = true, label = { Text("Suffix (before extension)") })
+                        OutlinedTextField(prefix, { prefix = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_prefix_label)) })
+                        OutlinedTextField(suffix, { suffix = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_suffix_label)) })
                     }
                     RenameMode.Numbered -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(base, { base = it }, Modifier.weight(1f), singleLine = true, label = { Text("Base name") })
+                        OutlinedTextField(base, { base = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_base_name_label)) })
                         OutlinedTextField(
                             start, { v -> start = v.filter { it.isDigit() }.take(6) }, Modifier.width(120.dp), singleLine = true,
-                            label = { Text("Start #") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            label = { Text(stringResource(R.string.batch_rename_start_num_label)) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         )
                     }
                 }
                 Text(
                     when {
-                        conflicts > 0 -> "$conflicts conflict(s) — fix them to continue"
-                        changes == 0 -> "No changes yet"
-                        else -> "$changes item(s) will be renamed"
+                        conflicts > 0 -> icuStringResource(R.string.batch_rename_conflicts_plural, conflicts)
+                        changes == 0 -> stringResource(R.string.batch_rename_no_changes)
+                        else -> icuStringResource(R.string.batch_rename_changes_plural, changes)
                     },
                     style = MaterialTheme.typography.labelLarge, color = if (conflicts > 0) cs.error else cs.onSurfaceVariant,
                 )
@@ -368,8 +383,8 @@ private fun BatchRenameDialog(d: Dialog.BatchRename, onDismiss: () -> Unit, onAp
                 }
             }
         },
-        confirmButton = { TextButton({ onApply(plan) }, enabled = conflicts == 0 && changes > 0) { Text("Apply") } },
-        dismissButton = { TextButton(onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton({ onApply(plan) }, enabled = conflicts == 0 && changes > 0) { Text(stringResource(R.string.action_apply)) } },
+        dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }
 
@@ -386,15 +401,15 @@ private fun SafMountTipDialog(accountEmail: String? = null, onDismiss: () -> Uni
             else Icon(Icons.Outlined.Cloud, null, Modifier.size(28.dp), tint = cs.primary)
         },
         title = {
-            Text(if (isDrive) "Connect Google Drive" else "Mount Cloud or External Storage")
+            Text(if (isDrive) stringResource(R.string.saf_tip_drive_title) else stringResource(R.string.saf_tip_generic_title))
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(
                     if (isDrive) {
-                        "Mount folders from Google Drive account $accountEmail directly into Wayfinder's sidebar for easy browsing and file management."
+                        stringResource(R.string.saf_tip_drive_intro, accountEmail.orEmpty())
                     } else {
-                        "You can mount folders from Google Drive, external USB drives, SD cards, or local storage into Wayfinder's sidebar."
+                        stringResource(R.string.saf_tip_generic_intro)
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = cs.onSurface,
@@ -407,7 +422,7 @@ private fun SafMountTipDialog(accountEmail: String? = null, onDismiss: () -> Uni
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(Icons.Outlined.Info, null, Modifier.size(20.dp), tint = cs.primary)
-                            Text(if (isDrive) "Google Drive Selection Tip" else "Important Android Tip", style = MaterialTheme.typography.titleSmall, color = cs.primary)
+                            Text(if (isDrive) stringResource(R.string.saf_tip_drive_callout_title) else stringResource(R.string.saf_tip_generic_callout_title), style = MaterialTheme.typography.titleSmall, color = cs.primary)
                         }
                         Text(
                             if (isDrive) {
@@ -425,13 +440,13 @@ private fun SafMountTipDialog(accountEmail: String? = null, onDismiss: () -> Uni
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(checked = dontShowAgain, onCheckedChange = { dontShowAgain = it })
-                    Text("Don't show this tip again", Modifier.padding(start = 4.dp), style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.saf_tip_dont_show_again), Modifier.padding(start = 4.dp), style = MaterialTheme.typography.bodyMedium)
                 }
             }
         },
         confirmButton = {
             Button(onClick = { onProceed(dontShowAgain) }) {
-                Text(if (isDrive) "Open Drive Picker" else "Open Folder Picker")
+                Text(if (isDrive) stringResource(R.string.saf_tip_open_drive_picker) else stringResource(R.string.saf_tip_open_folder_picker))
             }
         },
         dismissButton = {

@@ -91,13 +91,14 @@ import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.ui.res.stringResource
+import com.droid.wayfinder.R
 import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.ModifiedRange
 import com.droid.wayfinder.data.SearchCategory
 import com.droid.wayfinder.data.SearchScope
 import com.droid.wayfinder.data.SortKey
 import com.droid.wayfinder.data.ViewMode
-import com.droid.wayfinder.data.formatResultCount
 
 @Composable
 fun Toolbar(vm: BrowserViewModel, s: AppState) {
@@ -241,6 +242,7 @@ private fun SearchField(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
     val tab = s.active
     val fr = remember { FocusRequester() }
     val focus = LocalFocusManager.current
+    val searchA11yLabel = stringResource(R.string.search_placeholder)
     LaunchedEffect(s.focusSearch) { if (s.focusSearch > 0) fr.requestFocus() }
     Row(
         modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(24.dp)).background(cs.surfaceContainerLowest)
@@ -249,11 +251,11 @@ private fun SearchField(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
     ) {
         Icon(Icons.Outlined.Search, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
         Box(Modifier.weight(1f).padding(horizontal = 8.dp), contentAlignment = Alignment.CenterStart) {
-            if (tab.query.isEmpty()) Text("Search files", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1)
+            if (tab.query.isEmpty()) Text(stringResource(R.string.search_files_placeholder), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1)
             BasicTextField(
                 tab.query, { vm.setQuery(it) },
                 Modifier.fillMaxWidth().focusRequester(fr)
-                    .semantics { contentDescription = "Search files" }
+                    .semantics { contentDescription = searchA11yLabel }
                     .onFocusChanged { vm.setTextFocus(it.isFocused) }
                     .onPreviewKeyEvent { e ->
                         if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) { vm.setQuery(""); focus.clearFocus(); true }
@@ -292,7 +294,7 @@ private fun SearchFilterRow(vm: BrowserViewModel, tab: TabState) {
         }
         val n = tab.searchResults?.size
         if (n != null) Text(
-            if (tab.searching) "$n found so far…" else formatResultCount(n),
+            if (tab.searching) "${formatLocalizedNumber(n.toLong())} found so far…" else icuStringResource(R.string.search_result_count_plural, n),
             style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant,
         )
     }
@@ -366,7 +368,7 @@ private fun SortButton(vm: BrowserViewModel, s: AppState) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Outlined.SwapVert, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
-            Text("Sort", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelLarge, color = cs.onSurface)
+            Text(stringResource(R.string.sort_button_label), Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelLarge, color = cs.onSurface)
         }
         DropdownMenu(open, { open = false }) {
             listOf(

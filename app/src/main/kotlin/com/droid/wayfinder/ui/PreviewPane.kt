@@ -57,7 +57,9 @@ import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import com.droid.wayfinder.R
 import com.droid.wayfinder.data.ColorTag
 import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FileInfo
@@ -76,7 +78,7 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
     Surface(modifier, shape = RoundedCornerShape(16.dp), color = cs.surfaceContainerLowest) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Details", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.details_pane_title), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 IconButton({ vm.togglePreview() }, Modifier.minimumInteractiveComponentSize().sizeIn(minWidth = 40.dp, minHeight = 40.dp)) { Icon(Icons.Outlined.Close, "Close details (Alt+P)", Modifier.size(18.dp)) }
             }
             when (sel.size) {
@@ -114,7 +116,7 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                     if (!e.isDir && FsPath.isLocalFile(e.path) && (e.kind == FileKind.Text || e.kind == FileKind.Code)) TextSnippet(e)
                 }
                 else -> {
-                    Preview(null, "${sel.size} items selected", "Multiple")
+                    Preview(null, icuStringResource(R.string.selected_count_plural, sel.size), "Multiple")
                     Fact("Total size", formatSize(sel.filter { !it.isDir }.sumOf { it.size }))
                     Fact("Folders", sel.count { it.isDir }.toString())
                     Fact("Files", sel.count { !it.isDir }.toString())
