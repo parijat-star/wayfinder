@@ -56,9 +56,10 @@
 * **Quick Look (`Space`):** Instant desktop preview for images, video frames, PDFs, audio waveforms, archives, and syntax-highlighted code with line numbers without launching heavy external viewers.
 * **Archive filesystem:** Navigate into `.zip`, `.tar.gz`, `.tgz`, and `.tar` archives as virtual read-only folders, view contents, copy files out, and compress selections with one shortcut.
 * **Network & cloud storage:** Connect directly to local and remote servers via **SMB 2/3** (NTLM), **WebDAV / WebDAVS**, **FTP / FTPS**, and Android **Storage Access Framework** providers (**Google Drive**, external USB SSDs).
-* **Paired Phone Integration (`phone://`):** Automatically detects paired and connected Android phones (over Googlebook Cross-Device Services, Bluetooth, or USB MTP/PTP) and presents the 13 standard Android phone folders (`Alarms`, `Android`, `Audiobooks`, `DCIM`, `Documents`, `Download`, `Movies`, `Music`, `Notifications`, `Pictures`, `Podcasts`, `Recordings`, `Ringtones`) with clean folder names and Quick Share integration.
+* **Connected Phone Integration:** Automatically discovers paired and connected Android phones over **Googlebook Cross-Device Services** (`QuickAccessDocumentsProvider`), **USB MTP**, and **Bluetooth**, browsing live phone directories (`Alarms`, `Android`, `DCIM`, `Documents`, `Download`, `Movies`, `Music`, `Pictures`, etc.) wirelessly with human-friendly breadcrumbs (`Pixel 8a / Documents`) and incoming **Quick Share** integration.
+* **Googlebook Ecosystem (`Linux files` & Work Profile):** Auto-discovers the Googlebook Linux development environment (`Linux files`) with one-click **Share with Linux** transfers and supports managed **Work / Personal Profile** switching via `CrossProfileApps`.
 * **Command palette (`Ctrl+K`):** Spotlight-style fuzzy command launcher to run any operation or jump to any folder in milliseconds.
-* **File picker mode:** Registers for `GET_CONTENT` and `OPEN_DOCUMENT`, allowing other Android apps and browsers to use Wayfinder as their system file picker.
+* **Complete system file & folder picker:** Registers for `GET_CONTENT`, `OPEN_DOCUMENT`, `OPEN_DOCUMENT_TREE` (folder access grants), and `ACTION_CREATE_DOCUMENT` ("Save As"), returning `DocumentsContract` URIs with persistable read/write permissions.
 
 ---
 
@@ -66,8 +67,8 @@
 
 Wayfinder integrates with your paired Android phone and Google Drive right from the left navigation sidebar:
 
-* **Paired Phone Quick Access (`Pixel 9`):** When your phone is paired with your Googlebook via Cross-Device Services, Bluetooth, or USB, Wayfinder displays your phone's name (`Pixel 9`) under **Quick access**. Clicking it opens a clean, distraction-free view of the 13 standard Android phone directories (`Download`, `DCIM`, `Pictures`, `Documents`, `Music`, `Movies`, etc.), with automatic bridging to incoming **Quick Share** transfers and USB MTP volumes.
-* **Google Drive in Network & Cloud:** Google Drive appears natively in the **Network & cloud** sidebar section with its multicolor Drive icon. Clicking **Google Drive** opens a guided pre-flight mount assistant that launches Android's document tree selector directly at your Google Drive root and persists read/write access across reboots.
+* **Wireless & Wired Phone Access (`Pixel 8a` / `Pixel 9`):** Detects your paired phone via Cross-Device Services, Bluetooth, or USB MTP. When `MANAGE_DOCUMENTS` is granted via [ADB setup](#adb-direct-mounts), Wayfinder mounts `QuickAccessDocumentsProvider` directly with zero prompts (`Pixel 8a/Documents`) and live reconnect updates; on standard unprivileged installs, Wayfinder supports side-by-side system **Files** drag-and-drop, SAF folder mounts, and incoming **Quick Share** folders out of the box.
+* **Google Drive in Network & Cloud:** Google Drive appears natively in the **Network & cloud** sidebar section with its multicolor Drive icon—mounting `My Drive` directly when `MANAGE_DOCUMENTS` is granted, or delegating folder mounts to the system document tree selector and persisting read/write access across reboots.
 
 <p align="center">
   <img src="docs/images/mock_4_phone_drive.jpg" width="900" alt="Wayfinder Phone and Google Drive integration showing Pixel 9 paired in Quick access with the 13 standard Android folders and Google Drive in Network and cloud" />
@@ -103,10 +104,12 @@ Mobile file managers were made for small touchscreens and vertical phone layouts
 
 <h2 id="limitations">Known Limitations</h2>
 
-Because Wayfinder is an independent, user-installed open-source application (rather than a privileged firmware app signed with the platform OS key), a few Android OS security boundaries apply:
+Because Wayfinder is distributed as a standalone open-source application (without platform OS signing keys), Android's `android.permission.MANAGE_DOCUMENTS` (`signature|role`) security boundary determines how external `DocumentsProvider` authorities mount:
 
-* **Wireless Phone Browsing vs. USB MTP:** When a phone is paired wirelessly via Googlebook Cross-Device Services or Bluetooth without a physical USB-C data cable, Android isolates the phone's raw remote block storage (`com.android.mtp.documents` and Cross-Device document providers require the signature-level `MANAGE_DOCUMENTS` permission held only by the built-in system Files app). In wireless mode, Wayfinder presents the standard 13-folder phone directory layout (`phone://`) backed by local phone-sync and Quick Share directories. To browse the phone's complete raw internal block storage directly from a third-party app, connect the phone via **USB-C in File Transfer (MTP) mode** or grant a folder via the system **Mount Phone Storage (SAF)** action in the toolbar.
-* **Google Drive One-Time SAF Folder Grant:** Android's Google Drive `DocumentsProvider` (`com.google.android.apps.docs.storage`) restricts zero-prompt root listing to pre-installed system apps, and standalone open-source APKs cannot embed a proprietary Google Cloud OAuth client secret tied to a single developer signing key. Wayfinder therefore integrates with Google Drive through Android's official **Storage Access Framework (`ACTION_OPEN_DOCUMENT_TREE`)**: clicking **Google Drive** guides you through a one-time folder selection in the system picker, after which Wayfinder persists the access token across reboots.
+* **Standard Retail Installs (`user` builds without `MANAGE_DOCUMENTS`):** Android restricts direct `content://<authority>/roots` enumeration on **Cross-Device Phone** (`com.google.ambient.streaming.multidevicesync.quickaccess`), **Google Drive** (`com.google.android.apps.docs.storage`), **Linux files** (`com.android.virtualization.terminal.documents`), and **USB MTP** (`com.android.mtp.documents`) to packages holding `MANAGE_DOCUMENTS`. On unprivileged retail builds:
+  * **Google Drive, Linux files & USB MTP:** Clicking these entries in the sidebar launches Android's **Storage Access Framework (`ACTION_OPEN_DOCUMENT_TREE`)** picker so you can grant folder access once and persist it across reboots (multiple Drive folders can be mounted side by side as `Drive · <Folder>`).
+  * **Cross-Device Phone:** Because Cross-Device `QuickAccessDocumentsProvider` hides its root from third-party `OPEN_DOCUMENT_TREE` pickers on retail builds, Wayfinder detects your connected phone via Bluetooth (`BLUETOOTH_CONNECT`) and offers one-click **Browse phone in Files window** (launching a side-by-side desktop Files window where you can drag-and-drop files straight into Wayfinder) alongside **Import phone folder…** and **Quick Share** `Downloads` access.
+* **Developer & Rooted Installs (`MANAGE_DOCUMENTS` granted via ADB):** On `userdebug` / `eng` Googlebooks or rooted devices, granting `MANAGE_DOCUMENTS` via ADB ([instructions below](#adb-direct-mounts)) unlocks native, zero-prompt direct `doc://` mounting for **Cross-Device Phone (`Pixel`)**, top-level **Google Drive (`My Drive`)**, **Linux files**, and **USB MTP**, complete with live `ContentObserver` connect/disconnect updates.
 
 ---
 
@@ -121,15 +124,50 @@ Because Wayfinder is an independent, user-installed open-source application (rat
 
 > **Updating:** Simply install newer versions of `Wayfinder.apk` directly over your existing installation. Your pinned folders, bookmarks, saved server credentials, and settings will remain preserved.
 
+<h3 id="adb-direct-mounts">Optional: Granting Permissions &amp; Direct Mounts via ADB</h3>
+
+If you have `adb` connected to your Googlebook (note that multi-user Googlebooks run the active desktop session under a foreground user such as `User 10`, resolved automatically via `am get-current-user` below):
+
+#### 1. Standard ADB (`user` &amp; `userdebug` builds — no root required)
+
+Grant **All files access** (`MANAGE_EXTERNAL_STORAGE`) and **Nearby devices** (`BLUETOOTH_CONNECT`) without navigating through Settings prompts:
+
+```bash
+USER_ID=$(adb shell am get-current-user | tr -d '\r')
+adb shell appops set --user "$USER_ID" com.droid.wayfinder MANAGE_EXTERNAL_STORAGE allow
+adb shell pm grant --user "$USER_ID" com.droid.wayfinder android.permission.BLUETOOTH_CONNECT
+```
+
+#### 2. Direct Phone, Google Drive &amp; Linux Mounts (`userdebug` / `eng` or rooted builds)
+
+On developer (`userdebug` / `eng`) images where `adb root` is available, you can also grant `android.permission.MANAGE_DOCUMENTS` directly. This unlocks zero-prompt native sidebar mounts for **Cross-Device Phone (`Pixel`)**, top-level **Google Drive (`My Drive`)**, **Linux files**, and **USB MTP** without displacing the system Files app (`com.google.android.filesapp` retains `SYSTEM_DOCUMENT_MANAGER`), and the grant persists across reboots and APK updates:
+
+```bash
+adb root
+USER_ID=$(adb shell am get-current-user | tr -d '\r')
+adb shell appops set --user "$USER_ID" com.droid.wayfinder MANAGE_EXTERNAL_STORAGE allow
+adb shell pm grant --user "$USER_ID" com.droid.wayfinder android.permission.BLUETOOTH_CONNECT
+adb shell pm grant --user "$USER_ID" com.droid.wayfinder android.permission.MANAGE_DOCUMENTS
+adb shell am force-stop --user "$USER_ID" com.droid.wayfinder
+```
+
+> **Why `adb root` is required for `MANAGE_DOCUMENTS`:** Android defines `MANAGE_DOCUMENTS` with `protectionLevel="signature|role"`. Android's `PermissionService` only permits `ROOT_UID` / `SYSTEM_UID` (or `PermissionController`) to grant role-managed permissions via `pm grant`, and `android.app.role.SYSTEM_DOCUMENT_MANAGER` is marked `static="true" systemOnly="true"` without `allowBypassingQualification`. To revert back to standard retail SAF fallback mode for testing on a `userdebug` device, run:
+> ```bash
+> adb root
+> USER_ID=$(adb shell am get-current-user | tr -d '\r')
+> adb shell pm revoke --user "$USER_ID" com.droid.wayfinder android.permission.MANAGE_DOCUMENTS
+> adb shell am force-stop --user "$USER_ID" com.droid.wayfinder
+> ```
+
 ---
 
 ## Privacy & Security
 
 * **Zero telemetry, zero ads:** Wayfinder contains no trackers, advertising SDKs, analytics, or third-party tracking scripts.
 * **Credentials secured with Keystore:** Server passwords for SMB, WebDAV, and FTP shares are encrypted using hardware-backed AES-256-GCM via the Android Keystore.
-* **Hardened file operations:** Built-in safeguards against zip-slip and tar-symlink vulnerabilities, symlink recursion loops, `phone://` and `gdrive://` path/query traversal attacks, and corrupted network data.
+* **Hardened file operations:** Built-in safeguards against zip-slip and tar-symlink vulnerabilities, symlink recursion loops, `FileProvider` symlink traversal, HMAC-authenticated internal window intents, and corrupted network data.
 * **Strict backup exclusions:** Credentials and server auth tokens are explicitly excluded from cloud backups (`dataExtractionRules` & `backup_rules`).
-* **Audited & tested:** Backed by 231 automated unit tests, property-based fuzzers (537,000+ iterations), and headless Robolectric UI integration tests. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
+* **Audited & tested:** Backed by 265+ automated unit tests, property-based fuzzers (537,000+ iterations), WCAG 2.1 AA accessibility checks, and headless Robolectric UI integration tests. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ---
 
