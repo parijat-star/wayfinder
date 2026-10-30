@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.VideoFile
 import androidx.compose.material.icons.outlined.Laptop
 import androidx.compose.material.icons.outlined.ImageSearch
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -104,8 +105,8 @@ fun FileEntry.tint(): Color = if (isServer || isShare) {
     kind.tint()
 }
 
-fun pinIcon(path: String): ImageVector {
-    if (com.droid.wayfinder.data.FsPath.isLocalFile(path) && java.io.File(path).isFile) {
+fun pinIcon(path: String, isKnownFile: Boolean = false): ImageVector {
+    if (isKnownFile) {
         return FileKind.fromName(com.droid.wayfinder.data.FsPath.name(path)).icon()
     }
     val name = path.substringAfterLast('/')
@@ -148,8 +149,8 @@ fun formatDateFull(ms: Long, locale: Locale = Locale.getDefault()): String =
  * Authentic 3-color Google Drive emblem (Yellow, Green, Blue) rendered via Canvas.
  */
 @Composable
-fun GoogleDriveIcon(modifier: Modifier = Modifier.size(20.dp)) {
-    Canvas(modifier = modifier.semantics { contentDescription = "Google Drive" }) {
+fun GoogleDriveIcon(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.defaultMinSize(minWidth = 20.dp, minHeight = 20.dp).semantics { contentDescription = "Google Drive" }) {
         val w = size.width
         val h = size.height
 

@@ -133,7 +133,7 @@ fun Toolbar(vm: BrowserViewModel, s: AppState) {
             SearchField(vm, s, Modifier.width(if (wide > 960.dp) 260.dp else if (wide > 720.dp) 190.dp else 140.dp))
             if (wide > 640.dp) ViewToggle(vm, tab.viewMode, s.dualPane)
             if (wide > 760.dp) SortButton(vm, s)
-            OverflowMenu(vm, s)
+            OverflowMenu(vm, s, showViewItems = wide <= 640.dp, showSortItems = wide <= 760.dp)
         }
         if (tab.query.isNotBlank()) SearchFilterRow(vm, tab)
         }
@@ -267,7 +267,12 @@ private fun SearchField(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             )
         }
         if (tab.query.isNotEmpty()) {
-            Icon(Icons.Outlined.Clear, "Clear search", Modifier.size(18.dp).clip(CircleShape).clickable { vm.setQuery("") }, tint = cs.onSurfaceVariant)
+            Box(
+                Modifier.size(28.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = "Clear search") { vm.setQuery("") },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Clear, "Clear search", Modifier.size(18.dp), tint = cs.onSurfaceVariant)
+            }
         }
     }
 }
@@ -393,7 +398,7 @@ private fun SortButton(vm: BrowserViewModel, s: AppState) {
 }
 
 @Composable
-private fun OverflowMenu(vm: BrowserViewModel, s: AppState) {
+private fun OverflowMenu(vm: BrowserViewModel, s: AppState, showViewItems: Boolean = false, showSortItems: Boolean = false) {
     val cs = MaterialTheme.colorScheme
     var open by remember { mutableStateOf(false) }
     val virtual = FsPath.isReadOnly(s.active.path)
@@ -428,6 +433,41 @@ private fun OverflowMenu(vm: BrowserViewModel, s: AppState) {
             DropdownMenuItem({ Text("Dual pane") }, { open = false; vm.toggleDualPane() }, leadingIcon = check(s.dualPane), trailingIcon = { Hint("Ctrl+4") })
             DropdownMenuItem({ Text("Tags column") }, { open = false; vm.toggleTagsColumn() }, leadingIcon = check(s.tagsColumn))
             DropdownMenuItem({ Text("Permissions column") }, { open = false; vm.togglePermsColumn() }, leadingIcon = check(s.permsColumn))
+            if (showViewItems) {
+                HorizontalDivider()
+                listOf(
+                    ViewMode.Details to "Details view",
+                    ViewMode.List to "List view",
+                    ViewMode.Grid to "Grid view",
+                    ViewMode.Columns to "Columns view",
+                ).forEach { (m, label) ->
+                    DropdownMenuItem(
+                        { Text(label) },
+                        { open = false; vm.setViewMode(m) },
+                        leadingIcon = check(s.active.viewMode == m),
+                    )
+                }
+            }
+            if (showSortItems) {
+                HorizontalDivider()
+                listOf(
+                    SortKey.Name to "Sort by Name",
+                    SortKey.Modified to "Sort by Date modified",
+                    SortKey.Type to "Sort by Type",
+                    SortKey.Size to "Sort by Size",
+                ).forEach { (k, label) ->
+                    DropdownMenuItem(
+                        { Text(label) },
+                        { open = false; vm.setSort(k, if (s.active.sortKey == k) s.active.sortAsc else true) },
+                        leadingIcon = check(s.active.sortKey == k),
+                    )
+                }
+                DropdownMenuItem(
+                    { Text(if (s.active.sortAsc) "Sort descending" else "Sort ascending") },
+                    { open = false; vm.setSort(s.active.sortKey, !s.active.sortAsc) },
+                    leadingIcon = { Box(Modifier.size(18.dp)) },
+                )
+            }
             HorizontalDivider()
             DropdownMenuItem({ Text("Theme: ${s.theme.label}") }, { vm.cycleTheme() }, leadingIcon = { Box(Modifier.size(18.dp)) }, trailingIcon = { Hint("Light / Dark / System") })
             DropdownMenuItem({ Text("Zoom in") }, { vm.zoomBy(1) }, leadingIcon = { Box(Modifier.size(18.dp)) }, trailingIcon = { Hint("Ctrl+=") })

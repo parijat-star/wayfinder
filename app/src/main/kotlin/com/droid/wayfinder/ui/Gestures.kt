@@ -118,13 +118,13 @@ fun Modifier.mouseGestures(
                 val ev = currentEvent
                 val mouse = down.isPrecise()
                 val rootPos = holder[0]?.localToRoot(down.position) ?: down.position
-                                if (mouse && ev.buttons.isSecondaryPressed) {
+                if (mouse && ev.buttons.isSecondaryPressed) {
                     down.consume(); secondary(rootPos); waitForUpOrCancellation(); return@awaitEachGesture
                 }
                 if (mouse && ev.buttons.isTertiaryPressed) {
-                                        down.consume()
+                    down.consume()
                     val up = waitForUpOrCancellation()
-                                        if (up != null) { up.consume(); middle() }
+                    if (up != null) { up.consume(); middle() }
                     return@awaitEachGesture
                 }
                 val ctrl = ev.keyboardModifiers.isCtrlPressed || ev.keyboardModifiers.isMetaPressed

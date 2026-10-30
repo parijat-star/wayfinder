@@ -20,9 +20,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material3.Button
@@ -232,7 +235,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun PermissionScreen(onGrant: () -> Unit) {
     Column(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(32.dp),
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLow).windowInsetsPadding(WindowInsets.safeDrawing).padding(32.dp),
         Arrangement.Center, Alignment.CenterHorizontally,
     ) {
         Icon(Icons.Outlined.FolderOpen, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.primary)

@@ -141,7 +141,7 @@ private fun PropertiesDialog(d: Dialog.Properties, onDismiss: () -> Unit, onCopy
     val e = d.entries
     AlertDialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier.widthIn(min = 480.dp),
+        modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth(),
         title = { Text(if (e.size == 1) e[0].name else formatItemCount(e.size)) },
         text = {
             Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -267,7 +267,7 @@ private val shortcuts = listOf(
 private fun ShortcutsDialog(onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss, title = { Text("Keyboard & trackpad shortcuts") },
-        modifier = Modifier.widthIn(min = 560.dp),
+        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
         text = {
             Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
                 shortcuts.forEach { (group, items) ->
@@ -310,7 +310,7 @@ private fun BatchRenameDialog(d: Dialog.BatchRename, onDismiss: () -> Unit, onAp
     val changes = plan.count { it.changed }
     AlertDialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier.widthIn(min = 560.dp),
+        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
         title = { Text(if (d.items.size == 1) "Rename 1 item" else "Batch rename ${d.items.size} items") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

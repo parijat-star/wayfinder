@@ -1134,39 +1134,42 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     /** Opens a pinned folder or file from the sidebar (navigates into folders/archives, opens and reveals regular files). */
     fun openPinned(path: String, newTab: Boolean = false) {
-        if (FsPath.isLocalFile(path)) {
-            val f = File(path)
-            if (f.isFile) {
-                val entry = FileEntry(path = path, name = f.name, isDir = false, size = f.length(), modified = f.lastModified())
-                if (isBrowsableArchive(entry)) {
-                    if (newTab) newTab(FsPath.zipRoot(path), activate = false) else navigate(FsPath.zipRoot(path))
-                } else {
-                    val parent = FsPath.parent(path)
-                    if (newTab && parent != null) {
-                        newTab(parent, activate = true)
-                    } else {
-                        if (parent != null && tab.path != parent) navigate(parent, select = path)
-                        else if (parent != null) updateTab(tab.id) { it.copy(selection = setOf(path), anchor = path, focused = path) }
-                        openFile(path)
-                    }
-                }
-                return
-            }
-            if (newTab) newTab(path, activate = false) else navigate(path)
-            return
-        }
-        if (newTab) {
-            newTab(path, activate = false)
-            return
-        }
         viewModelScope.launch {
+            if (FsPath.isLocalFile(path)) {
+                val localEntry = withContext(Dispatchers.IO) {
+                    val f = File(path)
+                    if (f.isFile) FileEntry(path = path, name = f.name, isDir = false, size = f.length(), modified = f.lastModified()) else null
+                }
+                if (localEntry != null) {
+                    if (isBrowsableArchive(localEntry)) {
+                        if (newTab) newTab(FsPath.zipRoot(path), activate = false) else navigate(FsPath.zipRoot(path))
+                    } else {
+                        val parent = FsPath.parent(path)
+                        if (newTab && parent != null) {
+                            newTab(parent, activate = true)
+                        } else {
+                            if (parent != null && tab.path != parent) navigate(parent, select = path)
+                            else if (parent != null) updateTab(tab.id) { it.copy(selection = setOf(path), anchor = path, focused = path) }
+                            openFile(path)
+                        }
+                    }
+                    return@launch
+                }
+                if (newTab) newTab(path, activate = false) else navigate(path)
+                return@launch
+            }
             val stat = withContext(Dispatchers.IO) { runCatching { repo.fs(path).stat(path) }.getOrNull() }
             if (stat != null && !stat.isDir) {
                 val parent = FsPath.parent(path)
-                if (parent != null && tab.path != parent) navigate(parent, select = path)
-                openFile(path)
+                if (newTab && parent != null) {
+                    newTab(parent, activate = true)
+                } else {
+                    if (parent != null && tab.path != parent) navigate(parent, select = path)
+                    else if (parent != null) updateTab(tab.id) { it.copy(selection = setOf(path), anchor = path, focused = path) }
+                    openFile(path)
+                }
             } else {
-                navigate(path)
+                if (newTab) newTab(path, activate = false) else navigate(path)
             }
         }
     }

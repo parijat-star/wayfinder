@@ -201,7 +201,7 @@ private fun TabItem(
             )
             if (selected || hovered || width > 140.dp) {
                 Box(
-                    Modifier.size(22.dp).clip(CircleShape).mouseGestures(
+                    Modifier.size(28.dp).clip(CircleShape).mouseGestures(
                         "close${tab.id}",
                         role = Role.Button,
                         onClickLabel = "Close tab ${s.titleOf(tab.path)}",
@@ -209,7 +209,7 @@ private fun TabItem(
                     ),
                     contentAlignment = Alignment.Center,
                 ) { Icon(Icons.Filled.Close, "Close tab", Modifier.size(14.dp), tint = cs.onSurfaceVariant) }
-            } else Box(Modifier.size(22.dp))
+            } else Box(Modifier.size(28.dp))
         }
     }
 }
