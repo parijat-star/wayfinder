@@ -105,6 +105,9 @@ fun AppRoot(vm: BrowserViewModel) {
     val cs = MaterialTheme.colorScheme
     val ctx = LocalContext.current
     val menu = remember { MenuController() }
+    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        vm.onBluetoothPermissionResult(granted)
+    }
     val drag = remember { DragController() }
     val snackbar = remember { SnackbarHostState() }
     val rootFocus = remember { FocusRequester() }
@@ -136,6 +139,11 @@ fun AppRoot(vm: BrowserViewModel) {
                     snackbar.showSnackbar("${e.what} copied", duration = SnackbarDuration.Short)
                 }
                 is UiEvent.NewWindow -> openNewWindow(ctx, e.path)
+                UiEvent.RequestBluetoothPermission -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    bluetoothPermissionLauncher.launch(android.Manifest.permission.BLUETOOTH_CONNECT)
+                } else {
+                    vm.onBluetoothPermissionResult(true)
+                }
                 is UiEvent.Toast -> {
                     snackbar.currentSnackbarData?.dismiss()
                     val r = snackbar.showSnackbar(e.message, if (e.undo) "Undo" else null, duration = SnackbarDuration.Short)

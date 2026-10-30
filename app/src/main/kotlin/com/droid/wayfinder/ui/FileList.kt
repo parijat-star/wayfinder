@@ -353,6 +353,9 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
                     Icon(Icons.Outlined.Smartphone, null, Modifier.size(18.dp))
                     Text("Connect phone storage…", Modifier.padding(start = 6.dp))
                 }
+                if (!s.bluetoothPermissionGranted) {
+                    OutlinedButton({ vm.requestBluetoothPermission() }) { Text("Allow Bluetooth detection") }
+                }
                 OutlinedButton({ vm.openPhoneHubSettings() }) { Text("Phone Hub settings") }
                 OutlinedButton({ vm.openQuickShareFolder() }) { Text("Quick Share folder") }
             }
