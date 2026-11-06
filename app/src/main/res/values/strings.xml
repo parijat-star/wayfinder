@@ -9,11 +9,19 @@
     <string name="nav_recents" description="Navigation item label in the sidebar and breadcrumb bar for recently modified files. [CHAR_LIMIT=20]">Recents</string>
     <string name="nav_starred" description="Navigation item label in the sidebar and breadcrumb bar for user-starred files and folders. [CHAR_LIMIT=20]">Starred</string>
     <string name="nav_trash" description="Navigation item label in the sidebar and breadcrumb bar for the Trash bin. [CHAR_LIMIT=20]">Trash</string>
-    <string name="search_placeholder" description="Placeholder text shown inside the toolbar search input field. [CHAR_LIMIT=32]">Search files</string>
+    <string name="search_placeholder" description="Accessibility label for the toolbar search input field used to filter files by name. [CHAR_LIMIT=32]">Search files</string>
     <string name="search_files_placeholder" description="Placeholder hint text inside the top toolbar search input field when empty. [CHAR_LIMIT=25]">Search files</string>
     <string name="sort_button_label" description="Button label in the top toolbar that opens the file sorting menu (verb/noun action to sort files). [CHAR_LIMIT=15]">Sort</string>
     <string name="details_pane_title" description="Header title at the top of the right-hand file details and preview pane. [CHAR_LIMIT=20]">Details</string>
     <string name="item_count_plural" description="Status bar and properties dialog item count summary. {0} is the number of files/folders (e.g. 1, 42). [CHAR_LIMIT=30] applies across all plural branch variants.">{0, plural, =1 {# item} other {# items}}</string>
     <string name="selected_count_plural" description="Status bar and preview pane summary of currently selected items. {0} is the number of selected items (e.g. 1, 12). [CHAR_LIMIT=35] applies across all plural branch variants.">{0, plural, =1 {# selected} other {# selected}}</string>
     <string name="search_result_count_plural" description="Search filter bar count of matching files found. {0} is the number of matching results (e.g. 1, 150). [CHAR_LIMIT=30] applies across all plural branch variants.">{0, plural, =1 {# result} other {# results}}</string>
+    <string name="byte_count_plural" description="Exact file size in bytes shown inside parentheses in the Properties dialog and Quick Look binary preview. {0} is the integer byte count (e.g. 1, 1048576). [CHAR_LIMIT=40] applies across all plural branch variants.">{0, plural, =1 {# byte} other {# bytes}}</string>
+    <string name="status_searching" description="Progress indicator text appended to the bottom status bar while a folder search is actively running. [CHAR_LIMIT=25]">Searching…</string>
+    <string name="properties_calculating" description="Placeholder value shown in the Size row of the Properties dialog while folder byte size is still being computed. [CHAR_LIMIT=25]">Calculating…</string>
+    <string name="empty_folder_title" description="Centered heading shown inside the file list pane when the current folder contains zero items. [CHAR_LIMIT=40]">No files in this folder</string>
+    <string name="empty_trash_title" description="Centered heading shown inside the file list pane when the Trash folder contains zero deleted items. [CHAR_LIMIT=30]">Trash is empty</string>
+    <string name="empty_recents_title" description="Centered heading shown inside the file list pane when Recents has no recently modified files. [CHAR_LIMIT=30]">No recent files</string>
+    <string name="empty_starred_title" description="Centered heading shown inside the file list pane when the user has not starred any files or folders yet. [CHAR_LIMIT=30]">No starred items</string>
+    <string name="empty_search_title" description="Centered heading shown inside the file list pane when a search query matches zero files. [CHAR_LIMIT=25]">No results</string>
 </resources>
