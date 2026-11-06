@@ -2,7 +2,7 @@
   <img src="docs/images/icon.svg" width="112" alt="Wayfinder icon: an orange folder" />
 </p>
 
-<h1 align="center">Wayfinder</h1>
+<h1 align="center">Wayfinder (A Files app for Googlebooks)</h1>
 
 <p align="center">
   <b>A desktop-grade, tabbed file manager for Googlebooks.</b><br>
@@ -51,7 +51,7 @@
   * **Grid View (`Ctrl+2`):** Rich thumbnail previews with smooth trackpad zoom (`Ctrl+=` / `Ctrl+-` / `Ctrl+0`).
   * **Miller Columns (`Ctrl+3`):** macOS Finder-style multi-column cascading hierarchy navigation.
   * **Dual-Pane Commander (`Ctrl+4` / `F3`):** Two independent side-by-side browser panes with `F5` copy and `F6` move.
-  * **Distraction-free Recents:** Shows recently modified files across storage with clean titles and no redundant file-path clutter underneath.
+  * **Distraction-free Recents:** Starts on Recents on first launch and new windows, showing recently modified files across storage with clean titles and no redundant file-path clutter underneath.
 * **First-class desktop input:** Single-click selects, double-click opens, right-click opens context menus, middle-click opens in a background tab, rubber-band marquee drag selection, and drag-and-drop between folders or from other apps.
 * **Quick Look (`Space`):** Instant desktop preview for images, video frames, PDFs, audio waveforms, archives, and syntax-highlighted code with line numbers without launching heavy external viewers.
 * **Archive filesystem:** Navigate into `.zip`, `.tar.gz`, `.tgz`, and `.tar` archives as virtual read-only folders, view contents, copy files out, and compress selections with one shortcut.
@@ -59,7 +59,7 @@
 * **Connected Phone Integration:** Automatically discovers paired and connected Android phones over **Googlebook Cross-Device Services** (`QuickAccessDocumentsProvider`), **USB MTP**, and **Bluetooth**, browsing live phone directories (`Alarms`, `Android`, `DCIM`, `Documents`, `Download`, `Movies`, `Music`, `Pictures`, etc.) wirelessly with human-friendly breadcrumbs (`Pixel 8a / Documents`) and incoming **Quick Share** integration.
 * **Googlebook Ecosystem (`Linux files` & Work Profile):** Auto-discovers the Googlebook Linux development environment (`Linux files`) with one-click **Share with Linux** transfers and supports managed **Work / Personal Profile** switching via `CrossProfileApps`.
 * **Command palette (`Ctrl+K`):** Spotlight-style fuzzy command launcher to run any operation or jump to any folder in milliseconds.
-* **Complete system file & folder picker:** Registers for `GET_CONTENT`, `OPEN_DOCUMENT`, `OPEN_DOCUMENT_TREE` (folder access grants), and `ACTION_CREATE_DOCUMENT` ("Save As"), returning `DocumentsContract` URIs with persistable read/write permissions.
+* **Complete system file, folder & archive handler:** Registers for `GET_CONTENT`, `OPEN_DOCUMENT`, `OPEN_DOCUMENT_TREE`, `ACTION_CREATE_DOCUMENT` ("Save As"), `VIEW_DOWNLOADS`, and `ACTION_VIEW` on folders and archives (`.zip`, `.tar.gz`, `.tgz`, `.tar`), with optional default handler onboarding.
 
 ---
 

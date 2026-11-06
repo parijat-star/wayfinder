@@ -14,7 +14,7 @@ object CacheJanitor {
     const val DEFAULT_TTL_MS: Long = 24L * 3600_000L
     const val SWEEP_INTERVAL_MS: Long = 30L * 60_000L
 
-    private val STAGED_SUBDIRS = listOf("remote-open", "zip-open", "picker")
+    private val STAGED_SUBDIRS = listOf("remote-open", "zip-open", "picker", "view-archive")
     private const val GDRIVE_TEMP_PREFIX = "wf-gdrive"
     private const val GDRIVE_TEMP_SUFFIX = ".part"
 

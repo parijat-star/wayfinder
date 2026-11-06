@@ -81,7 +81,7 @@ class LocalizationAndScalingTest {
 
     @Test fun externalizedStringsAndAutoMirroredIconsAreConfigured() {
         val ctx = ApplicationProvider.getApplicationContext<Context>()
-        assertEquals("Wayfinder", ctx.getString(R.string.app_name))
+        assertEquals("Wayfinder (A Files app for Googlebooks)", ctx.getString(R.string.app_name))
         assertEquals("Quick access", ctx.getString(R.string.quick_access_section))
         assertEquals("Search files", ctx.getString(R.string.search_files_placeholder))
         assertEquals("Sort", ctx.getString(R.string.sort_button_label))

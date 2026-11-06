@@ -14,8 +14,8 @@ android {
     applicationId = "com.droid.wayfinder"
     minSdk = 30
     targetSdk = 36
-    versionCode = 11
-    versionName = "2.0"
+    versionCode = 12
+    versionName = "2.1"
     // Pure Kotlin/JVM app: no native libs, so the single APK runs on x86_64 and arm64-v8a.
   }
 

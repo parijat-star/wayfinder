@@ -220,6 +220,7 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState): List<PaletteItem> {
         if (one != null && (tab.searchResults != null || FsPath.isCollection(tab.path))) {
             add(c("Show in enclosing folder", "Go to the folder that contains ${one.name}", null, Icons.Outlined.FindInPage) { vm.showInEnclosingFolder(one.path) })
         }
+        add(c("Default file handler…", "Set or reset Wayfinder as default for folders, archives, and file picking", null, Icons.Outlined.AppRegistration) { vm.showDefaultHandlerDialog() })
         add(c("Keyboard shortcuts", "Show all shortcuts", "F1", Icons.Outlined.Keyboard) { vm.showDialog(Dialog.Shortcuts) })
         add(c("About Wayfinder", "Version and open-source licenses", null, Icons.Outlined.Info) { vm.showDialog(Dialog.About) })
     }

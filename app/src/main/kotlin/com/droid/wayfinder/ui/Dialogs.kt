@@ -112,6 +112,7 @@ fun Dialogs(vm: BrowserViewModel, s: AppState) {
         is Dialog.SafMountTip -> SafMountTipDialog(accountEmail = d.accountEmail, onDismiss = vm::dismissDialog, onProceed = { vm.confirmSafMountTip(it, d.accountEmail) })
         is Dialog.BatchRename -> BatchRenameDialog(d, vm::dismissDialog) { plan -> vm.batchRename(d.dir, plan) }
         Dialog.About -> AboutDialog(vm::dismissDialog)
+        Dialog.DefaultHandler -> DefaultHandlerDialog(vm::dismissDialog)
     }
 }
 
@@ -465,7 +466,7 @@ private fun AboutDialog(onDismiss: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     var showLicenses by remember { mutableStateOf(false) }
     val versionName = remember(ctx) {
-        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull()?.takeIf { it.isNotBlank() } ?: "2.0"
+        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull()?.takeIf { it.isNotBlank() } ?: "2.1"
     }
     val noticesText by androidx.compose.runtime.produceState<String?>(initialValue = null, key1 = showLicenses) {
         if (showLicenses && value == null) {
@@ -520,6 +521,105 @@ private fun AboutDialog(onDismiss: () -> Unit) {
         },
     )
 }
+
+@Composable
+private fun DefaultHandlerDialog(onDismiss: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val cs = MaterialTheme.colorScheme
+
+    fun openAppDefaultSettings() {
+        val candidates = listOf(
+            android.content.Intent(
+                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:${ctx.packageName}"),
+            ),
+            android.content.Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS),
+            android.content.Intent(android.provider.Settings.ACTION_SETTINGS),
+        )
+        for (intent in candidates) {
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (runCatching { ctx.startActivity(intent) }.isSuccess) break
+        }
+    }
+
+    fun triggerOpenWithPrompt() {
+        val downloadsIntent = android.content.Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (runCatching { ctx.startActivity(downloadsIntent) }.isFailure) {
+            openAppDefaultSettings()
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.widthIn(max = 600.dp).fillMaxWidth(),
+        title = { Text("Make Wayfinder your default file handler?") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    "Wayfinder is registered to handle supported file and folder actions across Android:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = cs.onSurface,
+                )
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = cs.surfaceContainerLow,
+                    border = BorderStroke(1.dp, cs.outlineVariant),
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Supported file types & actions", style = MaterialTheme.typography.titleSmall, color = cs.primary)
+                        Text(
+                            "• Folders & Downloads — Open folders and system \"View Downloads\" shortcuts directly in Wayfinder.\n" +
+                                "• Archives (.zip, .tar.gz, .tgz, .tar) — Browse and extract archives inline as virtual folders.\n" +
+                                "• File Picker (Open / Save As) — Attach or save files when prompted by browsers, email, and other apps.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurface,
+                        )
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = cs.surfaceContainerHigh,
+                    border = BorderStroke(1.dp, cs.outlineVariant),
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Outlined.Info, null, Modifier.size(18.dp), tint = cs.primary)
+                            Text("How to set or change anytime", style = MaterialTheme.typography.titleSmall, color = cs.primary)
+                        }
+                        Text(
+                            "1. To set Wayfinder as default: Tap \"Test Open-With Prompt\" below (or open any folder or archive), select Wayfinder in Android's prompt, and tap \"Always\".\n\n" +
+                                "2. If the system Files app opens automatically without asking: Go to Android Settings → Apps → See all apps → Files → Open by default → Clear default preferences.\n\n" +
+                                "3. Change or reset anytime: You can change or remove Wayfinder as your default handler at any time in Android Settings → Apps → Wayfinder → Open by default → Clear default preferences (or reopen this guide from ⋮ More → Default file handler…).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.OutlinedButton(onClick = { onDismiss(); triggerOpenWithPrompt() }) {
+                    Text("Test Open-With Prompt")
+                }
+                Button(onClick = { onDismiss(); openAppDefaultSettings() }) {
+                    Text("App Default Settings")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Not now")
+            }
+        },
+    )
+}
+
 
 
 

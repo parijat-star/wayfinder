@@ -62,7 +62,7 @@ class AboutDialogAndIconTest {
         rule.waitForIdle()
         assertEquals(Dialog.About, harness.s.dialog)
 
-        rule.onNodeWithText("Version 2.0").assertIsDisplayed()
+        rule.onNodeWithText("Version 2.1").assertIsDisplayed()
         rule.onNodeWithText("Apache License, Version 2.0", substring = true).assertIsDisplayed()
 
         // Toggle Open-source licenses view and verify bundled asset text loads

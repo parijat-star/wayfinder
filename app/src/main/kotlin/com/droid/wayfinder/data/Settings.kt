@@ -92,4 +92,9 @@ class Settings(context: Context) {
     var lastQuickAccessRootId: String?
         get() = p.getString("lastQuickAccessRootId", null)?.takeIf { it.isNotBlank() }
         set(v) = p.edit().putString("lastQuickAccessRootId", v?.trim()).apply()
+
+    /** Whether the first-install "Make Wayfinder your default file handler?" prompt has been shown. */
+    var shownDefaultHandlerPrompt: Boolean
+        get() = p.getBoolean("shownDefaultHandlerPrompt", false)
+        set(v) = p.edit().putBoolean("shownDefaultHandlerPrompt", v).apply()
 }

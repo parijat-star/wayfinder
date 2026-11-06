@@ -99,6 +99,11 @@ class MainActivity : ComponentActivity() {
                 if (granted) {
                     val vm: BrowserViewModel by viewModels()
                     vmOrNull = vm
+                    androidx.compose.runtime.LaunchedEffect(Unit) {
+                        if (hasAccessOverride == null) {
+                            vm.maybeShowDefaultHandlerPrompt()
+                        }
+                    }
                     AppRoot(vm)
                 } else PermissionScreen(onGrant = ::requestAccess)
             }
@@ -107,7 +112,7 @@ class MainActivity : ComponentActivity() {
 
     /**
      * The view model reads its options from the intent extras (SavedStateHandle), so picker requests
-     * (GET_CONTENT / OPEN_DOCUMENT / PICK) and VIEW_DOWNLOADS are translated into those extras here.
+     * (GET_CONTENT / OPEN_DOCUMENT / PICK), VIEW_DOWNLOADS, and ACTION_VIEW are translated into those extras here.
      */
     private fun prepareIntentExtras() {
         // Exported activity: other apps may send anything. Internal extras need our token (see IntentGuard).
@@ -143,10 +148,22 @@ class MainActivity : ComponentActivity() {
                         i.putExtra(BrowserViewModel.EXTRA_PATH, targetPath)
                     }
                 }
+                Intent.ACTION_VIEW -> {
+                    val targetPath = resolveViewTargetPath(this, i.data, i.type)
+                    if (targetPath != null) {
+                        i.putExtra(BrowserViewModel.EXTRA_NEW_WINDOW, true)
+                        i.putExtra(BrowserViewModel.EXTRA_PATH, targetPath)
+                    }
+                }
                 android.app.DownloadManager.ACTION_VIEW_DOWNLOADS -> {
                     // Opened like an extra window so the main window's saved tabs stay untouched.
                     i.putExtra(BrowserViewModel.EXTRA_NEW_WINDOW, true)
                     i.putExtra(BrowserViewModel.EXTRA_PATH, java.io.File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_DOWNLOADS).path)
+                }
+                Intent.ACTION_MAIN -> {
+                    if ((i.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK) != 0) {
+                        i.putExtra(BrowserViewModel.EXTRA_NEW_WINDOW, true)
+                    }
                 }
             }
         } catch (_: Exception) {
@@ -159,6 +176,102 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         internal var hasAccessOverride: (() -> Boolean)? = null
+
+        private val ARCHIVE_MIMES = setOf(
+            "application/zip",
+            "application/x-zip-compressed",
+            "application/gzip",
+            "application/x-gzip",
+            "application/x-tar",
+            "application/x-gtar",
+        )
+
+        internal fun isSupportedArchiveName(name: String): Boolean {
+            val lower = name.lowercase()
+            return lower.endsWith(".zip") || lower.endsWith(".tar.gz") || lower.endsWith(".tgz") || lower.endsWith(".tar")
+        }
+
+        /**
+         * Resolves an incoming [Intent.ACTION_VIEW] data URI into a navigable Wayfinder path
+         * (either a folder path or an inline archive root `path!`).
+         */
+        internal fun resolveViewTargetPath(
+            context: android.content.Context,
+            uri: Uri?,
+            mimeType: String? = null,
+            primaryStorageRoot: String = runCatching { Environment.getExternalStorageDirectory().path }.getOrDefault("/storage/emulated/0"),
+        ): String? {
+            if (uri == null) return null
+            val rawTarget = when (uri.scheme?.lowercase()) {
+                "file" -> uri.path?.takeIf { it.isNotBlank() && !it.contains('\u0000') }
+                "content" -> com.droid.wayfinder.data.SystemDocumentsBridge.toWayfinderPath(uri, primaryStorageRoot)
+                else -> null
+            }
+            if (rawTarget != null) {
+                if (com.droid.wayfinder.data.FsPath.isLocalFile(rawTarget)) {
+                    if (com.droid.wayfinder.data.FileInfo.isSymlink(rawTarget) || isPrivateAppPath(context, rawTarget)) {
+                        return null
+                    }
+                    val f = java.io.File(rawTarget)
+                    return when {
+                        isSupportedArchiveName(f.name) -> com.droid.wayfinder.data.FsPath.zipRoot(f.path)
+                        f.isDirectory -> f.path
+                        f.isFile -> f.parent
+                        else -> f.path
+                    }
+                }
+                return rawTarget
+            }
+            // Fallback for non-DocumentsContract content:// URIs pointing to an archive (e.g. browser downloads / FileProvider).
+            if (uri.scheme.equals("content", ignoreCase = true) && uri.authority != "${context.packageName}.fileprovider") {
+                val segName = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':').orEmpty()
+                val isArchive = isSupportedArchiveName(segName) || mimeType?.lowercase() in ARCHIVE_MIMES
+                if (isArchive) {
+                    return stageExternalArchiveToCache(context, uri, segName, mimeType)
+                }
+            }
+            return null
+        }
+
+        private fun isPrivateAppPath(context: android.content.Context, path: String): Boolean {
+            val rawData = context.applicationInfo?.dataDir ?: return false
+            val canonical = runCatching { java.io.File(path).canonicalPath }.getOrDefault(path)
+            val data = runCatching { java.io.File(rawData).canonicalPath }.getOrDefault(rawData)
+            return com.droid.wayfinder.data.FsPath.isWithin(data, canonical) ||
+                com.droid.wayfinder.data.FsPath.isWithin(rawData, path)
+        }
+
+        private fun stageExternalArchiveToCache(
+            context: android.content.Context,
+            uri: Uri,
+            fallbackSeg: String,
+            mimeType: String?,
+        ): String? = runCatching {
+            val defaultExt = when (mimeType?.lowercase()) {
+                "application/gzip", "application/x-gzip", "application/x-gtar" -> ".tar.gz"
+                "application/x-tar" -> ".tar"
+                else -> ".zip"
+            }
+            val rawName = fallbackSeg.takeIf { isSupportedArchiveName(it) } ?: "archive$defaultExt"
+            val safeName = com.droid.wayfinder.data.FileInfo.sanitizeFileName(rawName, "archive$defaultExt")
+            val dir = java.io.File(context.cacheDir, "view-archive").apply { mkdirs() }
+            val dstFile = java.io.File(dir, safeName)
+            val maxBytes = 512L * 1024 * 1024 // 512 MB cap for synchronous staging
+            context.contentResolver.openInputStream(uri)?.use { inp ->
+                dstFile.outputStream().use { out ->
+                    val buf = ByteArray(128 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val n = inp.read(buf)
+                        if (n < 0) break
+                        total += n
+                        if (total > maxBytes) throw java.io.IOException("Archive too large to stage")
+                        out.write(buf, 0, n)
+                    }
+                }
+            } ?: return null
+            com.droid.wayfinder.data.FsPath.zipRoot(dstFile.path)
+        }.getOrNull()
     }
 
     private fun requestAccess() {

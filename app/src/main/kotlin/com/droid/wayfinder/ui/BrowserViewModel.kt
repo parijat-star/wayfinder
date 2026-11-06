@@ -191,9 +191,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }
         val startPaths = when {
             picker != null -> listOf(startPath ?: File(primary, Environment.DIRECTORY_DOWNLOADS).path.takeIf { File(it).isDirectory } ?: primary)
-            secondaryWindow -> listOf(startPath ?: pins.firstOrNull() ?: primary)
+            secondaryWindow -> listOf(startPath ?: FsPath.RECENTS_ROOT)
             startPath != null -> listOf(startPath)
-            else -> savedTabs.ifEmpty { listOf(pins.firstOrNull() ?: primary) }
+            else -> savedTabs.ifEmpty { listOf(FsPath.RECENTS_ROOT) }
         }
         val tabs = startPaths.map { newTabState(it) }
         val initialDrive = GoogleDriveManager.discoverAccounts(app, safMounts)
@@ -1010,6 +1010,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun navigate(path: String, id: Long = tab.id, select: String? = null) {
         val p = FsPath.normalize(path)
+        if (p == FsPath.RECENTS_ROOT) recentsCache = null
         updateTab(id) { it.navigatedTo(p) }
         load(id, select = select); persist(); noteRecent(p)
         if (id == tab.id) revealInTree(p)
@@ -1179,6 +1180,22 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
     fun dismissDialog() = showDialog(null)
 
+    /**
+     * Shows the one-time "Make Wayfinder your default file handler?" onboarding dialog on first install
+     * (skipped in secondary windows and file-picker mode).
+     */
+    fun maybeShowDefaultHandlerPrompt() {
+        if (!secondaryWindow && picker == null && !settings.shownDefaultHandlerPrompt && _state.value.dialog == null) {
+            settings.shownDefaultHandlerPrompt = true
+            showDialog(Dialog.DefaultHandler)
+        }
+    }
+
+    fun showDefaultHandlerDialog() {
+        settings.shownDefaultHandlerPrompt = true
+        showDialog(Dialog.DefaultHandler)
+    }
+
     // ---------------------------------------------------------------- zoom, theme, columns, windows
 
     /** Ctrl+= / Ctrl+- in 10% steps; [steps] = 0 resets to 100%. Range 70%–160%. */
@@ -1200,7 +1217,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun togglePermsColumn() { val v = !_state.value.permsColumn; settings.permsColumn = v; _state.update { it.copy(permsColumn = v) } }
 
     /** Ctrl+N / "Open in new window". */
-    fun newWindow(path: String? = null) = emit(UiEvent.NewWindow(path ?: tab.path))
+    fun newWindow(path: String? = null) = emit(UiEvent.NewWindow(path ?: FsPath.RECENTS_ROOT))
 
     // ---------------------------------------------------------------- stars & color tags
 

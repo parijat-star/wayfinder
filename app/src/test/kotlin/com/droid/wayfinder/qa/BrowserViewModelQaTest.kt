@@ -46,7 +46,7 @@ class BrowserViewModelQaTest {
     @Test fun startsAtPrimaryStorageWithOneTab() {
         val h = harness()
         assertEquals(1, h.s.tabs.size)
-        assertEquals(h.root.path, h.s.active.path)
+        assertEquals(FsPath.RECENTS_ROOT, h.s.active.path)
         assertTrue(h.s.roots.isNotEmpty())
     }
 
@@ -91,10 +91,10 @@ class BrowserViewModelQaTest {
         h.vm.newTab(h.pathOf("one")); h.settle()
         h.vm.newTab(h.pathOf("two")); h.settle()
         h.vm.newTab(h.pathOf("three"), activate = false); h.settle()
-        assertEquals(listOf(h.root.path, h.pathOf("one"), h.pathOf("two"), h.pathOf("three")), h.s.tabs.map { it.path })
+        assertEquals(listOf(FsPath.RECENTS_ROOT, h.pathOf("one"), h.pathOf("two"), h.pathOf("three")), h.s.tabs.map { it.path })
         assertEquals(h.pathOf("two"), h.s.active.path)
         h.vm.cycleTab(1); assertEquals(h.pathOf("three"), h.s.active.path)
-        h.vm.cycleTab(1); assertEquals(h.root.path, h.s.active.path) // wraps
+        h.vm.cycleTab(1); assertEquals(FsPath.RECENTS_ROOT, h.s.active.path) // wraps
         h.vm.cycleTab(-1); assertEquals(h.pathOf("three"), h.s.active.path)
         h.vm.selectTabIndex(1); assertEquals(h.pathOf("one"), h.s.active.path)
         h.vm.selectTabIndex(8); assertEquals(h.pathOf("three"), h.s.active.path) // Alt+9 = last tab
@@ -104,7 +104,7 @@ class BrowserViewModelQaTest {
         h.vm.reopenClosedTab(); h.settle()
         assertEquals(h.pathOf("three"), h.s.active.path)
         h.vm.moveTab(0, 3)
-        assertEquals(h.root.path, h.s.tabs.last().path)
+        assertEquals(FsPath.RECENTS_ROOT, h.s.tabs.last().path)
         h.vm.closeOtherTabs(h.s.activeId)
         assertEquals(listOf(h.pathOf("three")), h.s.tabs.map { it.path })
         h.vm.closeTab(h.s.activeId)
@@ -127,7 +127,7 @@ class BrowserViewModelQaTest {
         h.vm.newTab(h.pathOf("keep")); h.settle()
         h.close(); harnesses.remove(h)
         val again = harness()
-        assertEquals(listOf(h.root.path, h.pathOf("keep")), again.s.tabs.map { it.path })
+        assertEquals(listOf(FsPath.RECENTS_ROOT, h.pathOf("keep")), again.s.tabs.map { it.path })
         assertEquals(h.pathOf("keep"), again.s.active.path)
         again.close(); harnesses.remove(again)
         val extra = harness(mapOf(BrowserViewModel.EXTRA_NEW_WINDOW to true, BrowserViewModel.EXTRA_PATH to h.pathOf("keep")))
@@ -141,7 +141,10 @@ class BrowserViewModelQaTest {
     @Test fun newWindowEmitsEventWithCurrentPath() {
         val h = harness()
         h.vm.newWindow()
-        assertEquals(h.root.path, h.events.filterIsInstance<UiEvent.NewWindow>().single().path)
+        assertEquals(FsPath.RECENTS_ROOT, h.events.filterIsInstance<UiEvent.NewWindow>().single().path)
+        val extraDefault = harness(mapOf(BrowserViewModel.EXTRA_NEW_WINDOW to true))
+        assertTrue(extraDefault.s.secondaryWindow)
+        assertEquals(listOf(FsPath.RECENTS_ROOT), extraDefault.s.tabs.map { it.path })
     }
 
     // ------------------------------------------------------------------ selection
@@ -694,4 +697,56 @@ class BrowserViewModelQaTest {
         assertEquals("This file can't be opened", h.toasts().last())
         assertTrue(h.events.filterIsInstance<UiEvent.OpenFile>().isEmpty())
     }
+
+    @Test fun defaultHandlerPromptAndActionViewRouting() {
+        val h = harness()
+        assertNull(h.s.dialog)
+
+        // First install / first run prompt appears once and remembers preference
+        h.vm.maybeShowDefaultHandlerPrompt()
+        assertEquals(Dialog.DefaultHandler, h.s.dialog)
+        h.vm.dismissDialog()
+        assertNull(h.s.dialog)
+
+        // Subsequent calls to maybeShowDefaultHandlerPrompt do not re-trigger
+        h.vm.maybeShowDefaultHandlerPrompt()
+        assertNull(h.s.dialog)
+
+        // On-demand trigger from overflow menu / command palette always opens it
+        h.vm.showDefaultHandlerDialog()
+        assertEquals(Dialog.DefaultHandler, h.s.dialog)
+        h.vm.dismissDialog()
+
+        // ACTION_VIEW routing for archives (.zip, .tar.gz) and folders
+        val zipFile = h.file("archives/bundle.zip", "PK")
+        val tarGzFile = h.file("archives/source.tar.gz", "gz")
+        val folder = h.dir("archives/docs")
+        assertEquals(
+            FsPath.zipRoot(zipFile.path),
+            com.droid.wayfinder.MainActivity.resolveViewTargetPath(h.app, android.net.Uri.fromFile(zipFile), "application/zip", h.root.path),
+        )
+        assertEquals(
+            FsPath.zipRoot(tarGzFile.path),
+            com.droid.wayfinder.MainActivity.resolveViewTargetPath(h.app, android.net.Uri.fromFile(tarGzFile), "application/gzip", h.root.path),
+        )
+        assertEquals(
+            folder.path,
+            com.droid.wayfinder.MainActivity.resolveViewTargetPath(h.app, android.net.Uri.fromFile(folder), "resource/folder", h.root.path),
+        )
+
+        // Security: ACTION_VIEW must reject private app dataDir paths and symlinks
+        val privateArchive = File(h.app.applicationInfo.dataDir, "shared_prefs/secret.zip").apply {
+            parentFile?.mkdirs()
+            writeText("secret")
+        }
+        assertNull(
+            com.droid.wayfinder.MainActivity.resolveViewTargetPath(h.app, android.net.Uri.fromFile(privateArchive), "application/zip", h.root.path),
+        )
+        val symlinkArchive = File(h.root, "archives/sym.zip")
+        java.nio.file.Files.createSymbolicLink(symlinkArchive.toPath(), zipFile.toPath())
+        assertNull(
+            com.droid.wayfinder.MainActivity.resolveViewTargetPath(h.app, android.net.Uri.fromFile(symlinkArchive), "application/zip", h.root.path),
+        )
+    }
 }
+

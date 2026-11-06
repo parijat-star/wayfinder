@@ -63,6 +63,8 @@ sealed interface Dialog {
     data class BatchRename(val dir: String, val items: List<FileEntry>, val existing: List<String>) : Dialog
     /** App version, Apache-2.0 license summary, and bundled open-source third-party notices. */
     data object About : Dialog
+    /** First-install / on-demand guide for setting or resetting Wayfinder as the default file handler. */
+    data object DefaultHandler : Dialog
 }
 
 sealed interface UiEvent {

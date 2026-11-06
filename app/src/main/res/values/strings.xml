@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name" description="Application name displayed in the Android system launcher, recent apps switcher, and window title bar. [CHAR_LIMIT=20]">Wayfinder</string>
+    <string name="app_name" description="Application name displayed in the Android system launcher, recent apps switcher, and window title bar. [CHAR_LIMIT=45]">Wayfinder (A Files app for Googlebooks)</string>
     <string name="quick_access_section" description="Section header in the left navigation sidebar above Recents and Starred items. [CHAR_LIMIT=25]">Quick access</string>
     <string name="pinned_section" description="Section header in the left navigation sidebar above user-pinned folders. [CHAR_LIMIT=20]">Pinned</string>
     <string name="locations_section" description="Section header in the left navigation sidebar above local storage volumes and connected devices. [CHAR_LIMIT=25]">Locations</string>
