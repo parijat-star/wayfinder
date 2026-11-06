@@ -186,6 +186,8 @@ class ZipFileSystem : FileSystem {
                 while (ze != null) {
                     if (ze.name == name) {
                         return object : FilterInputStream(BoundedInputStream(tin, limit, FsPath.name(path)).buffered(64 * 1024)) {
+                            override fun read(): Int = try { super.read() } catch (e: IOException) { throw e } catch (e: Exception) { throw IOException("Can't read ${FsPath.name(path)}: ${e.message}", e) }
+                            override fun read(b: ByteArray, off: Int, len: Int): Int = try { super.read(b, off, len) } catch (e: IOException) { throw e } catch (e: Exception) { throw IOException("Can't read ${FsPath.name(path)}: ${e.message}", e) }
                             override fun close() { try { super.close() } finally { tin.close() } }
                         }
                     }

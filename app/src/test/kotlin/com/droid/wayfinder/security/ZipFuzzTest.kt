@@ -26,9 +26,13 @@ import java.nio.ByteOrder
 import java.nio.file.Files
 import java.util.zip.CRC32
 import java.util.zip.Deflater
+import java.util.zip.GZIPOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.random.Random
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
+import org.apache.commons.compress.archivers.tar.TarConstants
 
 /**
  * Hostile-archive tests and byte-level mutation fuzzing for archive handling: [FileOperations.extract]
@@ -342,6 +346,111 @@ class ZipFuzzTest {
                 }
             } finally {
                 FileInfo.deleteTree(dest); dest.mkdirs(); zip.delete()
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ .tar and .tar.gz hostile & mutation fuzzing
+
+    private fun buildTarBytes(gzip: Boolean, writer: (TarArchiveOutputStream) -> Unit): ByteArray {
+        val raw = ByteArrayOutputStream()
+        val stream = if (gzip) GZIPOutputStream(raw) else raw
+        TarArchiveOutputStream(stream, "UTF-8").apply {
+            setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX)
+            setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_POSIX)
+        }.use(writer)
+        return raw.toByteArray()
+    }
+
+    @Test
+    fun hostileAndMutatedTarAndTarGzArchivesOnlyFailWithIOException() {
+        // 1. Hand-written hostile .tar and .tar.gz archives (symlinks, hardlinks, device nodes, traversal names)
+        for (gzip in listOf(false, true)) {
+            val ext = if (gzip) ".tar.gz" else ".tar"
+            for (name in hostileNames) {
+                val bytes = buildTarBytes(gzip) { tos ->
+                    val ok = TarArchiveEntry("ok.txt").apply { size = 4 }
+                    tos.putArchiveEntry(ok); tos.write("fine".toByteArray()); tos.closeArchiveEntry()
+                    val isDirName = name.endsWith("/")
+                    val bad = TarArchiveEntry(name).apply { if (!isDirName) size = 5 }
+                    tos.putArchiveEntry(bad)
+                    if (!isDirName) tos.write("pwned".toByteArray())
+                    tos.closeArchiveEntry()
+                }
+                val tar = file(bytes, "hostile-${counter++}$ext")
+                try {
+                    runCatching { walk(ZipFileSystem(), FsPath.zipRoot(tar.path), 0) }.exceptionOrNull()?.let { if (it !is IOException) throw it }
+                    val out = try { extract(tar) } catch (_: IOException) { null }
+                    assertNothingEscaped("tar(${k.escape(name)})")
+                    if (out != null) assertTrue(FsPath.isWithin(dest.path, out))
+                } finally {
+                    FileInfo.deleteTree(dest); dest.mkdirs(); tar.delete()
+                }
+            }
+
+            // Symlink, hardlink, character device, block device, FIFO must never be listed or extracted.
+            val linkBytes = buildTarBytes(gzip) { tos ->
+                val ok = TarArchiveEntry("safe/ok.txt").apply { size = 4 }
+                tos.putArchiveEntry(ok); tos.write("good".toByteArray()); tos.closeArchiveEntry()
+                val sym = TarArchiveEntry("safe/sym_escape", TarConstants.LF_SYMLINK).apply { linkName = "../../outside/sentinel.txt" }
+                tos.putArchiveEntry(sym); tos.closeArchiveEntry()
+                val hard = TarArchiveEntry("safe/hard_escape", TarConstants.LF_LINK).apply { linkName = "../outside/sentinel.txt" }
+                tos.putArchiveEntry(hard); tos.closeArchiveEntry()
+                val fifo = TarArchiveEntry("safe/fifo_node", TarConstants.LF_FIFO)
+                tos.putArchiveEntry(fifo); tos.closeArchiveEntry()
+            }
+            val linkTar = file(linkBytes, "links-${counter++}$ext")
+            try {
+                val zfs = ZipFileSystem()
+                val listed = zfs.list(FsPath.child(FsPath.zipRoot(linkTar.path), "safe"))
+                assertEquals(listOf("ok.txt"), listed.map { it.name })
+                val out = extract(linkTar)
+                assertNothingEscaped("tar-links($ext)")
+                assertEquals(listOf("ok.txt"), File(out, "safe").list()!!.toList())
+            } finally {
+                FileInfo.deleteTree(dest); dest.mkdirs(); linkTar.delete()
+            }
+        }
+
+        // 2. Byte-level mutation fuzzing on .tar and .tar.gz seeds
+        val tarSeedPlain = buildTarBytes(gzip = false) { tos ->
+            tos.putArchiveEntry(TarArchiveEntry("docs/")); tos.closeArchiveEntry()
+            val readme = "hello tar wayfinder\n".repeat(25).toByteArray()
+            tos.putArchiveEntry(TarArchiveEntry("docs/readme.txt").apply { size = readme.size.toLong() })
+            tos.write(readme); tos.closeArchiveEntry()
+            val sym = TarArchiveEntry("docs/link", TarConstants.LF_SYMLINK).apply { linkName = "../outside/sentinel.txt" }
+            tos.putArchiveEntry(sym); tos.closeArchiveEntry()
+        }
+        val tarSeedGz = buildTarBytes(gzip = true) { tos ->
+            val payload = ByteArray(1024) { (it % 13).toByte() }
+            tos.putArchiveEntry(TarArchiveEntry("nested/data.bin").apply { size = payload.size.toLong() })
+            tos.write(payload); tos.closeArchiveEntry()
+        }
+        val tarSeeds = listOf(tarSeedPlain, tarSeedGz)
+        val limits = ExtractLimits(maxEntries = 2_000, maxTotalBytes = 16L shl 20, maxRatio = 1_000, ratioFloorBytes = 4L shl 20)
+
+        k.run(
+            "tar.mutation", 5_000,
+            { r ->
+                val isGz = r.nextBoolean()
+                val base = if (isGz) tarSeedGz else tarSeedPlain
+                isGz to mutateBytes(r, base)
+            },
+            listOf(false to tarSeedPlain, true to tarSeedGz),
+            budgetMs = 240_000,
+            show = { (gz, b) -> (if (gz) "tgz " else "tar ") + hex(b) },
+            allowed = { it is IOException },
+        ) { (isGz, bytes) ->
+            val ext = if (isGz) ".tar.gz" else ".tar"
+            val tar = file(bytes, "m$ext")
+            try {
+                runCatching { ZipFileSystem.summary(tar) }.exceptionOrNull()?.let { if (it !is IOException) throw it }
+                val zfs = ZipFileSystem()
+                runCatching { walk(zfs, FsPath.zipRoot(tar.path), 0) }.exceptionOrNull()?.let { if (it !is IOException) throw it }
+                runCatching { extract(tar, limits) }.exceptionOrNull()?.let { if (it !is IOException) throw it }
+                assertNothingEscaped("tar.mutation")
+            } finally {
+                FileInfo.deleteTree(dest); dest.mkdirs(); tar.delete()
             }
         }
     }
