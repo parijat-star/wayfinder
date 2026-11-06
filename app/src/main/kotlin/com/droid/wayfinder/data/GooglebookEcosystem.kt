@@ -36,28 +36,47 @@ object GooglebookEcosystem {
 
     /** Well-known DocumentsProvider authorities for the Googlebook / Android Virtualization Linux VM. */
     val LINUX_AUTHORITIES = setOf(
+        "com.android.virtualization.terminal.guestdocuments",
+        "com.google.android.virtualization.terminal.guestdocuments",
         "com.android.virtualization.terminal.documents",
         "com.google.android.virtualization.terminal.documents",
         "org.chromium.arc.crostini.documents",
     )
 
-    fun isLinuxAuthority(authority: String): Boolean {
-        val lower = authority.lowercase()
+    fun isLinuxAuthority(authority: String?): Boolean {
+        if (authority.isNullOrBlank()) return false
+        val lower = authority.substringAfter('@').lowercase()
         return lower in LINUX_AUTHORITIES ||
             lower.contains("crostini") ||
+            lower.contains("terminal.guestdocuments") ||
             lower.contains("terminal.documents") ||
             lower.contains("linuxfiles")
     }
 
     /**
-     * Discovers the Googlebook Linux development environment root volume, either via the system
-     * `DocumentsProvider` (`com.android.virtualization.terminal.documents` / Crostini) or a mounted
-     * `LinuxFiles` shared directory.
+     * Returns the installed Linux `DocumentsProvider` authority (such as AVF Terminal's
+     * `com.android.virtualization.terminal.guestdocuments`) when registered on the device,
+     * even on `user` builds where `/root` queries require an `ACTION_OPEN_DOCUMENT_TREE` grant.
+     */
+    fun findInstalledLinuxProviderAuthority(context: Context): String? {
+        val pm = context.packageManager
+        return LINUX_AUTHORITIES.firstOrNull { auth ->
+            runCatching { pm.resolveContentProvider(auth, 0) != null }.getOrDefault(false)
+        }
+    }
+
+    /**
+     * Discovers the Googlebook Linux development environment root volume via:
+     * 1. Accessible system `DocumentsProvider` roots (`GuestDocumentsProvider` / Crostini),
+     * 2. Persisted SAF tree grants ([safMounts]) pointing at a Linux `DocumentsProvider` (used on
+     *    `user` builds where `/root` requires `MANAGE_DOCUMENTS`), or
+     * 3. A mounted `LinuxFiles` shared directory.
      */
     fun discoverLinuxRoot(
         context: Context,
         primaryStorage: String,
         discoveredRoots: List<DiscoveredRoot> = SystemDocumentsBridge.discoverRoots(context),
+        safMounts: List<SafMount> = emptyList(),
         candidateDirs: List<File> = listOf(
             File("/mnt/chromeos/LinuxFiles"),
             File(primaryStorage, "LinuxFiles"),
@@ -71,6 +90,17 @@ object GooglebookEcosystem {
                     label = r.title.ifBlank { "Linux files" },
                     removable = false,
                     subtitle = r.summary?.takeIf { it.isNotBlank() } ?: "Linux development environment",
+                )
+            }
+        }
+        for (sm in safMounts) {
+            val uriAuth = runCatching { android.net.Uri.parse(sm.uri).authority }.getOrNull()
+            if (isLinuxAuthority(uriAuth)) {
+                return RootVolume(
+                    path = sm.path,
+                    label = sm.label.ifBlank { "Linux files" },
+                    removable = false,
+                    subtitle = "Linux development environment",
                 )
             }
         }

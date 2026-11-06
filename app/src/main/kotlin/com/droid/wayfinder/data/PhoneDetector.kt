@@ -273,8 +273,82 @@ object PhoneDetector {
     }
 
     /**
+     * Tracks actively connected Bluetooth smartphones observed via public SDK `ACTION_ACL_CONNECTED` /
+     * `ACTION_ACL_DISCONNECTED` broadcasts and `BluetoothAdapter.getProfileProxy` (`HEADSET` / `A2DP`),
+     * avoiding any non-SDK / `@SystemApi` reflection on `user` builds.
+     */
+    private val activeBluetoothPhones = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** Records a public `ACTION_ACL_CONNECTED` or `ACTION_ACL_DISCONNECTED` transition for a phone. */
+    @SuppressLint("MissingPermission")
+    fun onBluetoothAclChanged(device: android.bluetooth.BluetoothDevice?, connected: Boolean) {
+        if (device == null) return
+        val addr = runCatching { device.address }.getOrNull()?.takeIf { it.isNotBlank() } ?: return
+        if (!connected) {
+            activeBluetoothPhones.remove(addr)
+            return
+        }
+        val name = runCatching { device.name }.getOrNull().orEmpty()
+        val btClass = runCatching { device.bluetoothClass }.getOrNull()
+        if (isPhoneBluetoothDevice(btClass) || isPhoneMount(name)) {
+            activeBluetoothPhones[addr] = name.ifBlank { "Connected Phone" }
+        }
+    }
+
+    /** Clears cached active Bluetooth phone state (for example when the Bluetooth adapter turns off). */
+    fun clearActiveBluetoothPhones() {
+        activeBluetoothPhones.clear()
+    }
+
+    /**
+     * Queries public SDK `BluetoothAdapter.getProfileProxy` for `HEADSET` and `A2DP` to seed
+     * [activeBluetoothPhones] for phones that connected before Wayfinder started, closing each
+     * profile proxy immediately after reading `connectedDevices`.
+     */
+    @SuppressLint("MissingPermission")
+    fun warmConnectedClassicProfiles(context: Context, onDiscovered: (() -> Unit)? = null) {
+        if (!hasBluetoothConnectPermission(context)) return
+        val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return
+        val adapter = btManager.adapter ?: return
+        if (!adapter.isEnabled) return
+        val appCtx = context.applicationContext ?: context
+        for (profile in listOf(BluetoothProfile.HEADSET, BluetoothProfile.A2DP)) {
+            val state = runCatching { adapter.getProfileConnectionState(profile) }.getOrDefault(BluetoothProfile.STATE_DISCONNECTED)
+            if (state != BluetoothProfile.STATE_CONNECTED) continue
+            runCatching {
+                adapter.getProfileProxy(
+                    appCtx,
+                    object : BluetoothProfile.ServiceListener {
+                        override fun onServiceConnected(prof: Int, proxy: BluetoothProfile) {
+                            var added = false
+                            try {
+                                for (dev in proxy.connectedDevices.orEmpty()) {
+                                    val name = runCatching { dev.name }.getOrNull().orEmpty()
+                                    if (isPhoneBluetoothDevice(dev.bluetoothClass) || isPhoneMount(name)) {
+                                        val prev = activeBluetoothPhones.put(dev.address, name.ifBlank { "Connected Phone" })
+                                        if (prev == null) added = true
+                                    }
+                                }
+                            } catch (_: Throwable) {
+                            } finally {
+                                runCatching { adapter.closeProfileProxy(prof, proxy) }
+                            }
+                            if (added) onDiscovered?.invoke()
+                        }
+
+                        override fun onServiceDisconnected(prof: Int) {}
+                    },
+                    profile,
+                )
+            }
+        }
+    }
+
+    /**
      * Returns the display name of an actively connected Bluetooth smartphone (`Major.PHONE`),
-     * or null when no phone is connected over Bluetooth.
+     * or null when no phone is connected over Bluetooth. Uses exclusively public Android SDK APIs
+     * (`BluetoothManager.getConnectedDevices(GATT / GATT_SERVER)` + [activeBluetoothPhones]) so no
+     * non-SDK / `@SystemApi` reflection occurs on strict `user` builds.
      */
     @SuppressLint("MissingPermission")
     fun findConnectedBluetoothPhoneName(context: Context): String? {
@@ -282,35 +356,39 @@ object PhoneDetector {
         return runCatching {
             val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return null
             val adapter = btManager.adapter ?: return null
-            if (!adapter.isEnabled) return null
+            if (!adapter.isEnabled) {
+                activeBluetoothPhones.clear()
+                return null
+            }
 
-            val connectedProfiles = buildList {
-                runCatching { addAll(btManager.getConnectedDevices(BluetoothProfile.HEADSET)) }
-                runCatching { addAll(btManager.getConnectedDevices(BluetoothProfile.A2DP)) }
+            // BluetoothManager.getConnectedDevices supports GATT and GATT_SERVER in the public SDK.
+            val connectedGattDevices = buildList {
                 runCatching { addAll(btManager.getConnectedDevices(BluetoothProfile.GATT)) }
+                runCatching { addAll(btManager.getConnectedDevices(BluetoothProfile.GATT_SERVER)) }
             }.distinct()
 
-            connectedProfiles.firstOrNull { dev ->
+            connectedGattDevices.firstOrNull { dev ->
                 isPhoneBluetoothDevice(dev.bluetoothClass) || isPhoneMount(dev.name.orEmpty())
             }?.let { dev ->
-                return dev.name?.takeIf { it.isNotBlank() } ?: "Connected Phone"
+                val label = dev.name?.takeIf { it.isNotBlank() } ?: "Connected Phone"
+                activeBluetoothPhones[dev.address] = label
+                return label
             }
 
-            // Also check bonded Major.PHONE devices with an active ACL link (`BluetoothDevice.isConnected()`)
-            val bondedPhones = adapter.bondedDevices.orEmpty().filter { dev ->
-                isPhoneBluetoothDevice(dev.bluetoothClass)
-            }
-            bondedPhones.firstOrNull { dev -> isBluetoothAclConnected(dev) }?.let { dev ->
-                return dev.name?.takeIf { it.isNotBlank() } ?: "Connected Phone"
+            // Check phones tracked via public ACTION_ACL_CONNECTED or classic profile proxy warm-up.
+            if (activeBluetoothPhones.isNotEmpty()) {
+                val bondedByAddr = adapter.bondedDevices.orEmpty().associateBy { it.address }
+                for ((addr, cachedName) in activeBluetoothPhones) {
+                    val bonded = bondedByAddr[addr]
+                    if (bonded != null) {
+                        return bonded.name?.takeIf { it.isNotBlank() } ?: cachedName
+                    }
+                    if (cachedName.isNotBlank()) return cachedName
+                }
             }
             null
         }.getOrNull()
     }
-
-    private fun isBluetoothAclConnected(device: android.bluetooth.BluetoothDevice): Boolean =
-        runCatching {
-            device.javaClass.getMethod("isConnected").invoke(device) as? Boolean == true
-        }.getOrDefault(false)
 
     private fun isPhoneBluetoothDevice(btClass: BluetoothClass?): Boolean {
         if (btClass == null) return false

@@ -198,7 +198,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val initialDrive = GoogleDriveManager.discoverAccounts(app, safMounts)
         val initialPhone = detectPhone(emptyList(), safMounts)
         val initialBtGranted = PhoneDetector.hasBluetoothConnectPermission(app)
-        val initialLinux = GooglebookEcosystem.discoverLinuxRoot(app, primary)?.path
+        val initialLinux = GooglebookEcosystem.discoverLinuxRoot(app, primary, safMounts = safMounts)?.path
+        val initialLinuxProvider = GooglebookEcosystem.findInstalledLinuxProviderAuthority(app)
         val initialWorkProfiles = GooglebookEcosystem.discoverWorkProfiles(app)
         _state.value = AppState(
             tabs = tabs,
@@ -215,6 +216,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             phoneConnected = initialPhone != null,
             bluetoothPermissionGranted = initialBtGranted,
             linuxRootPath = initialLinux,
+            linuxProviderAuthority = initialLinuxProvider,
             workProfiles = initialWorkProfiles,
         )
         refreshMounts()
@@ -241,12 +243,33 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }
         viewModelScope.launch { SharedUi.theme.collect { t -> _state.update { it.copy(theme = t) } } }
 
+        PhoneDetector.warmConnectedClassicProfiles(app) { refreshPhoneStatus() }
         refreshPhoneStatus()
         phoneReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                val btDevice = intent?.let {
+                    androidx.core.content.IntentCompat.getParcelableExtra(it, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                }
                 when (intent?.action) {
-                    UsbManager.ACTION_USB_DEVICE_DETACHED,
-                    BluetoothDevice.ACTION_ACL_DISCONNECTED -> refreshPhoneStatus(disconnectRetry = true)
+                    BluetoothDevice.ACTION_ACL_CONNECTED -> {
+                        PhoneDetector.onBluetoothAclChanged(btDevice, connected = true)
+                        refreshPhoneStatus(stagedRetry = true)
+                    }
+                    BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+                        PhoneDetector.onBluetoothAclChanged(btDevice, connected = false)
+                        refreshPhoneStatus(disconnectRetry = true)
+                    }
+                    BluetoothAdapter.ACTION_STATE_CHANGED -> {
+                        val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                        if (state == BluetoothAdapter.STATE_OFF || state == BluetoothAdapter.STATE_TURNING_OFF) {
+                            PhoneDetector.clearActiveBluetoothPhones()
+                            refreshPhoneStatus(disconnectRetry = true)
+                        } else if (state == BluetoothAdapter.STATE_ON) {
+                            PhoneDetector.warmConnectedClassicProfiles(app) { refreshPhoneStatus() }
+                            refreshPhoneStatus(stagedRetry = true)
+                        }
+                    }
+                    UsbManager.ACTION_USB_DEVICE_DETACHED -> refreshPhoneStatus(disconnectRetry = true)
                     else -> refreshPhoneStatus(stagedRetry = true)
                 }
             }
@@ -255,6 +278,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
             addAction(BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED)
+            addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
         }
@@ -423,6 +447,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun onBluetoothPermissionResult(granted: Boolean) {
         _state.update { it.copy(bluetoothPermissionGranted = granted || PhoneDetector.hasBluetoothConnectPermission(app)) }
+        if (granted) {
+            PhoneDetector.warmConnectedClassicProfiles(app) { refreshPhoneStatus() }
+        }
         refreshPhoneStatus(stagedRetry = granted)
     }
 
@@ -508,7 +535,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 }
             }
         }
-        GooglebookEcosystem.discoverLinuxRoot(app, primary)?.let { linuxRoot ->
+        GooglebookEcosystem.discoverLinuxRoot(app, primary, safMounts = safMounts)?.let { linuxRoot ->
             if (vols.none { it.path == linuxRoot.path }) {
                 vols += linuxRoot
             }
@@ -532,11 +559,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private fun computeMounts(
         saved: List<SavedServer>,
         mountedPhonePath: String? = _state.value.pairedPhone?.takeIf { it.isMounted }?.path,
+        linuxPath: String? = _state.value.linuxRootPath,
     ): List<Mount> =
         saved.filter { it.mounted }.map { sv ->
             Mount(sv.rootPath, sv.label, "${sv.protocol.label}${if (sv.user.isNotEmpty() && !sv.guest) " · ${sv.user}" else ""}", sv.key, saf = false)
         } + safMounts
-            .filter { m -> !isPhoneSafMount(m) || m.path == mountedPhonePath }
+            .filter { m -> (!isPhoneSafMount(m) || m.path == mountedPhonePath) && m.path != linuxPath }
             .map { m -> Mount(m.path, m.label, "Cloud / storage provider", m.id, saf = true) }
 
     /**
@@ -589,11 +617,15 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val driveAccs = GoogleDriveManager.discoverAccounts(app, safMounts)
         val phone = detectPhone(serverMounts, safMounts)
         val btGranted = PhoneDetector.hasBluetoothConnectPermission(app)
-        val currentMounts = computeMounts(saved, phone?.takeIf { it.isMounted }?.path)
-        val linuxPath = GooglebookEcosystem.discoverLinuxRoot(app, primary)?.path
+        val linuxPath = GooglebookEcosystem.discoverLinuxRoot(app, primary, safMounts = safMounts)?.path
+        val linuxProvider = GooglebookEcosystem.findInstalledLinuxProviderAuthority(app)
+        val currentMounts = computeMounts(saved, phone?.takeIf { it.isMounted }?.path, linuxPath)
         val workProfiles = GooglebookEcosystem.discoverWorkProfiles(app)
         val prevPhone = _state.value.pairedPhone
+        val prevLinux = _state.value.linuxRootPath
+        val updatedRoots = if (linuxPath != prevLinux) loadRoots() else null
         _state.update { it.copy(
+            roots = updatedRoots ?: it.roots,
             savedServers = saved,
             mounts = currentMounts,
             network = networkEntries(saved, currentMounts),
@@ -602,6 +634,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             phoneConnected = phone != null,
             bluetoothPermissionGranted = btGranted,
             linuxRootPath = linuxPath,
+            linuxProviderAuthority = linuxProvider,
             workProfiles = workProfiles,
         ) }
         registerPhoneTreeObservers()
@@ -2024,11 +2057,118 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     fun requestMountPhoneStorage(phone: com.droid.wayfinder.data.PairedPhone? = _state.value.pairedPhone) {
-        val targetAuth = phone?.authority ?: PhoneDetector.QUICK_ACCESS_AUTHORITY
+        // QuickAccessDocumentsProvider omits FLAG_SUPPORTS_IS_CHILD on user builds, so folder-tree
+        // mounting via ACTION_OPEN_DOCUMENT_TREE targets MTP (or another tree-capable provider).
+        val targetAuth = phone?.authority?.takeIf { it != PhoneDetector.QUICK_ACCESS_AUTHORITY }
+            ?: PhoneDetector.MTP_AUTHORITY
         val initialUri = runCatching {
             android.provider.DocumentsContract.buildRootsUri(targetAuth)
         }.getOrNull()
         emit(UiEvent.PickDocumentTree(initialUri = initialUri))
+    }
+
+    fun requestImportFromPhone() {
+        val initialUri = runCatching {
+            android.provider.DocumentsContract.buildRootsUri(PhoneDetector.QUICK_ACCESS_AUTHORITY)
+        }.getOrNull()
+        emit(UiEvent.ImportPhoneDocuments(initialUri = initialUri))
+    }
+
+    fun requestMountLinuxFiles() {
+        val auth = _state.value.linuxProviderAuthority
+            ?: GooglebookEcosystem.findInstalledLinuxProviderAuthority(app)
+        val initialUri = auth?.let {
+            runCatching { android.provider.DocumentsContract.buildRootsUri(it) }.getOrNull()
+        }
+        emit(UiEvent.PickDocumentTree(initialUri = initialUri))
+    }
+
+    /**
+     * Streams documents selected via `ACTION_OPEN_DOCUMENT` (such as wireless Cross-Device
+     * `QuickAccessDocumentsProvider` items on `user` builds) into the active writable local
+     * directory, or `<primaryStorage>/Download` when viewing a virtual/read-only root.
+     */
+    fun importExternalUrisToDownloads(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val currentPath = tab.path
+        val destDir = if (
+            FsPath.isLocalFile(currentPath) &&
+            !FsPath.isReadOnly(currentPath) &&
+            !trash.isInTrash(currentPath) &&
+            File(currentPath).isDirectory
+        ) {
+            currentPath
+        } else {
+            File(primary, Environment.DIRECTORY_DOWNLOADS).apply { mkdirs() }.path
+        }
+        launchOp(
+            title = "Importing",
+            work = { report ->
+                val created = mutableListOf<String>()
+                for ((idx, uri) in uris.withIndex()) {
+                    currentCoroutineContext().ensureActive()
+                    var displayName: String? = null
+                    var declaredSize = 0L
+                    runCatching {
+                        app.contentResolver.query(
+                            uri,
+                            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+                            null,
+                            null,
+                            null,
+                        )?.use { c ->
+                            if (c.moveToFirst()) {
+                                val nameIdx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                if (nameIdx >= 0 && !c.isNull(nameIdx)) displayName = c.getString(nameIdx)
+                                val sizeIdx = c.getColumnIndex(OpenableColumns.SIZE)
+                                if (sizeIdx >= 0 && !c.isNull(sizeIdx)) declaredSize = c.getLong(sizeIdx).coerceAtLeast(0L)
+                            }
+                        }
+                    }
+                    val baseName = sanitizeImportedFileName(
+                        displayName ?: uri.lastPathSegment?.substringAfterLast(':'),
+                    )
+                    val finalName = ops.uniqueName(destDir, baseName)
+                    val targetFile = File(destDir, finalName)
+                    report(Progress("Importing", 0L, declaredSize, idx, uris.size, finalName))
+                    try {
+                        val inp = app.contentResolver.openInputStream(uri)
+                            ?: throw java.io.IOException("Couldn't read \"$finalName\"")
+                        inp.use { src ->
+                            targetFile.outputStream().use { dst ->
+                                val buf = ByteArray(128 * 1024)
+                                var copied = 0L
+                                while (true) {
+                                    currentCoroutineContext().ensureActive()
+                                    val n = src.read(buf)
+                                    if (n < 0) break
+                                    dst.write(buf, 0, n)
+                                    copied += n
+                                    report(Progress("Importing", copied, declaredSize, idx, uris.size, finalName))
+                                }
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        runCatching { targetFile.delete() }
+                        throw t
+                    }
+                    created += targetFile.path
+                }
+                created
+            },
+            after = { imported ->
+                if (imported.isNotEmpty()) {
+                    record(Undo.Created(imported))
+                    if (tab.path != destDir) {
+                        navigate(destDir, select = imported.first())
+                    }
+                    updateTab(tab.id) {
+                        it.copy(selection = imported.toSet(), focused = imported.first())
+                    }
+                    toast("Imported ${imported.size} file(s) to ${FsPath.name(destDir)}", undo = true)
+                }
+            },
+        )
     }
 
     fun requestMountSaf(accountEmail: String? = null) {
@@ -2246,4 +2386,29 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val data = runCatching { File(app.applicationInfo.dataDir).canonicalPath }.getOrDefault(app.applicationInfo.dataDir)
         return FsPath.isWithin(data, canonical) || FsPath.isWithin(app.applicationInfo.dataDir, path)
     }
+}
+
+internal fun sanitizeImportedFileName(raw: String?, fallback: String = "imported-file"): String {
+    if (raw.isNullOrBlank()) return fallback
+    val leaf = raw.replace('\\', '/').trim().trimEnd('/').substringAfterLast('/')
+    val cleaned = buildString(leaf.length) {
+        for (ch in leaf) {
+            if (ch == '/' || ch == '\\' || ch < ' ' || ch == '\u007f') append('_') else append(ch)
+        }
+    }.trim()
+    if (cleaned.isEmpty() || cleaned == "." || cleaned == "..") return fallback
+    if (cleaned.toByteArray(Charsets.UTF_8).size <= FsPath.MAX_NAME_BYTES) return cleaned
+    val dot = cleaned.lastIndexOf('.')
+    val ext = if (dot > 0 && cleaned.length - dot <= 16) cleaned.substring(dot) else ""
+    val maxBaseBytes = (FsPath.MAX_NAME_BYTES - ext.toByteArray(Charsets.UTF_8).size).coerceAtLeast(16)
+    val base = buildString {
+        var bytes = 0
+        for (ch in if (ext.isEmpty()) cleaned else cleaned.substring(0, dot)) {
+            val chBytes = ch.toString().toByteArray(Charsets.UTF_8).size
+            if (bytes + chBytes > maxBaseBytes) break
+            append(ch)
+            bytes += chBytes
+        }
+    }.trim().ifEmpty { fallback }
+    return (base + ext).takeIf { FsPath.nameError(it) == null } ?: fallback
 }
