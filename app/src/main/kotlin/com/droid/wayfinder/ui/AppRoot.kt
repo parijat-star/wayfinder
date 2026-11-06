@@ -115,6 +115,11 @@ fun AppRoot(vm: BrowserViewModel) {
 
     // "Mount Cloud / SAF…": the system document-tree picker; access is persisted by the view model.
     val treeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> uri?.let(vm::mountSaf) }
+    val systemTreeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == Activity.RESULT_OK) {
+            res.data?.data?.let(vm::mountSaf)
+        }
+    }
     val accountLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == Activity.RESULT_OK) {
             vm.onGoogleAccountPicked(res.data?.getStringExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME))
@@ -142,7 +147,12 @@ fun AppRoot(vm: BrowserViewModel) {
                     if (r == SnackbarResult.ActionPerformed) vm.undo()
                 }
                 is UiEvent.PickDocumentTree -> try {
-                    launchSystemDocumentTreePicker(ctx, e.initialUri) { treeLauncher.launch(e.initialUri) }
+                    launchSystemDocumentTreePicker(
+                        ctx = ctx,
+                        initialUri = e.initialUri,
+                        launchTargeted = { systemTreeLauncher.launch(it) },
+                        fallbackLaunch = { treeLauncher.launch(e.initialUri) },
+                    )
                 } catch (_: ActivityNotFoundException) {
                     snackbar.showSnackbar("No document provider is available", duration = SnackbarDuration.Short)
                 }
@@ -455,25 +465,37 @@ private fun safeFileProviderTarget(path: String): File {
     return File(path).canonicalFile
 }
 
-private fun launchSystemDocumentTreePicker(ctx: Context, initialUri: android.net.Uri?, fallbackLaunch: () -> Unit) {
-    val a = ctx as? Activity
-    if (a != null) {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-            if (initialUri != null && android.os.Build.VERSION.SDK_INT >= 26) {
-                putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, initialUri)
-            }
-        }
-        val candidates = runCatching { a.packageManager.queryIntentActivities(intent, 0) }.getOrDefault(emptyList())
-        val systemDocUi = candidates.firstOrNull { ri ->
-            val pkg = ri.activityInfo?.packageName.orEmpty()
-            pkg != a.packageName && (pkg.contains("documentsui") || pkg.contains("ScopedStorage"))
-        } ?: candidates.firstOrNull { it.activityInfo?.packageName != a.packageName }
-        if (systemDocUi != null) {
-            fallbackLaunch()
-            return
+internal fun buildSystemDocumentTreePickerIntent(ctx: Context, initialUri: android.net.Uri?): Intent? {
+    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+        if (initialUri != null && android.os.Build.VERSION.SDK_INT >= 26) {
+            putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, initialUri)
         }
     }
-    fallbackLaunch()
+    val candidates = runCatching { ctx.packageManager.queryIntentActivities(intent, 0) }.getOrDefault(emptyList())
+    val systemDocUi = candidates.firstOrNull { ri ->
+        val pkg = ri.activityInfo?.packageName.orEmpty()
+        pkg != ctx.packageName && (pkg.contains("documentsui", ignoreCase = true) || pkg.contains("ScopedStorage", ignoreCase = true))
+    } ?: candidates.firstOrNull { it.activityInfo != null && it.activityInfo.packageName != ctx.packageName }
+    val ai = systemDocUi?.activityInfo
+    if (ai != null && ai.packageName.isNotBlank() && ai.name.isNotBlank()) {
+        intent.setClassName(ai.packageName, ai.name)
+        return intent
+    }
+    return null
+}
+
+private fun launchSystemDocumentTreePicker(
+    ctx: Context,
+    initialUri: android.net.Uri?,
+    launchTargeted: (Intent) -> Unit,
+    fallbackLaunch: () -> Unit,
+) {
+    val targeted = buildSystemDocumentTreePickerIntent(ctx, initialUri)
+    if (targeted != null) {
+        launchTargeted(targeted)
+    } else {
+        fallbackLaunch()
+    }
 }
 
 private fun resolveReturnUri(ctx: Context, path: String, preferredUri: android.net.Uri? = null): Pair<android.net.Uri, Boolean> {
