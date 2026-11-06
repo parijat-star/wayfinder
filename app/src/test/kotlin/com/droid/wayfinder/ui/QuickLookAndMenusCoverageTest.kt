@@ -108,7 +108,7 @@ class QuickLookAndMenusCoverageTest {
         // 2. Non-empty folder preview
         preview("ql/non_empty")
         rule.waitUntil(5_000) {
-            rule.onAllNodesWithText("2 item(s)  ·  1 folder(s)").fetchSemanticsNodes().isNotEmpty()
+            rule.onAllNodesWithText("2 items · 1 folder").fetchSemanticsNodes().isNotEmpty()
         }
         rule.onNodeWithText("readme.txt").assertIsDisplayed()
 

@@ -9,6 +9,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.droid.wayfinder.R
 import com.droid.wayfinder.ui.formatIcu
 import com.droid.wayfinder.ui.formatLocalizedNumber
+import com.droid.wayfinder.ui.icuString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -34,13 +35,16 @@ class LocalizationSupportTest {
         val stringsFile = File(root, "app/src/main/res/values/strings.xml")
         val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(stringsFile)
         val nodes = doc.getElementsByTagName("string")
-        assertTrue("Expected at least 25 localized string resources", nodes.length >= 25)
+        assertTrue("Expected at least 180 localized string resources, got ${nodes.length}", nodes.length >= 180)
 
         val mainSources = buildString {
             File(root, "app/src/main").walkTopDown()
                 .filter { it.isFile && (it.extension == "kt" || (it.extension == "xml" && it.name != "strings.xml")) }
                 .forEach { append(it.readText()).append('\n') }
         }
+        assertFalse("UI sources must use ICU plurals rather than item(s)", mainSources.contains("item(s)"))
+        assertFalse("UI sources must use ICU plurals rather than folder(s)", mainSources.contains("folder(s)"))
+        assertFalse("UI sources must use ICU plurals rather than conflict(s)", mainSources.contains("conflict(s)"))
 
         val charLimitRegex = Regex("""\[CHAR_LIMIT=(\d+|NONE)]""")
         for (i in 0 until nodes.length) {
@@ -90,5 +94,7 @@ class LocalizationSupportTest {
         assertEquals("1 item", formatIcu(itemPattern, 1, locale = Locale.US))
         assertEquals("1,250 items", formatIcu(itemPattern, 1250, locale = Locale.US))
         assertEquals("1.250", formatLocalizedNumber(1250L, Locale.GERMANY))
+        assertEquals("1 item will be deleted and can't be recovered.", ctx.icuString(R.string.dialog_delete_many_plural, 1))
+        assertEquals("3 items will be deleted and can't be recovered.", ctx.icuString(R.string.dialog_delete_many_plural, 3))
     }
 }

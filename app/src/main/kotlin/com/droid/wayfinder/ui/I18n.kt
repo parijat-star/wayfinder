@@ -3,6 +3,7 @@
 
 package com.droid.wayfinder.ui
 
+import android.content.Context
 import android.icu.text.MessageFormat
 import android.icu.text.NumberFormat
 import androidx.annotation.StringRes
@@ -24,6 +25,19 @@ fun formatIcu(pattern: String, vararg args: Any, locale: Locale = Locale.getDefa
  */
 fun formatLocalizedNumber(value: Long, locale: Locale = Locale.getDefault()): String =
     NumberFormat.getIntegerInstance(locale).format(value)
+
+/**
+ * Returns the active [Locale] from this [Context]'s configuration, falling back to [Locale.getDefault].
+ */
+fun Context.activeLocale(): Locale =
+    resources.configuration.locales.takeIf { !it.isEmpty }?.get(0) ?: Locale.getDefault()
+
+/**
+ * Resolves the Android string resource [id] from this [Context] and evaluates its ICU [MessageFormat]
+ * pattern against [activeLocale].
+ */
+fun Context.icuString(@StringRes id: Int, vararg args: Any): String =
+    formatIcu(getString(id), *args, locale = activeLocale())
 
 /**
  * Resolves the Android string resource [id] for the current Compose configuration and evaluates
