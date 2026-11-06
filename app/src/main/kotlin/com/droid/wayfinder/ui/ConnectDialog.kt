@@ -110,7 +110,7 @@ fun ConnectDialog(vm: BrowserViewModel, initial: ConnectConfig?, saved: List<Sav
     val canGo = host.isNotBlank()
     AlertDialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier.widthIn(min = 560.dp),
+        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
         title = { Text("Connect to Server") },
         text = {
             Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -278,7 +278,7 @@ fun sidebarMenu(vm: BrowserViewModel, s: AppState, path: String, pinned: Boolean
     if (isLocalFile) {
         add(item("Show in enclosing folder", Icons.Outlined.FindInPage) { vm.showInEnclosingFolder(path) })
     } else {
-        add(item("Open in new tab", Icons.Outlined.Tab) { vm.newTab(path, activate = true) })
+        add(item("Open in new tab", Icons.Outlined.Tab) { if (pinned) vm.openPinned(path, newTab = true) else vm.newTab(path, activate = true) })
         add(item("Open in new window", Icons.Outlined.Web) { vm.newWindow(path) })
     }
     if (!FsPath.isVirtual(path) && !FsPath.isZip(path)) {

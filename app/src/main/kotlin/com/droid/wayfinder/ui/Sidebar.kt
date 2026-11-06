@@ -188,9 +188,13 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             n++
         }
         items(s.pins, key = { "pin$it" }) { p ->
-            val isLocalFile = FsPath.isLocalFile(p) && java.io.File(p).isFile
+            val isLocalFile by androidx.compose.runtime.produceState(initialValue = false, key1 = p) {
+                value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    FsPath.isLocalFile(p) && java.io.File(p).isFile
+                }
+            }
             SidebarItem(
-                label = s.titleOf(p), icon = pinIcon(p), depth = 0,
+                label = s.titleOf(p), icon = pinIcon(p, isKnownFile = isLocalFile), depth = 0,
                 selected = p == activePath || (isLocalFile && p in s.active.selection),
                 dropPath = p.takeIf { !isLocalFile },
                 trailing = { HeaderAction(Icons.Filled.PushPin, "Unpin ${s.titleOf(p)}") { vm.unpin(p) } },
@@ -264,8 +268,7 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         item {
             SectionTitle("Network & cloud", trailing = {
                 if (s.scanning) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                else Icon(Icons.Outlined.Refresh, "Rescan", Modifier.size(16.dp).clip(RoundedCornerShape(8.dp))
-                    .mouseGestures("rescan", onClick = { _, _, _ -> vm.navigate(FsPath.SMB_ROOT); vm.refresh() }), tint = cs.onSurfaceVariant)
+                else HeaderAction(Icons.Outlined.Refresh, "Rescan") { vm.navigate(FsPath.SMB_ROOT); vm.refresh() }
             })
         }
         items(mountRows, key = { "mnt${it.depth}${it.path}" }) { r ->

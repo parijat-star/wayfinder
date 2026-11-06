@@ -14,6 +14,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -91,20 +92,23 @@ fun QuickLook(vm: BrowserViewModel, s: AppState) {
     val cs = MaterialTheme.colorScheme
     val noRipple = remember { MutableInteractionSource() }
 
-    Box(
+    BoxWithConstraints(
         Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
             .clickable(noRipple, indication = null) { vm.closeQuickLook() },
         contentAlignment = Alignment.Center,
     ) {
+        val compact = maxWidth < 720.dp || maxHeight < 520.dp
+        val hPad = if (compact) 12.dp else 64.dp
+        val vPad = if (compact) 12.dp else 40.dp
         Surface(
-            Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 40.dp)
+            Modifier.fillMaxSize().padding(horizontal = hPad, vertical = vPad)
                 .clickable(noRipple, indication = null) {},
-            shape = RoundedCornerShape(24.dp), color = cs.surfaceContainerLowest, shadowElevation = 12.dp,
+            shape = RoundedCornerShape(if (compact) 16.dp else 24.dp), color = cs.surfaceContainerLowest, shadowElevation = 12.dp,
         ) {
             Column(Modifier.fillMaxSize()) {
                 Header(vm, entry)
                 Box(
-                    Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)
+                    Modifier.weight(1f).fillMaxWidth().padding(horizontal = if (compact) 8.dp else 16.dp)
                         .clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainerLow),
                     contentAlignment = Alignment.Center,
                 ) { Body(vm, entry) }
@@ -288,10 +292,13 @@ private fun PdfPreview(e: FileEntry) {
             runCatching {
                 ParcelFileDescriptor.open(File(e.path), ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
                     PdfRenderer(fd).use { r ->
-                        (0 until minOf(r.pageCount, PDF_PREVIEW_PAGES)).map { i ->
+                        (0 until minOf(r.pageCount, PDF_PREVIEW_PAGES)).mapNotNull { i ->
                             r.openPage(i).use { p ->
-                                val scale = 1400f / p.width
-                                val bmp = Bitmap.createBitmap((p.width * scale).toInt(), (p.height * scale).toInt(), Bitmap.Config.ARGB_8888)
+                                if (p.width <= 0 || p.height <= 0) return@use null
+                                val scale = minOf(1400f / p.width, 2048f / p.height)
+                                val bmpWidth = (p.width * scale).toInt().coerceAtLeast(1)
+                                val bmpHeight = (p.height * scale).toInt().coerceAtLeast(1)
+                                val bmp = Bitmap.createBitmap(bmpWidth, bmpHeight, Bitmap.Config.ARGB_8888)
                                 bmp.eraseColor(android.graphics.Color.WHITE)
                                 p.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                                 bmp.asImageBitmap()
@@ -359,19 +366,34 @@ private fun TextPreview(e: FileEntry) {
 @Composable
 private fun AudioPreview(e: FileEntry) {
     var playing by remember(e.path) { mutableStateOf(false) }
-    val player = remember(e.path) {
-        runCatching { MediaPlayer().apply { setDataSource(e.path); prepare() } }.getOrNull()
-    }
-    DisposableEffect(player) {
-        player?.setOnCompletionListener { playing = false }
-        onDispose { player?.release() }
+    var ready by remember(e.path) { mutableStateOf(false) }
+    var failed by remember(e.path) { mutableStateOf(false) }
+    val player = remember(e.path) { MediaPlayer() }
+    DisposableEffect(player, e.path) {
+        player.setOnPreparedListener { ready = true }
+        player.setOnCompletionListener { playing = false }
+        player.setOnErrorListener { _, _, _ ->
+            playing = false
+            ready = false
+            failed = true
+            true
+        }
+        runCatching {
+            player.setDataSource(e.path)
+            player.prepareAsync()
+        }.onFailure {
+            failed = true
+        }
+        onDispose {
+            runCatching { player.release() }
+        }
     }
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Icon(e.icon(), null, Modifier.size(120.dp), tint = e.tint())
-        if (player == null) {
-            Text("Can't play this audio file.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            FilledTonalIconButton(
+        when {
+            failed -> Text("Can't play this audio file.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            !ready -> CircularProgressIndicator()
+            else -> FilledTonalIconButton(
                 { if (playing) player.pause() else player.start(); playing = !playing },
                 Modifier.size(64.dp), shape = CircleShape,
             ) { Icon(if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, if (playing) "Pause" else "Play", Modifier.size(36.dp)) }
