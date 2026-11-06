@@ -81,6 +81,8 @@ sealed interface UiEvent {
     data object PickGoogleAccount : UiEvent
     /** Launch ACTION_OPEN_DOCUMENT in system DocumentsUI to import files from a wireless Cross-Device phone. */
     data class ImportPhoneDocuments(val initialUri: android.net.Uri? = null) : UiEvent
+    /** Open the wireless Cross-Device phone root directly inside a side-by-side system Files (`DocumentsUI`) window. */
+    data object OpenSystemPhoneFiles : UiEvent
     /** Request Android 12+ BLUETOOTH_CONNECT runtime permission for wireless phone detection. */
     data object RequestBluetoothPermission : UiEvent
     /** Picker mode: return these local files (already downloaded if remote) to the calling app. */
@@ -153,6 +155,8 @@ data class AppState(
     val phoneConnected: Boolean = false,
     /** True when BLUETOOTH_CONNECT is granted (or not required on API <= 30). */
     val bluetoothPermissionGranted: Boolean = true,
+    /** True when Googlebook Cross-Device `QuickAccessDocumentsProvider` is enabled in `PackageManager`. */
+    val quickAccessAvailable: Boolean = false,
     /** Discovered Google Drive accounts on the device. */
     val driveAccounts: List<com.droid.wayfinder.data.DriveAccount> = emptyList(),
     /** Paired smartphone (e.g. Pixel 9) details. */

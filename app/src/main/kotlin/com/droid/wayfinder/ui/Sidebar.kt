@@ -121,9 +121,21 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             }
         }
     }
-    val phoneRows = remember(s.pairedPhone, s.tree, s.showHidden) {
+    val phoneRows = remember(s.pairedPhone, s.quickAccessAvailable, s.tree, s.showHidden) {
         buildList {
-            val phone = s.pairedPhone
+            val phone = s.pairedPhone ?: if (s.quickAccessAvailable) {
+                com.droid.wayfinder.data.PairedPhone(
+                    name = "Phone",
+                    subtitle = "Cross-Device · Browse or import",
+                    path = FsPath.PHONE_ROOT,
+                    isConnected = true,
+                    authority = com.droid.wayfinder.data.PhoneDetector.QUICK_ACCESS_AUTHORITY,
+                    isMounted = false,
+                    transport = com.droid.wayfinder.data.PhoneTransport.QUICK_ACCESS,
+                )
+            } else {
+                null
+            }
             if (phone != null) {
                 if (phone.isMounted && phone.path != FsPath.PHONE_ROOT) {
                     flatten(phone.path, phone.name, Icons.Outlined.Smartphone, null, 0, s, this, phone.subtitle, pairedPhone = phone)

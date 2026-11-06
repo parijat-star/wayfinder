@@ -192,6 +192,18 @@ fun AppRoot(vm: BrowserViewModel) {
                 } catch (_: ActivityNotFoundException) {
                     snackbar.showSnackbar("No document provider is available", duration = SnackbarDuration.Short)
                 }
+                UiEvent.OpenSystemPhoneFiles -> {
+                    val sysIntent = buildSystemPhoneFilesWindowIntent(ctx)
+                    if (sysIntent != null) {
+                        try {
+                            ctx.startActivity(sysIntent)
+                        } catch (_: ActivityNotFoundException) {
+                            vm.requestImportFromPhone()
+                        }
+                    } else {
+                        vm.requestImportFromPhone()
+                    }
+                }
                 is UiEvent.PickResult -> returnPicked(ctx, e.paths)
                 is UiEvent.PickTreeResult -> returnPickedTree(ctx, e.path, e.uri)
                 is UiEvent.CreateDocumentResult -> returnCreatedDocument(ctx, e.path, e.uri, e.mimeType)
@@ -507,6 +519,31 @@ internal fun buildSystemDocumentOpenFilePickerIntent(ctx: Context, initialUri: a
     if (ai != null && ai.packageName.isNotBlank() && ai.name.isNotBlank()) {
         intent.setClassName(ai.packageName, ai.name)
     }
+    return intent
+}
+
+/**
+ * Builds an `ACTION_VIEW` intent targeting system `DocumentsUI` (`FilesActivity`) on the wireless
+ * Cross-Device `QuickAccessDocumentsProvider` roots URI (`vnd.android.document/root`) in a side-by-side
+ * window. Unlike `PickActivity`, `FilesActivity.ActionHandler` explicitly supports 1-segment `isRootsUri`
+ * via `loadFirstRoot(uri)`, opening directly inside the connected phone even when its `rootId` UUID rotates.
+ */
+internal fun buildSystemPhoneFilesWindowIntent(ctx: Context): Intent? {
+    val rootsUri = android.provider.DocumentsContract.buildRootsUri(
+        com.droid.wayfinder.data.PhoneDetector.QUICK_ACCESS_AUTHORITY,
+    )
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(rootsUri, android.provider.DocumentsContract.Root.MIME_TYPE_ITEM)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+    }
+    val candidates = runCatching { ctx.packageManager.queryIntentActivities(intent, 0) }.getOrDefault(emptyList())
+    val systemDocUi = candidates.firstOrNull { ri ->
+        val pkg = ri.activityInfo?.packageName.orEmpty()
+        pkg != ctx.packageName && (pkg.contains("documentsui", ignoreCase = true) || pkg.contains("ScopedStorage", ignoreCase = true))
+    } ?: candidates.firstOrNull { it.activityInfo != null && it.activityInfo.packageName != ctx.packageName }
+    val ai = systemDocUi?.activityInfo ?: return null
+    if (ai.packageName.isBlank() || ai.name.isBlank()) return null
+    intent.setClassName(ai.packageName, ai.name)
     return intent
 }
 

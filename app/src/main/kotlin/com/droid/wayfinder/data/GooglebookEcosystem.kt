@@ -53,6 +53,21 @@ object GooglebookEcosystem {
             lower.contains("linuxfiles")
     }
 
+    /** Default root ID advertised by AVF Terminal's `GuestDocumentsProvider` (`content://.../root/guest_root`). */
+    const val AVF_GUEST_ROOT_ID = "guest_root"
+
+    /**
+     * Builds a valid 2-segment `DocumentsContract.buildRootUri(authority, rootId)` (`content://<authority>/root/<id>`)
+     * for `DocumentsContract.EXTRA_INITIAL_URI`. Passing 1-segment `buildRootsUri` (`/root`) is rejected by
+     * `DocumentsUI.launchToInitialUri()` (`DocumentsContract.isRootUri == false`), causing `DocumentsUI` to
+     * fall back to the last-accessed folder instead of opening `Linux files`.
+     */
+    fun buildInitialLinuxRootUri(authority: String): android.net.Uri {
+        val clean = authority.substringAfter('@')
+        val rootId = if (clean.contains("guestdocuments", ignoreCase = true)) AVF_GUEST_ROOT_ID else "linuxfiles"
+        return android.provider.DocumentsContract.buildRootUri(clean, rootId)
+    }
+
     /**
      * Returns the installed Linux `DocumentsProvider` authority (such as AVF Terminal's
      * `com.android.virtualization.terminal.guestdocuments`) when registered on the device,

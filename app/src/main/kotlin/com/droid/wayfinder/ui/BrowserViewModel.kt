@@ -168,6 +168,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private var hashJob: Job? = null
     private var recentsCache: Pair<Long, List<FileEntry>>? = null
     private var phoneReceiver: BroadcastReceiver? = null
+    private var packageReceiver: BroadcastReceiver? = null
     private var rootsObserver: android.database.ContentObserver? = null
     private val observedPhoneTreeUris = HashSet<String>()
     private var phoneRetryJob: Job? = null
@@ -198,6 +199,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val initialDrive = GoogleDriveManager.discoverAccounts(app, safMounts)
         val initialPhone = detectPhone(emptyList(), safMounts)
         val initialBtGranted = PhoneDetector.hasBluetoothConnectPermission(app)
+        val initialQuickAccess = PhoneDetector.isQuickAccessProviderAvailable(app)
         val initialLinux = GooglebookEcosystem.discoverLinuxRoot(app, primary, safMounts = safMounts)?.path
         val initialLinuxProvider = GooglebookEcosystem.findInstalledLinuxProviderAuthority(app)
         val initialWorkProfiles = GooglebookEcosystem.discoverWorkProfiles(app)
@@ -215,6 +217,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             pairedPhone = initialPhone,
             phoneConnected = initialPhone != null,
             bluetoothPermissionGranted = initialBtGranted,
+            quickAccessAvailable = initialQuickAccess,
             linuxRootPath = initialLinux,
             linuxProviderAuthority = initialLinuxProvider,
             workProfiles = initialWorkProfiles,
@@ -285,6 +288,30 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         runCatching {
             ContextCompat.registerReceiver(app, phoneReceiver, phoneFilter, ContextCompat.RECEIVER_NOT_EXPORTED)
         }
+        packageReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val pkg = intent?.data?.schemeSpecificPart.orEmpty()
+                if (
+                    pkg.isEmpty() ||
+                    pkg == "com.google.ambient.streaming" ||
+                    pkg == "com.android.mtp" ||
+                    pkg == "com.google.android.apps.docs" ||
+                    pkg.contains("virtualization.terminal")
+                ) {
+                    refreshMounts()
+                    refreshPhoneStatus(stagedRetry = true)
+                }
+            }
+        }
+        val pkgFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_CHANGED)
+            addAction(Intent.ACTION_PACKAGE_ADDED)
+            addAction(Intent.ACTION_PACKAGE_REPLACED)
+            addDataScheme("package")
+        }
+        runCatching {
+            ContextCompat.registerReceiver(app, packageReceiver, pkgFilter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             runCatching {
                 val sm = app.getSystemService(StorageManager::class.java)
@@ -338,6 +365,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         phoneReceiver?.let {
             runCatching { app.unregisterReceiver(it) }
             phoneReceiver = null
+        }
+        packageReceiver?.let {
+            runCatching { app.unregisterReceiver(it) }
+            packageReceiver = null
         }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             (storageVolumeCallback as? StorageManager.StorageVolumeCallback)?.let { cb ->
@@ -480,10 +511,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                     }
                     val phone = detectPhone(serverMounts, safMounts)
                     val btGranted = PhoneDetector.hasBluetoothConnectPermission(app)
+                    val qaAvailable = PhoneDetector.isQuickAccessProviderAvailable(app)
                     val currentMounts = computeMounts(saved, phone?.takeIf { it.isMounted }?.path)
-                    Triple(saved, phone, currentMounts) to btGranted
+                    Triple(saved, phone, currentMounts) to (btGranted to qaAvailable)
                 }
-                val (triple, btGranted) = snapshot
+                val (triple, flags) = snapshot
+                val (btGranted, qaAvailable) = flags
                 val (saved, phone, currentMounts) = triple
                 val prevPhone = _state.value.pairedPhone
                 _state.update {
@@ -494,6 +527,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                         pairedPhone = phone,
                         phoneConnected = phone != null,
                         bluetoothPermissionGranted = btGranted,
+                        quickAccessAvailable = qaAvailable,
                     )
                 }
                 registerPhoneTreeObservers()
@@ -617,6 +651,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val driveAccs = GoogleDriveManager.discoverAccounts(app, safMounts)
         val phone = detectPhone(serverMounts, safMounts)
         val btGranted = PhoneDetector.hasBluetoothConnectPermission(app)
+        val qaAvailable = PhoneDetector.isQuickAccessProviderAvailable(app)
         val linuxPath = GooglebookEcosystem.discoverLinuxRoot(app, primary, safMounts = safMounts)?.path
         val linuxProvider = GooglebookEcosystem.findInstalledLinuxProviderAuthority(app)
         val currentMounts = computeMounts(saved, phone?.takeIf { it.isMounted }?.path, linuxPath)
@@ -633,6 +668,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             pairedPhone = phone,
             phoneConnected = phone != null,
             bluetoothPermissionGranted = btGranted,
+            quickAccessAvailable = qaAvailable,
             linuxRootPath = linuxPath,
             linuxProviderAuthority = linuxProvider,
             workProfiles = workProfiles,
@@ -847,6 +883,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun refreshAll() {
         refreshMounts()
+        PhoneDetector.warmConnectedClassicProfiles(app) { refreshPhoneStatus() }
+        refreshPhoneStatus()
         val s = _state.value
         s.tabs.filter { it.id != s.activeId }.forEach { stale += it.id }
         load(s.activeId, keepSelection = true)
@@ -1809,6 +1847,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                     // Only content:// URIs from other apps: file:// (or our own provider) would let the dragging app
                     // make us copy our private files (e.g. saved server credentials) to shared storage.
                     if (!isImportable(uri)) throw java.io.IOException("Can't import this item (unsupported source)")
+                    PhoneDetector.extractQuickAccessRootId(uri)?.let { settings.lastQuickAccessRootId = it }
                     val raw = runCatching {
                         cr.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
                             if (c.moveToFirst()) c.getString(0) else null
@@ -1836,7 +1875,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }) { out ->
             if (out.isNotEmpty()) {
                 record(Undo.Created(out))
-                listOfNotNull(_state.value.active, _state.value.otherPane).firstOrNull { it.path == dest }?.let { t ->
+                if (dest == FsPath.PHONE_ROOT) {
+                    navigate(destDir, select = out.first())
+                }
+                listOfNotNull(_state.value.active, _state.value.otherPane).firstOrNull { it.path == destDir || it.path == dest }?.let { t ->
                     updateTab(t.id) { it.copy(selection = out.toSet()) }
                 }
                 toast(if (out.size == 1) "Copied \"${FsPath.name(out[0])}\" here" else "Copied ${out.size} items here")
@@ -2061,16 +2103,23 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         // mounting via ACTION_OPEN_DOCUMENT_TREE targets MTP (or another tree-capable provider).
         val targetAuth = phone?.authority?.takeIf { it != PhoneDetector.QUICK_ACCESS_AUTHORITY }
             ?: PhoneDetector.MTP_AUTHORITY
+        // Only pass a valid 2-segment DocumentsContract.buildRootUri(authority, rootId) when a concrete
+        // rootId is discoverable; passing 1-segment buildRootsUri causes DocumentsUI to fall back to its
+        // last-accessed folder (e.g. Movies).
         val initialUri = runCatching {
-            android.provider.DocumentsContract.buildRootsUri(targetAuth)
+            val root = com.droid.wayfinder.data.SystemDocumentsBridge.discoverRoots(app)
+                .firstOrNull { it.authority == targetAuth && it.rootId.isNotBlank() }
+            root?.let { android.provider.DocumentsContract.buildRootUri(targetAuth, it.rootId) }
         }.getOrNull()
         emit(UiEvent.PickDocumentTree(initialUri = initialUri))
     }
 
+    fun openCrossDevicePhoneInSystemFiles() {
+        emit(UiEvent.OpenSystemPhoneFiles)
+    }
+
     fun requestImportFromPhone() {
-        val initialUri = runCatching {
-            android.provider.DocumentsContract.buildRootsUri(PhoneDetector.QUICK_ACCESS_AUTHORITY)
-        }.getOrNull()
+        val initialUri = PhoneDetector.buildInitialQuickAccessRootUri(settings.lastQuickAccessRootId)
         emit(UiEvent.ImportPhoneDocuments(initialUri = initialUri))
     }
 
@@ -2078,7 +2127,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val auth = _state.value.linuxProviderAuthority
             ?: GooglebookEcosystem.findInstalledLinuxProviderAuthority(app)
         val initialUri = auth?.let {
-            runCatching { android.provider.DocumentsContract.buildRootsUri(it) }.getOrNull()
+            runCatching { GooglebookEcosystem.buildInitialLinuxRootUri(it) }.getOrNull()
         }
         emit(UiEvent.PickDocumentTree(initialUri = initialUri))
     }
@@ -2090,6 +2139,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
      */
     fun importExternalUrisToDownloads(uris: List<Uri>) {
         if (uris.isEmpty()) return
+        uris.forEach { uri ->
+            PhoneDetector.extractQuickAccessRootId(uri)?.let { settings.lastQuickAccessRootId = it }
+        }
         val currentPath = tab.path
         val destDir = if (
             FsPath.isLocalFile(currentPath) &&

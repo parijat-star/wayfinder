@@ -35,6 +35,41 @@ object PhoneDetector {
         return clean in PHONE_AUTHORITIES || clean.contains("quickaccess") || clean.contains("mtp.documents")
     }
 
+    /**
+     * True when Googlebook Cross-Device Quick Access (`com.google.ambient.streaming.multidevicesync.quickaccess`)
+     * is enabled and registered in `PackageManager`. `QuickAccessInitializer` dynamically enables this
+     * provider component on Googlebooks when Multi-Device Sync / Quick Access is active, allowing 3P apps
+     * (which do not hold signature-only `MANAGE_DOCUMENTS`) to detect Cross-Device phone file support.
+     */
+    fun isQuickAccessProviderAvailable(context: Context): Boolean = runCatching {
+        context.packageManager.resolveContentProvider(QUICK_ACCESS_AUTHORITY, 0) != null
+    }.getOrDefault(false)
+
+    /**
+     * Extracts the `QuickAccessDocumentsProvider` per-device `COLUMN_ROOT_ID` (`<deviceId>`) from a
+     * granted `content://com.google.ambient.streaming.multidevicesync.quickaccess/document/<deviceId>%2F...`
+     * URI (`RemoteDocumentID` formats document IDs as `"$deviceId/$path"`).
+     */
+    fun extractQuickAccessRootId(uri: Uri?): String? {
+        if (uri == null) return null
+        val cleanAuth = uri.authority?.substringAfter('@').orEmpty()
+        if (cleanAuth != QUICK_ACCESS_AUTHORITY) return null
+        val docId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull()
+            ?: runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+            ?: return null
+        return docId.substringBefore('/').trim().takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Builds a valid 2-segment `DocumentsContract.buildRootUri(QUICK_ACCESS_AUTHORITY, rootId)` when
+     * a Cross-Device `rootId` is known, or `null` otherwise (never 1-segment `buildRootsUri`, which
+     * `DocumentsUI` PickActivity rejects and replaces with its last-accessed folder).
+     */
+    fun buildInitialQuickAccessRootUri(rememberedRootId: String?): Uri? =
+        rememberedRootId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            DocumentsContract.buildRootUri(QUICK_ACCESS_AUTHORITY, it)
+        }
+
     /** True when the app holds runtime `BLUETOOTH_CONNECT` permission (or runs on Android 11 / API 30 and lower). */
     fun hasBluetoothConnectPermission(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true

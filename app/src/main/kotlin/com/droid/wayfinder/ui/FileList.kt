@@ -193,8 +193,8 @@ private fun Pane(vm: BrowserViewModel, s: AppState, tab: TabState, right: Boolea
 private fun FolderView(vm: BrowserViewModel, s: AppState, tab: TabState, active: Boolean) {
     val visible = remember(tab.entries, tab.searchResults, tab.sortKey, tab.sortAsc, s.showHidden, s.marks) { tab.visible(s.showHidden) }
     Column(Modifier.fillMaxSize().externalDrop(vm, tab.path)) {
-        if (tab.path == FsPath.PHONE_ROOT && s.phoneConnected) {
-            PhoneQuickAccessBanner(vm, s.pairedPhone)
+        if (tab.path == FsPath.PHONE_ROOT && (s.phoneConnected || s.quickAccessAvailable)) {
+            PhoneQuickAccessBanner(vm, s.pairedPhone, s.quickAccessAvailable)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
@@ -209,10 +209,14 @@ private fun FolderView(vm: BrowserViewModel, s: AppState, tab: TabState, active:
 }
 
 @Composable
-private fun PhoneQuickAccessBanner(vm: BrowserViewModel, phone: com.droid.wayfinder.data.PairedPhone?) {
+private fun PhoneQuickAccessBanner(
+    vm: BrowserViewModel,
+    phone: com.droid.wayfinder.data.PairedPhone?,
+    quickAccessAvailable: Boolean,
+) {
     val cs = MaterialTheme.colorScheme
-    val phoneName = phone?.name ?: "Pixel 9"
-    val subtitle = phone?.subtitle ?: "Internal Storage"
+    val phoneName = phone?.name ?: "Phone"
+    val subtitle = phone?.subtitle ?: if (quickAccessAvailable) "Cross-Device Services" else "Internal Storage"
     Surface(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
         shape = RoundedCornerShape(12.dp),
@@ -232,9 +236,20 @@ private fun PhoneQuickAccessBanner(vm: BrowserViewModel, phone: com.droid.wayfin
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = { vm.openQuickShareFolder() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
-                    Icon(Icons.Outlined.Folder, null, Modifier.size(16.dp))
-                    Text("Quick Share", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium)
+                if (quickAccessAvailable) {
+                    Button(onClick = { vm.openCrossDevicePhoneInSystemFiles() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                        Icon(Icons.Outlined.Smartphone, null, Modifier.size(16.dp))
+                        Text("Browse in Files", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium)
+                    }
+                    OutlinedButton(onClick = { vm.openQuickShareFolder() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                        Icon(Icons.Outlined.Folder, null, Modifier.size(16.dp))
+                        Text("Quick Share", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium)
+                    }
+                } else {
+                    Button(onClick = { vm.openQuickShareFolder() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                        Icon(Icons.Outlined.Folder, null, Modifier.size(16.dp))
+                        Text("Quick Share", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium)
+                    }
                 }
                 OutlinedButton(onClick = { vm.openPhoneHubSettings() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                     Icon(Icons.Outlined.Settings, null, Modifier.size(16.dp))
@@ -272,7 +287,10 @@ private fun Modifier.externalDrop(vm: BrowserViewModel, dest: String): Modifier 
         }
     }
     return this
-        .dragAndDropTarget(shouldStartDragAndDrop = { e -> !FsPath.isReadOnly(dest) && e.mimeTypes().isNotEmpty() }, target = target)
+        .dragAndDropTarget(
+            shouldStartDragAndDrop = { e -> (!FsPath.isReadOnly(dest) || dest == FsPath.PHONE_ROOT) && e.mimeTypes().isNotEmpty() },
+            target = target,
+        )
         .then(if (hovering.value) Modifier.border(2.dp, cs.primary, RoundedCornerShape(12.dp)).background(cs.primary.copy(alpha = 0.06f)) else Modifier)
 }
 
@@ -297,6 +315,7 @@ fun MarkBadges(s: AppState, path: String, modifier: Modifier = Modifier, dot: Dp
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun CenterMessage(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String?, actions: @Composable () -> Unit = {}) {
     val cs = MaterialTheme.colorScheme
@@ -304,7 +323,11 @@ private fun CenterMessage(icon: androidx.compose.ui.graphics.vector.ImageVector,
         Icon(icon, null, Modifier.size(56.dp), tint = cs.onSurfaceVariant.copy(alpha = 0.6f))
         Text(title, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         if (body != null) Text(body, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
-        Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { actions() }
+        androidx.compose.foundation.layout.FlowRow(
+            Modifier.padding(top = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) { actions() }
     }
 }
 
@@ -349,10 +372,12 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
                 val isUsbMtp = s.pairedPhone?.transport == com.droid.wayfinder.data.PhoneTransport.USB_MTP
                 CenterMessage(
                     Icons.Outlined.Smartphone,
-                    s.pairedPhone?.name ?: "Connect Phone Storage",
+                    s.pairedPhone?.name ?: if (s.quickAccessAvailable) "Cross-Device Phone" else "Connect Phone Storage",
                     when {
                         s.pairedPhone != null && !s.pairedPhone.isMounted && isUsbMtp ->
                             "Select ${s.pairedPhone.name} in the system folder picker once to browse all folders over USB File Transfer (MTP)."
+                        s.quickAccessAvailable ->
+                            "Open your Cross-Device phone in a side-by-side Files window (and drag files straight into Wayfinder), import files wirelessly, or connect over USB File Transfer (MTP) to mount phone folders."
                         s.pairedPhone != null && !s.pairedPhone.isMounted ->
                             "Import files wirelessly from ${s.pairedPhone.name} via Cross-Device Services, or connect over USB File Transfer (MTP) to mount full phone folders."
                         else ->
@@ -364,7 +389,17 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
                             Icon(Icons.Outlined.Smartphone, null, Modifier.size(18.dp))
                             Text("Mount USB phone folders…", Modifier.padding(start = 6.dp))
                         }
+                        if (s.quickAccessAvailable) {
+                            OutlinedButton({ vm.openCrossDevicePhoneInSystemFiles() }) { Text("Browse phone in Files window") }
+                        }
                         OutlinedButton({ vm.requestImportFromPhone() }) { Text("Import files…") }
+                    } else if (s.quickAccessAvailable) {
+                        Button({ vm.openCrossDevicePhoneInSystemFiles() }) {
+                            Icon(Icons.Outlined.Smartphone, null, Modifier.size(18.dp))
+                            Text("Browse phone in Files window", Modifier.padding(start = 6.dp))
+                        }
+                        OutlinedButton({ vm.requestImportFromPhone() }) { Text("Import files from phone…") }
+                        OutlinedButton({ vm.requestMountPhoneStorage(s.pairedPhone) }) { Text("Mount USB phone (MTP)…") }
                     } else {
                         Button({ vm.requestImportFromPhone() }) {
                             Icon(Icons.Outlined.Smartphone, null, Modifier.size(18.dp))

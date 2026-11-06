@@ -30,6 +30,7 @@ import com.droid.wayfinder.data.SafMount
 import com.droid.wayfinder.data.Settings
 import com.droid.wayfinder.ui.UiEvent
 import com.droid.wayfinder.ui.buildSystemDocumentOpenFilePickerIntent
+import com.droid.wayfinder.ui.buildSystemPhoneFilesWindowIntent
 import com.droid.wayfinder.ui.sanitizeImportedFileName
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -53,7 +54,10 @@ class UserBuildCompatibilityTest {
     @After
     fun tearDown() {
         val app = ApplicationProvider.getApplicationContext<Application>()
-        Settings(app).safMounts = emptyList()
+        Settings(app).apply {
+            safMounts = emptyList()
+            lastQuickAccessRootId = null
+        }
         PhoneDetector.clearActiveBluetoothPhones()
         harnesses.forEach { it.close() }
     }
@@ -147,18 +151,21 @@ class UserBuildCompatibilityTest {
         assertEquals("Linux files", discovered.label)
 
         // Register AVF Terminal's GuestDocumentsProvider in PackageManager and verify 1-click mount prompt intent.
-        shadowOf(app.packageManager).addOrUpdateProvider(
+        val shadowPm = shadowOf(app.packageManager)
+        val guestComp = ComponentName("com.android.virtualization.terminal", "com.android.virtualization.terminal.GuestDocumentsProvider")
+        shadowPm.addOrUpdateProvider(
             ProviderInfo().apply {
-                packageName = "com.android.virtualization.terminal"
-                name = "com.android.virtualization.terminal.GuestDocumentsProvider"
+                packageName = guestComp.packageName
+                name = guestComp.className
                 authority = guestAuth
                 exported = true
                 grantUriPermissions = true
                 applicationInfo = ApplicationInfo().apply {
-                    packageName = "com.android.virtualization.terminal"
+                    packageName = guestComp.packageName
                 }
             },
         )
+        shadowPm.addIntentFilterForProvider(guestComp, android.content.IntentFilter(DocumentsContract.PROVIDER_INTERFACE))
         assertEquals(guestAuth, GooglebookEcosystem.findInstalledLinuxProviderAuthority(app))
 
         val h = VmHarness().also { harnesses += it }
@@ -167,7 +174,12 @@ class UserBuildCompatibilityTest {
         h.vm.requestMountLinuxFiles()
         val pickEvent = h.events.filterIsInstance<UiEvent.PickDocumentTree>().lastOrNull()
         assertNotNull(pickEvent)
-        assertEquals(DocumentsContract.buildRootsUri(guestAuth), pickEvent!!.initialUri)
+        assertEquals(
+            DocumentsContract.buildRootUri(guestAuth, GooglebookEcosystem.AVF_GUEST_ROOT_ID),
+            pickEvent!!.initialUri,
+        )
+        assertFalse(DocumentsContract.isRootUri(app, DocumentsContract.buildRootsUri(guestAuth)))
+        assertTrue(DocumentsContract.isRootUri(app, pickEvent.initialUri))
     }
 
     @Test
@@ -193,11 +205,24 @@ class UserBuildCompatibilityTest {
                 addDataType("*/*")
             },
         )
+        val qaComp = ComponentName("com.google.ambient.streaming", "com.google.ambient.streaming.QuickAccessDocumentsProvider")
+        shadowPm.addOrUpdateProvider(
+            ProviderInfo().apply {
+                packageName = qaComp.packageName
+                name = qaComp.className
+                authority = PhoneDetector.QUICK_ACCESS_AUTHORITY
+                exported = true
+                grantUriPermissions = true
+                applicationInfo = ApplicationInfo().apply { packageName = qaComp.packageName }
+            },
+        )
+        shadowPm.addIntentFilterForProvider(qaComp, android.content.IntentFilter(DocumentsContract.PROVIDER_INTERFACE))
 
         val h = VmHarness().also { harnesses += it }
         h.events.clear()
 
-        // Wireless Cross-Device phone omits FLAG_SUPPORTS_IS_CHILD on user builds -> folder mount targets MTP_AUTHORITY
+        // When no concrete MTP rootId is accessible yet, never emit a broken 1-segment /root URI
+        // (which causes DocumentsUI to fall back to its last-accessed folder, such as Movies).
         val wirelessPhone = PairedPhone(
             name = "Pixel 8a",
             path = FsPath.PHONE_ROOT,
@@ -209,14 +234,33 @@ class UserBuildCompatibilityTest {
         h.vm.requestMountPhoneStorage(wirelessPhone)
         val treeEvent = h.events.filterIsInstance<UiEvent.PickDocumentTree>().lastOrNull()
         assertNotNull(treeEvent)
-        assertEquals(PhoneDetector.MTP_AUTHORITY, treeEvent!!.initialUri?.authority)
+        assertNull(treeEvent!!.initialUri)
 
-        // Wireless file import targets QUICK_ACCESS_AUTHORITY via ACTION_OPEN_DOCUMENT in system DocumentsUI
+        // Before a QuickAccess device UUID is known, initialUri is null (never 1-segment /root).
+        h.events.clear()
+        h.vm.requestImportFromPhone()
+        val firstImportEvent = h.events.filterIsInstance<UiEvent.ImportPhoneDocuments>().lastOrNull()
+        assertNotNull(firstImportEvent)
+        assertNull(firstImportEvent!!.initialUri)
+
+        // Once a Cross-Device URI is observed, its <deviceId> rootId is extracted and remembered as a valid 2-segment root URI.
+        val sampleDeviceId = "7e95d900-726a-46d4-ab90-111dd666ba85"
+        val sampleQaDocUri = DocumentsContract.buildDocumentUri(
+            PhoneDetector.QUICK_ACCESS_AUTHORITY,
+            "$sampleDeviceId/Download/report.pdf",
+        )
+        assertEquals(sampleDeviceId, PhoneDetector.extractQuickAccessRootId(sampleQaDocUri))
+        Settings(app).lastQuickAccessRootId = sampleDeviceId
+
         h.events.clear()
         h.vm.requestImportFromPhone()
         val importEvent = h.events.filterIsInstance<UiEvent.ImportPhoneDocuments>().lastOrNull()
         assertNotNull(importEvent)
-        assertEquals(PhoneDetector.QUICK_ACCESS_AUTHORITY, importEvent!!.initialUri?.authority)
+        assertEquals(
+            DocumentsContract.buildRootUri(PhoneDetector.QUICK_ACCESS_AUTHORITY, sampleDeviceId),
+            importEvent!!.initialUri,
+        )
+        assertTrue(DocumentsContract.isRootUri(app, importEvent.initialUri))
 
         val openIntent = buildSystemDocumentOpenFilePickerIntent(app, importEvent.initialUri)
         assertEquals(Intent.ACTION_OPEN_DOCUMENT, openIntent.action)
@@ -224,6 +268,68 @@ class UserBuildCompatibilityTest {
         assertTrue(openIntent.getBooleanExtra(Intent.EXTRA_ALLOW_MULTIPLE, false))
         assertEquals(docUiPkg, openIntent.component?.packageName)
         assertNotEquals(app.packageName, openIntent.component?.packageName)
+    }
+
+    @Test
+    fun crossDeviceQuickAccessProviderDetectionAndSideBySideSystemFilesIntent() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val shadowPm = shadowOf(app.packageManager)
+        assertFalse(PhoneDetector.isQuickAccessProviderAvailable(app))
+
+        val qaComp = ComponentName("com.google.ambient.streaming", "com.google.ambient.streaming.QuickAccessDocumentsProvider")
+        shadowPm.addOrUpdateProvider(
+            ProviderInfo().apply {
+                packageName = qaComp.packageName
+                name = qaComp.className
+                authority = PhoneDetector.QUICK_ACCESS_AUTHORITY
+                exported = true
+                grantUriPermissions = true
+                readPermission = "android.permission.MANAGE_DOCUMENTS"
+                writePermission = "android.permission.MANAGE_DOCUMENTS"
+                applicationInfo = ApplicationInfo().apply { packageName = qaComp.packageName }
+            },
+        )
+        assertTrue(PhoneDetector.isQuickAccessProviderAvailable(app))
+
+        val docUiPkg = "com.google.android.documentsui"
+        val filesCls = "com.android.documentsui.files.FilesActivity"
+        val filesComp = ComponentName(docUiPkg, filesCls)
+        shadowPm.addOrUpdateActivity(
+            ActivityInfo().apply {
+                packageName = docUiPkg
+                name = filesCls
+                exported = true
+                applicationInfo = ApplicationInfo().apply { packageName = docUiPkg }
+            },
+        )
+        shadowPm.addIntentFilterForActivity(
+            filesComp,
+            android.content.IntentFilter(Intent.ACTION_VIEW).apply {
+                addCategory(Intent.CATEGORY_DEFAULT)
+                addDataScheme("content")
+                addDataType(DocumentsContract.Root.MIME_TYPE_ITEM)
+            },
+        )
+
+        val h = VmHarness().also { harnesses += it }
+        h.until(what = "QuickAccess provider detected in AppState") { h.s.quickAccessAvailable }
+        assertTrue(h.s.quickAccessAvailable)
+
+        h.events.clear()
+        h.vm.openCrossDevicePhoneInSystemFiles()
+        assertTrue(h.events.contains(UiEvent.OpenSystemPhoneFiles))
+
+        val windowIntent = buildSystemPhoneFilesWindowIntent(app)
+        assertNotNull(windowIntent)
+        assertEquals(Intent.ACTION_VIEW, windowIntent!!.action)
+        assertEquals(
+            DocumentsContract.buildRootsUri(PhoneDetector.QUICK_ACCESS_AUTHORITY),
+            windowIntent.data,
+        )
+        assertEquals(DocumentsContract.Root.MIME_TYPE_ITEM, windowIntent.type)
+        assertEquals(filesComp, windowIntent.component)
+        assertTrue((windowIntent.flags and Intent.FLAG_ACTIVITY_NEW_DOCUMENT) != 0)
+        assertTrue((windowIntent.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK) != 0)
     }
 
     @Test
