@@ -18,6 +18,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.droid.wayfinder.MainActivity
 import com.droid.wayfinder.data.Marks
 import com.droid.wayfinder.ui.SharedUi
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
@@ -29,24 +30,22 @@ import java.io.File
 
 /** MainActivity: All-files-access gate, granting while running, and picker intents (GET_CONTENT). */
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [29], qualifiers = "w1360dp-h860dp-land-xhdpi")
+@Config(sdk = [35], qualifiers = "w1360dp-h860dp-land-xhdpi")
 class PermissionAndPickerUiTest {
     @get:Rule val rule = createEmptyComposeRule()
 
     @Before fun reset() {
         SharedUi.init(ApplicationProvider.getApplicationContext())
         SharedUi.updateMarks { Marks() }
+        MainActivity.hasAccessOverride = { false }
     }
 
-    /**
-     * Runs on API 29, where MainActivity gates on READ_EXTERNAL_STORAGE: Robolectric's
-     * Environment.isExternalStorageManager() (API 30+) crashes because getPackagesForUid() is empty.
-     * The API 30+ MANAGE_EXTERNAL_STORAGE path is covered by the manual checklist.
-     */
+    @After fun tearDown() {
+        MainActivity.hasAccessOverride = null
+    }
+
     private fun allFilesAccess(granted: Boolean) {
-        val app = shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>())
-        val perms = arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE, android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        if (granted) app.grantPermissions(*perms) else app.denyPermissions(*perms)
+        MainActivity.hasAccessOverride = { granted }
     }
 
     @Test fun permissionScreenShownUntilAccessIsGranted() {
@@ -55,9 +54,9 @@ class PermissionAndPickerUiTest {
             rule.onNodeWithText("Allow access to all files").assertIsDisplayed()
             rule.onNodeWithText("Open settings").performClick()
             sc.onActivity { a ->
-                val req = shadowOf(a).lastRequestedPermission
-                org.junit.Assert.assertNotNull("Open settings requests storage permission", req)
-                org.junit.Assert.assertTrue(android.Manifest.permission.READ_EXTERNAL_STORAGE in req.requestedPermissions)
+                val started = shadowOf(a).nextStartedActivity
+                org.junit.Assert.assertNotNull("Open settings launches all-files-access settings", started)
+                assertEquals(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, started.action)
             }
             // User grants access in Settings and comes back: the browser appears without a restart.
             allFilesAccess(true)

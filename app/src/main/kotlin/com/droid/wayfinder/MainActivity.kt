@@ -3,9 +3,7 @@
 
 package com.droid.wayfinder
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -73,7 +71,7 @@ class MainActivity : ComponentActivity() {
             val dark = when (mode) { ThemeMode.System -> systemDark; ThemeMode.Light -> false; ThemeMode.Dark -> true }
             // Draw our tab strip into the desktop-mode caption bar instead of a separate system title bar.
             SideEffect {
-                if (Build.VERSION.SDK_INT >= 30) window.insetsController?.setSystemBarsAppearance(
+                window.insetsController?.setSystemBarsAppearance(
                     if (dark) 0 else WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
                     WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
                 )
@@ -154,18 +152,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun hasAccess(): Boolean =
-        if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager()
-        else checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        hasAccessOverride?.invoke() ?: runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
+
+    companion object {
+        internal var hasAccessOverride: (() -> Boolean)? = null
+    }
 
     private fun requestAccess() {
-        if (Build.VERSION.SDK_INT >= 30) {
-            try {
-                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
-            } catch (_: Exception) {
-                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-            }
-        } else {
-            requestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE), 1)
+        try {
+            startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
+        } catch (_: Exception) {
+            startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
         }
     }
 
@@ -219,13 +216,10 @@ class MainActivity : ComponentActivity() {
         return mountedTreeUri
     }
 
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1) {
-            recreate()
-        } else {
-            vmOrNull?.refreshAll()
-        }
+        vmOrNull?.refreshAll()
     }
 }
 
