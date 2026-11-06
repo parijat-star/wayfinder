@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy · Wayfinder File Manager</title>
+  <style>
+    :root {
+      --color-canvas-default: #ffffff;
+      --color-canvas-subtle: #f6f8fa;
+      --color-border-default: #d0d7de;
+      --color-border-muted: hsla(210,18%,87%,1);
+      --color-fg-default: #1f2328;
+      --color-fg-muted: #656d76;
+      --color-accent-fg: #0969da;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --color-canvas-default: #0d1117;
+        --color-canvas-subtle: #161b22;
+        --color-border-default: #30363d;
+        --color-border-muted: #21262d;
+        --color-fg-default: #e6edf3;
+        --color-fg-muted: #848d97;
+        --color-accent-fg: #2f81f7;
+      }
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+      line-height: 1.65;
+      color: var(--color-fg-default);
+      background-color: var(--color-canvas-default);
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 40px 24px 80px 24px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    h1, h2 {
+      font-weight: 600;
+      line-height: 1.25;
+    }
+    h1 {
+      font-size: 2rem;
+      margin: 0;
+    }
+    h2 {
+      font-size: 1.35rem;
+      border-bottom: 1px solid var(--color-border-muted);
+      padding-bottom: 0.3em;
+      margin-top: 32px;
+      margin-bottom: 14px;
+    }
+    p { margin-top: 0; margin-bottom: 16px; }
+    ul { padding-left: 1.75em; margin-bottom: 16px; }
+    li { margin-top: 0.45em; }
+    a { color: var(--color-accent-fg); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      padding: 0.18em 0.4em;
+      font-size: 85%;
+      background-color: var(--color-canvas-subtle);
+      border-radius: 6px;
+      font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+    }
+    .summary-box {
+      background-color: var(--color-canvas-subtle);
+      border: 1px solid var(--color-border-default);
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 20px 0 28px 0;
+    }
+    .meta {
+      color: var(--color-fg-muted);
+      font-size: 0.9rem;
+      margin-bottom: 24px;
+    }
+    footer {
+      margin-top: 48px;
+      padding-top: 20px;
+      border-top: 1px solid var(--color-border-muted);
+      color: var(--color-fg-muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+<main class="container">
+  <div class="header">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="56" height="56" aria-hidden="true">
+      <rect width="108" height="108" rx="24" fill="#FFF3E0"/>
+      <path fill="#E8710A" d="M30,34h17l6,6h25a4,4 0 0 1 4,4v32a4,4 0 0 1 -4,4h-48a4,4 0 0 1 -4,-4v-38a4,4 0 0 1 4,-4z" />
+      <path fill="#FA9B3D" d="M30,46h48a4,4 0 0 1 4,4v26a4,4 0 0 1 -4,4h-48a4,4 0 0 1 -4,-4v-26a4,4 0 0 1 4,-4z" />
+    </svg>
+    <div>
+      <h1>Wayfinder Privacy Policy</h1>
+    </div>
+  </div>
+  <div class="meta">Effective date: October 30, 2026 &nbsp;&middot;&nbsp; Package ID: <code>com.droid.wayfinder</code></div>
+
+  <div class="summary-box">
+    <strong>Summary:</strong> Wayfinder is a standalone, open-source file manager for Android desktop and large-screen devices. Wayfinder operates locally on your device and collects <strong>zero</strong> personal data, analytics, telemetry, crash reports, or advertising identifiers.
+  </div>
+
+  <h2>1. Data Collection &amp; Telemetry</h2>
+  <p>
+    Wayfinder does <strong>not</strong> collect, transmit, store, sell, or share any personal data, analytics, crash telemetry, advertising identifiers, or usage logs on external servers operated by the project authors. The application embeds no advertising SDKs, analytics trackers, or third-party telemetry libraries.
+  </p>
+
+  <h2>2. Permissions &amp; On-Device Processing</h2>
+  <p>All file browsing, indexing, previewing, archiving, checksum calculation, and search operations run locally on your device:</p>
+  <ul>
+    <li>
+      <strong>All Files Access (<code>MANAGE_EXTERNAL_STORAGE</code>):</strong>
+      Used solely on your device so you can browse, search, preview, archive, extract, copy, move, rename, and organize files and folders across shared internal storage and removable USB/SD storage volumes.
+    </li>
+    <li>
+      <strong>Nearby Devices (<code>BLUETOOTH_CONNECT</code> with <code>neverForLocation</code>):</strong>
+      Optional runtime permission used strictly to detect whether a paired smartphone is currently connected so Wayfinder can display Cross-Device or USB file-transfer mount shortcuts in the sidebar. Bluetooth is never used to infer, derive, or track physical location.
+    </li>
+    <li>
+      <strong>Network Access (<code>INTERNET</code>, <code>ACCESS_NETWORK_STATE</code>, <code>ACCESS_WIFI_STATE</code>, <code>CHANGE_WIFI_MULTICAST_STATE</code>):</strong>
+      Used exclusively when you explicitly discover local-network SMB shares (mDNS / NetBIOS discovery on your local LAN) or connect to an SMB, WebDAV/WebDAVS, or FTP/FTPS server that you configure yourself. Files and credentials are transmitted only to the servers or applications you explicitly choose.
+    </li>
+    <li>
+      <strong>Cloud &amp; Storage Access Framework (<code>ACTION_OPEN_DOCUMENT_TREE</code>):</strong>
+      When you mount a cloud storage provider (such as Google Drive) or a connected phone folder through Android's system document picker, Android grants Wayfinder scoped URI access strictly to the folder trees you select. You can unmount and revoke those folder grants at any time from Wayfinder's sidebar.
+    </li>
+  </ul>
+
+  <h2>3. Credential &amp; Session Storage</h2>
+  <ul>
+    <li>
+      <strong>Saved Server Credentials:</strong>
+      When you choose to remember a password for an SMB, WebDAV, or FTP server, your credentials are encrypted locally on your device using an AES-256-GCM key stored inside the hardware-backed <code>AndroidKeyStore</code>.
+    </li>
+    <li>
+      <strong>Temporary Staging Caches:</strong>
+      When opening or previewing files from archives or remote servers, temporary local cache copies stored inside Wayfinder's private cache directory are automatically pruned after 24 hours and remain inaccessible to other apps unless you explicitly open or share a file with another app.
+    </li>
+    <li>
+      <strong>Backups &amp; Device Transfers:</strong>
+      Cloud backups are disabled (<code>android:allowBackup="false"</code>), and Android device-to-device data extraction rules explicitly exclude saved server credentials, intent-guard secrets, local session preferences (<code>settings.xml</code>), and temporary file caches.
+    </li>
+  </ul>
+
+  <h2>4. Open Source &amp; Contact</h2>
+  <p>
+    Wayfinder is free, independent open-source software licensed under the Apache License, Version 2.0. You can audit the complete source code, review third-party open-source attributions, or report privacy and security questions via the <a href="https://github.com/parijat-star/wayfinder">Wayfinder GitHub repository</a> (<a href="https://github.com/parijat-star/wayfinder/issues">Issues</a>).
+  </p>
+
+  <footer>
+    <a href="homepage_preview.html">&larr; Back to Wayfinder Overview</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://github.com/parijat-star/wayfinder">GitHub Repository</a>
+  </footer>
+</main>
+</body>
+</html>
