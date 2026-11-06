@@ -3,14 +3,21 @@
 
 package com.droid.wayfinder.data
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbManager
+import android.net.Uri
+import android.os.Build
 import android.os.storage.StorageManager
+import android.provider.DocumentsContract
+import androidx.core.content.ContextCompat
 import com.droid.wayfinder.ui.Mount
 
 object PhoneDetector {
@@ -27,6 +34,33 @@ object PhoneDetector {
         val clean = authority.substringAfter('@').lowercase()
         return clean in PHONE_AUTHORITIES || clean.contains("quickaccess") || clean.contains("mtp.documents")
     }
+
+    /** True when the app holds runtime `BLUETOOTH_CONNECT` permission (or runs on Android 11 / API 30 and lower). */
+    fun hasBluetoothConnectPermission(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+        return ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
+            PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * Probes whether a persisted phone SAF tree URI (`QuickAccess` or `MTP`) is currently online and
+     * serving its root document. Returns `false` when the phone disconnects, walks out of range, or locks.
+     */
+    fun isSafPhoneMountReachable(context: Context, mount: SafMount): Boolean = runCatching {
+        val treeUri = Uri.parse(mount.uri)
+        val treeDocId = DocumentsContract.getTreeDocumentId(treeUri)
+        val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocId)
+        context.contentResolver.query(
+            docUri,
+            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            val loading = cursor.extras?.getBoolean(DocumentsContract.EXTRA_LOADING, false) == true
+            cursor.count > 0 || loading
+        } ?: false
+    }.getOrDefault(false)
 
     /**
      * Checks if a phone is paired or actively connected (via Cross-Device QuickAccess,
@@ -62,6 +96,7 @@ object PhoneDetector {
         context: Context,
         mounts: List<Mount> = emptyList(),
         safMounts: List<SafMount> = emptyList(),
+        isSafMountReachable: (SafMount) -> Boolean = { isSafPhoneMountReachable(context, it) },
     ): PairedPhone? {
         // 1. Check direct system DocumentsProvider roots (QuickAccessDocumentsProvider & MtpDocumentsProvider)
         runCatching {
@@ -92,10 +127,16 @@ object PhoneDetector {
             }
         }
 
-        // 2. Check SAF mounts whose URI points to QuickAccessDocumentsProvider or MtpDocumentsProvider
+        // 2. Check SAF mounts whose URI points to QuickAccessDocumentsProvider or MtpDocumentsProvider,
+        // verifying that the provider is actively online right now so offline grants don't appear stuck mounted.
+        val unreachableSafPaths = HashSet<String>()
         for (sm in safMounts) {
-            val uriAuth = runCatching { android.net.Uri.parse(sm.uri).authority }.getOrNull()
+            val uriAuth = runCatching { Uri.parse(sm.uri).authority }.getOrNull()
             if (isPhoneAuthority(uriAuth) || isPhoneMount(sm.label)) {
+                if (!isSafMountReachable(sm)) {
+                    unreachableSafPaths += sm.path
+                    continue
+                }
                 val transport = if (uriAuth?.contains("mtp", ignoreCase = true) == true) {
                     PhoneTransport.USB_MTP
                 } else {
@@ -114,8 +155,9 @@ object PhoneDetector {
             }
         }
 
-        // 3. Check generic mounts list passed by the ViewModel
+        // 3. Check generic mounts list passed by the ViewModel (skipping any SAF phone mounts proven offline above)
         for (m in mounts) {
+            if (m.path in unreachableSafPaths) continue
             if (isPhoneMount(m.label) || isPhoneMount(m.path)) {
                 return PairedPhone(
                     name = m.label,
@@ -234,7 +276,9 @@ object PhoneDetector {
      * Returns the display name of an actively connected Bluetooth smartphone (`Major.PHONE`),
      * or null when no phone is connected over Bluetooth.
      */
+    @SuppressLint("MissingPermission")
     fun findConnectedBluetoothPhoneName(context: Context): String? {
+        if (!hasBluetoothConnectPermission(context)) return null
         return runCatching {
             val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return null
             val adapter = btManager.adapter ?: return null

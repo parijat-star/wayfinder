@@ -77,6 +77,8 @@ sealed interface UiEvent {
     data class PickDocumentTree(val initialUri: android.net.Uri? = null, val accountEmail: String? = null) : UiEvent
     /** Launch the system Google Account picker to grant account visibility to Wayfinder. */
     data object PickGoogleAccount : UiEvent
+    /** Request Android 12+ BLUETOOTH_CONNECT runtime permission for wireless phone detection. */
+    data object RequestBluetoothPermission : UiEvent
     /** Picker mode: return these local files (already downloaded if remote) to the calling app. */
     data class PickResult(val paths: List<String>) : UiEvent
     /** Folder picker mode (ACTION_OPEN_DOCUMENT_TREE): return the selected directory tree URI to the calling app. */
@@ -145,6 +147,8 @@ data class AppState(
     val createFileName: String = "",
     /** True when a phone is actively connected or paired (USB / Bluetooth / MTP). */
     val phoneConnected: Boolean = false,
+    /** True when BLUETOOTH_CONNECT is granted (or not required on API <= 30). */
+    val bluetoothPermissionGranted: Boolean = true,
     /** Discovered Google Drive accounts on the device. */
     val driveAccounts: List<com.droid.wayfinder.data.DriveAccount> = emptyList(),
     /** Paired smartphone (e.g. Pixel 9) details. */
