@@ -347,4 +347,41 @@ class TarAndPhoneTest {
         assertTrue(extractedFile.exists())
         assertEquals("Extract me please!", extractedFile.readText())
     }
+
+    @Test
+    fun testFriendlyPhoneAddressBarAndResolution() {
+        val phoneRoot = "doc://com.google.ambient.streaming.multidevicesync.quickaccess/7e95d900-726a-46d4-ab90-111dd666ba85"
+        val phoneDocs = "$phoneRoot//Documents"
+        val phoneNested = "$phoneRoot//Documents/HomeMate"
+
+        assertTrue(com.droid.wayfinder.data.SystemDocumentsBridge.isPhonePath(phoneRoot))
+        assertTrue(com.droid.wayfinder.data.SystemDocumentsBridge.isPhonePath(phoneDocs))
+        assertTrue(com.droid.wayfinder.data.SystemDocumentsBridge.isPhonePath(FsPath.PHONE_ROOT))
+        assertEquals("Phone", com.droid.wayfinder.data.SystemDocumentsBridge.fallbackNameOf(phoneRoot))
+        assertEquals("Documents", com.droid.wayfinder.data.SystemDocumentsBridge.fallbackNameOf(phoneDocs))
+        assertEquals("HomeMate", com.droid.wayfinder.data.SystemDocumentsBridge.fallbackNameOf(phoneNested))
+        assertEquals(phoneNested, com.droid.wayfinder.data.SystemDocumentsBridge.childPath(phoneRoot, "Documents/HomeMate"))
+
+        val state = com.droid.wayfinder.ui.AppState(
+            roots = listOf(com.droid.wayfinder.ui.RootVolume("/storage/emulated/10", "Internal storage", removable = false)),
+            pairedPhone = com.droid.wayfinder.data.PairedPhone(
+                name = "Pixel 8a",
+                subtitle = "Internal Storage",
+                path = phoneRoot,
+                isConnected = true,
+                authority = com.droid.wayfinder.data.PhoneDetector.QUICK_ACCESS_AUTHORITY,
+                isMounted = true,
+            ),
+        )
+
+        assertEquals("Pixel 8a", state.displayPath(phoneRoot, "/"))
+        assertEquals("Pixel 8a/Documents", state.displayPath(phoneDocs, "/"))
+        assertEquals("Pixel 8a / Documents / HomeMate", state.displayPath(phoneNested, " / "))
+        assertEquals("Internal storage / Download", state.displayPath("/storage/emulated/10/Download", " / "))
+
+        assertEquals(phoneRoot, com.droid.wayfinder.ui.resolveAddress("Pixel 8a", state))
+        assertEquals(phoneDocs, com.droid.wayfinder.ui.resolveAddress("Pixel 8a/Documents", state))
+        assertEquals(phoneNested, com.droid.wayfinder.ui.resolveAddress("Phone/Documents/HomeMate", state))
+        assertEquals("/storage/emulated/10/Download", com.droid.wayfinder.ui.resolveAddress("Internal storage/Download", state))
+    }
 }

@@ -41,36 +41,88 @@ object SystemDocumentsBridge {
 
     fun isPhoneAuthority(authority: String?): Boolean = PhoneDetector.isPhoneAuthority(authority)
 
+    fun authorityOf(path: String): String? {
+        if (!FsPath.isDoc(path)) return null
+        return path.removePrefix("doc://").substringBefore('/').takeIf { it.isNotBlank() }
+    }
+
+    fun isPhonePath(path: String): Boolean =
+        FsPath.isPhone(path) || (FsPath.isDoc(path) && isPhoneAuthority(authorityOf(path)))
+
     fun registerNode(path: String, displayName: String, parentPath: String? = null) {
         val norm = FsPath.normalize(path)
         if (displayName.isNotBlank()) {
             displayNames[norm] = displayName
         }
         if (parentPath != null) {
-            parents[norm] = FsPath.normalize(parentPath)
+            val normParent = FsPath.normalize(parentPath)
+            if (normParent != norm) {
+                parents[norm] = normParent
+            }
         }
     }
 
     fun displayNameOf(path: String): String? = displayNames[FsPath.normalize(path)]
 
-    fun parentOf(path: String): String? {
+    /**
+     * Human-friendly fallback name for a `doc://` path when [displayNames] has not cached the node yet,
+     * avoiding exposing raw provider authorities or device UUIDs in breadcrumbs and titles.
+     */
+    fun fallbackNameOf(path: String): String {
         val norm = FsPath.normalize(path)
-        parents[norm]?.let { return it }
         val trimmed = norm.removePrefix("doc://")
         val auth = trimmed.substringBefore('/')
-        val docId = normalizeDocId(auth, trimmed.substringAfter('/', ""))
-        if (docId.isEmpty() || !docId.contains('/')) return null
+        val docId = normalizeDocId(auth, trimmed.substringAfter('/', "").trimStart('/'))
         if (docId.contains("//")) {
-            val deviceId = docId.substringBefore("//")
-            val remotePath = docId.substringAfter("//")
-            if (remotePath.isEmpty()) return null
-            return if (!remotePath.contains('/')) {
-                "doc://$auth/$deviceId"
-            } else {
-                "doc://$auth/$deviceId//${remotePath.substringBeforeLast('/')}"
+            val remotePath = docId.substringAfter("//").trim('/')
+            return if (remotePath.isEmpty()) "Phone" else remotePath.substringAfterLast('/')
+        }
+        if (!docId.contains('/')) {
+            return when {
+                isPhoneAuthority(auth) -> "Phone"
+                GooglebookEcosystem.isLinuxAuthority(auth) -> "Linux files"
+                auth == GoogleDriveManager.DOCS_AUTHORITY -> "Google Drive"
+                docId.contains(':') -> docId.substringAfter(':').trim('/').substringAfterLast('/').ifEmpty { docId.substringBefore(':') }
+                else -> docId.ifEmpty { auth }
             }
         }
-        return "doc://$auth/${docId.substringBeforeLast('/')}"
+        return docId.trimEnd('/').substringAfterLast('/')
+    }
+
+    /** Joins a relative sub-path onto a `doc://` root path, preserving QuickAccess `//` separator conventions. */
+    fun childPath(rootPath: String, relativePath: String): String {
+        val normRoot = FsPath.normalize(rootPath)
+        val cleanRel = relativePath.split('/').filter { it.isNotEmpty() }.joinToString("/")
+        if (cleanRel.isEmpty()) return normRoot
+        val auth = authorityOf(normRoot)
+        val docId = normRoot.removePrefix("doc://${auth.orEmpty()}/")
+        return if (auth == PhoneDetector.QUICK_ACCESS_AUTHORITY && !docId.contains("//")) {
+            "doc://$auth/$docId//$cleanRel"
+        } else {
+            "$normRoot/$cleanRel"
+        }
+    }
+
+    fun parentOf(path: String): String? {
+        val norm = FsPath.normalize(path)
+        parents[norm]?.takeIf { it != norm }?.let { return it }
+        val trimmed = norm.removePrefix("doc://")
+        val auth = trimmed.substringBefore('/')
+        val docId = normalizeDocId(auth, trimmed.substringAfter('/', "").trimStart('/'))
+        if (auth.isBlank() || docId.isEmpty() || !docId.contains('/')) return null
+        if (docId.contains("//")) {
+            val deviceId = docId.substringBefore("//")
+            val remotePath = docId.substringAfter("//").trim('/')
+            if (deviceId.isEmpty() || remotePath.isEmpty()) return null
+            val parentRemote = remotePath.substringBeforeLast('/', "").trimEnd('/')
+            return if (parentRemote.isEmpty()) {
+                "doc://$auth/$deviceId"
+            } else {
+                "doc://$auth/$deviceId//$parentRemote"
+            }
+        }
+        val parentDocId = docId.substringBeforeLast('/', "").trimEnd('/')
+        return if (parentDocId.isEmpty()) null else "doc://$auth/$parentDocId"
     }
 
     /**
