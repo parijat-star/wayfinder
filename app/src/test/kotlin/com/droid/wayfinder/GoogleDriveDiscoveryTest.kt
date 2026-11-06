@@ -52,8 +52,163 @@ class GoogleDriveDiscoveryTest {
         assertEquals(1, accounts.size)
         val acc = accounts.single()
         assertEquals("alice@example.com", acc.email)
+        assertEquals("Drive", acc.title)
         assertEquals("saf://drv1", acc.mountPath)
         assertTrue(acc.isMounted)
+    }
+
+    @Test
+    fun buildInitialDriveRootUri_returnsValidTwoSegmentRootUriNeverOneSegmentRootsUri() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val shadowPm = org.robolectric.Shadows.shadowOf(context.packageManager)
+        val docsPkg = "com.google.android.apps.docs"
+        val docsCls = "com.google.android.apps.docs.storagebackend.StorageBackendContentProvider"
+        shadowPm.addOrUpdateProvider(
+            android.content.pm.ProviderInfo().apply {
+                packageName = docsPkg
+                name = docsCls
+                authority = GoogleDriveManager.DOCS_AUTHORITY
+                exported = true
+                grantUriPermissions = true
+                applicationInfo = android.content.pm.ApplicationInfo().apply { packageName = docsPkg }
+            },
+        )
+        shadowPm.addIntentFilterForProvider(
+            android.content.ComponentName(docsPkg, docsCls),
+            android.content.IntentFilter(DocumentsContract.PROVIDER_INTERFACE),
+        )
+
+        // Demonstrate why 1-segment buildRootsUri failed (isRootUri == false -> fallback to last folder),
+        // whereas buildInitialDriveRootUri produces a valid 2-segment /root/1 URI (isRootUri == true).
+        val brokenRootsUri = DocumentsContract.buildRootsUri(GoogleDriveManager.DOCS_AUTHORITY)
+        org.junit.Assert.assertFalse(DocumentsContract.isRootUri(context, brokenRootsUri))
+
+        val uri = GoogleDriveManager.buildInitialDriveRootUri(
+            context = context,
+            accountEmail = "alain@example.com",
+            mounts = emptyList(),
+        )
+        assertEquals(GoogleDriveManager.DOCS_AUTHORITY, uri.authority)
+        assertEquals(listOf("root", "1"), uri.pathSegments)
+        assertTrue(
+            "DocumentsUI PickActivity requires DocumentsContract.isRootUri == true (/root/<rootId>)",
+            DocumentsContract.isRootUri(context, uri),
+        )
+
+        // When a first account already mounted acc=1;, a second account picks root/2 instead of colliding
+        val existingMounts = listOf(
+            SafMount(
+                id = "drv1",
+                label = "Drive (first@example.com) · Projects",
+                uri = "content://com.google.android.apps.docs.storage/tree/acc%3D1%3B1FolderA",
+            ),
+        )
+        val secondUri = GoogleDriveManager.buildInitialDriveRootUri(
+            context = null,
+            accountEmail = "second@example.com",
+            mounts = existingMounts,
+        )
+        assertEquals(listOf("root", "2"), secondUri.pathSegments)
+
+        // Re-mounting another folder for the same account reuses its discovered acc=<id>; root
+        val sameSecondMounts = existingMounts + SafMount(
+            id = "drv2",
+            label = "Drive (second@example.com) · Photos",
+            uri = "content://com.google.android.apps.docs.storage/tree/acc%3D2%3B1FolderB",
+        )
+        val remountSecondUri = GoogleDriveManager.buildInitialDriveRootUri(
+            context = null,
+            accountEmail = "second@example.com",
+            mounts = sameSecondMounts,
+        )
+        assertEquals(listOf("root", "2"), remountSecondUri.pathSegments)
+    }
+
+    @Test
+    fun discoverAccounts_supportsMultipleMountedDriveFoldersPerAccountWithFolderTitles() {
+        val mounts = listOf(
+            SafMount(
+                id = "drv_proj",
+                label = "Drive (alice@example.com) · Projects",
+                uri = "content://com.google.android.apps.docs.storage/tree/acc%3D1%3B1Proj",
+            ),
+            SafMount(
+                id = "drv_photos",
+                label = "Drive (alice@example.com) · Photos",
+                uri = "content://com.google.android.apps.docs.storage/tree/acc%3D1%3B1Photos",
+            ),
+        )
+        val accounts = GoogleDriveManager.discoverAccounts(context = null, mounts = mounts)
+        assertEquals(2, accounts.size)
+        assertEquals(listOf("Drive · Projects", "Drive · Photos"), accounts.map { it.title })
+        assertEquals(listOf("saf://drv_proj", "saf://drv_photos"), accounts.map { it.mountPath })
+        assertTrue(accounts.all { it.email == "alice@example.com" && it.isMounted })
+    }
+
+    class FakeDriveRootDocumentsProvider : ContentProvider() {
+        override fun onCreate(): Boolean = true
+        override fun query(
+            uri: Uri,
+            projection: Array<out String>?,
+            selection: String?,
+            selectionArgs: Array<out String>?,
+            sortOrder: String?,
+        ): Cursor {
+            return MatrixCursor(
+                arrayOf(
+                    DocumentsContract.Root.COLUMN_ROOT_ID,
+                    DocumentsContract.Root.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Root.COLUMN_TITLE,
+                    DocumentsContract.Root.COLUMN_SUMMARY,
+                    DocumentsContract.Root.COLUMN_FLAGS,
+                ),
+            ).apply {
+                if (uri.path == "/root") {
+                    addRow(arrayOf<Any?>("1", "acc=1;0", "Drive", "alice@example.com", 0))
+                }
+            }
+        }
+        override fun getType(uri: Uri): String? = null
+        override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+        override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
+        override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
+    }
+
+    @Test
+    fun discoverAccounts_surfacesTopLevelDocRootAlongsideSubfolderSafMountWhenManageDocumentsGranted() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val shadowPm = org.robolectric.Shadows.shadowOf(context.packageManager)
+        val docsPkg = "com.google.android.apps.docs"
+        val docsCls = FakeDriveRootDocumentsProvider::class.java.name
+        Robolectric.setupContentProvider(FakeDriveRootDocumentsProvider::class.java, GoogleDriveManager.DOCS_AUTHORITY)
+        shadowPm.addOrUpdateProvider(
+            android.content.pm.ProviderInfo().apply {
+                packageName = docsPkg
+                name = docsCls
+                authority = GoogleDriveManager.DOCS_AUTHORITY
+                exported = true
+                grantUriPermissions = true
+                applicationInfo = android.content.pm.ApplicationInfo().apply { packageName = docsPkg }
+            },
+        )
+        shadowPm.addIntentFilterForProvider(
+            android.content.ComponentName(docsPkg, docsCls),
+            android.content.IntentFilter(DocumentsContract.PROVIDER_INTERFACE),
+        )
+
+        val mounts = listOf(
+            SafMount(
+                id = "drv_movies",
+                label = "Drive (alice@example.com) · Movies",
+                uri = "content://com.google.android.apps.docs.storage/tree/acc%3D1%3B1Movies",
+            ),
+        )
+        val accounts = GoogleDriveManager.discoverAccounts(context = context, mounts = mounts)
+        assertEquals(listOf("Drive", "Drive · Movies"), accounts.map { it.title })
+        assertEquals(
+            listOf("doc://com.google.android.apps.docs.storage/acc=1;0", "saf://drv_movies"),
+            accounts.map { it.mountPath },
+        )
     }
 
     @Test
