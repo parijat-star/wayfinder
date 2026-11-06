@@ -41,7 +41,8 @@ object GoogleDriveManager {
         val emails = LinkedHashSet<String>()
         val uriToEmail = HashMap<String, String>()
 
-        // 1. Try querying AccountManager (requires READ_CONTACTS or account visibility on API 26+)
+        // 1. Check accounts granted explicit per-app visibility via AccountManager.newChooseAccountIntent
+        // (does not require READ_CONTACTS or GET_ACCOUNTS permissions on API 26+)
         if (context != null) {
             runCatching {
                 val am = AccountManager.get(context)
