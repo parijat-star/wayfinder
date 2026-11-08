@@ -18,6 +18,7 @@ All file browsing, indexing, previewing, archiving, and search operations run lo
 ## Credential & Session Storage
 
 - **Saved Server Credentials**: When you choose to remember credentials for an SMB, WebDAV, or FTP server, passwords are encrypted locally on your device using an AES-GCM key stored in the hardware-backed `AndroidKeyStore`.
+- **Temporary Caches**: Files opened or previewed from archives or network servers (including image and video thumbnails for SMB/NAS, WebDAV, FTP and cloud folders) are copied into Wayfinder's private cache directory, never shared with other apps unless you open or share them, and pruned automatically after 24 hours.
 - **Backups & Device Transfers**: Cloud backups are disabled (`android:allowBackup="false"`), and device-to-device transfer rules explicitly exclude saved server credentials, intent-guard secrets, local session preferences (`settings.xml`), and temporary file caches.
 
 ## Contact & Source Code

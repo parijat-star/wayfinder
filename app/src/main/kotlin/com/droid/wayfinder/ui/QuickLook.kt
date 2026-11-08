@@ -151,6 +151,7 @@ private fun Header(vm: BrowserViewModel, e: FileEntry) {
 private fun Body(vm: BrowserViewModel, e: FileEntry) {
     if (e.isDir && !e.isServer) { FolderPreview(vm, e); return }
     if (!FsPath.isLocalFile(e.path)) {
+        if (vm.canThumbnail(e)) { RemoteMediaPreview(vm, e); return }
         Placeholder(e, if (FsPath.isZip(e.path)) "Preview isn't available inside archives. Press Enter to open." else "Preview isn't available for network and cloud files yet. Press Enter to open.")
         return
     }
@@ -170,7 +171,7 @@ private fun Body(vm: BrowserViewModel, e: FileEntry) {
 @Composable
 private fun FolderPreview(vm: BrowserViewModel, e: FileEntry) {
     val cs = MaterialTheme.colorScheme
-    val kids by produceState<List<FileEntry>?>(null, e.path) { value = sortEntries(vm.listForColumn(e.path).filter { !it.isHidden }, SortKey.Name, true) }
+    val kids by produceState<List<FileEntry>?>(null, e.path) { value = sortEntries(vm.listForColumn(e.path).filter { vm.state.value.showHidden || !it.isHidden }, SortKey.Name, true) }
     val k = kids
     when {
         k == null -> CircularProgressIndicator()
@@ -270,6 +271,25 @@ private fun Placeholder(e: FileEntry, message: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Icon(e.icon(), null, Modifier.size(120.dp), tint = e.tint())
         Text(message, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Images and videos on network/cloud storage (SMB, NAS, WebDAV, FTP, SAF), fetched into the thumbnail cache. */
+@Composable
+private fun RemoteMediaPreview(vm: BrowserViewModel, e: FileEntry) {
+    Box(contentAlignment = Alignment.Center) {
+        EntryThumbnail(
+            vm, e,
+            sizePx = if (e.kind == FileKind.Video) 1920 else 2048,
+            iconSize = 120.dp,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize().padding(8.dp),
+        )
+        if (e.kind == FileKind.Video) {
+            FilledTonalIconButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.size(72.dp), shape = CircleShape) {
+                Icon(Icons.Outlined.PlayArrow, "Play", Modifier.size(40.dp))
+            }
+        }
     }
 }
 

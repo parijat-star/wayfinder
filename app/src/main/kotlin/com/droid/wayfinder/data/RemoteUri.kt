@@ -43,12 +43,17 @@ data class ServerAddress(
     /** `host` or `host:port` when the port isn't the protocol default. */
     val authority: String get() = if (port == protocol.defaultPort || port <= 0) host else "$host:$port"
 
-    /** The browsable path of this location, e.g. `davs://cloud:8443/remote.php/dav`. */
+    /**
+     * The browsable path of this location, e.g. `davs://cloud:8443/remote.php/dav` or `smb://nas:1445/media`.
+     * The port is only included when it isn't the protocol default, so `smb://nas/media` stays unchanged.
+     */
     val rootPath: String
-        get() = protocol.scheme + "://" + (if (protocol == Protocol.SMB) host else authority) +
-            (if (path.isNotEmpty()) "/$path" else "")
+        get() = protocol.scheme + "://" + authority + (if (path.isNotEmpty()) "/$path" else "")
 
-    /** Key used to store credentials: the host for SMB (compatible with older versions), `scheme://authority` otherwise. */
+    /**
+     * Key used to store credentials: the authority for SMB (`host`, as in older versions, or `host:port` on a
+     * non-default port), `scheme://authority` otherwise.
+     */
     val credKey: String get() = RemoteUri.credKey(protocol, host, port)
 }
 
@@ -70,15 +75,19 @@ object RemoteUri {
 
     fun protocolOf(p: String): Protocol? = schemeOf(p)?.let { s -> Protocol.entries.firstOrNull { it.scheme == s } }
 
-    fun credKey(protocol: Protocol, host: String, port: Int): String =
-        if (protocol == Protocol.SMB) host
-        else protocol.scheme + "://" + (if (port == protocol.defaultPort || port <= 0) host else "$host:$port")
+    fun credKey(protocol: Protocol, host: String, port: Int): String {
+        val authority = if (port == protocol.defaultPort || port <= 0) host else "$host:$port"
+        return if (protocol == Protocol.SMB) authority else protocol.scheme + "://" + authority
+    }
 
-    /** Credential key of a remote path: the host for SMB, `scheme://authority` for WebDAV/FTP. */
+    /** Credential key of a remote path: the authority for SMB (`host` on port 445), `scheme://authority` for WebDAV/FTP. */
     fun credKeyOf(path: String): String? {
         val proto = protocolOf(path) ?: return null
         val authority = path.substringAfter("://").substringBefore('/')
-        return if (proto == Protocol.SMB) authority else "${proto.scheme}://$authority"
+        if (proto != Protocol.SMB) return "${proto.scheme}://$authority"
+        // smb://nas:445/... uses the same credentials as smb://nas/...
+        val (host, port) = splitAuthority(authority, Protocol.SMB.defaultPort)
+        return credKey(Protocol.SMB, host, port)
     }
 
     /** Root path (`scheme://authority`) of the server or SAF mount holding [path]. */

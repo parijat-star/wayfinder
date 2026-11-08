@@ -3,7 +3,18 @@
 
 package com.droid.wayfinder.data
 
-data class SmbPath(val host: String, val share: String?, val rel: String)
+/**
+ * A parsed `smb://` path. [host] is the server authority exactly as it appears in paths, and is also the key for
+ * sessions and saved credentials: `host`, or `host:port` when the server doesn't listen on 445. [server] and
+ * [port] are what to connect to ([server] keeps IPv6 brackets, e.g. `[fe80::1]`).
+ */
+data class SmbPath(
+    val host: String,
+    val share: String?,
+    val rel: String,
+    val server: String = host,
+    val port: Int = Protocol.SMB.defaultPort,
+)
 
 /**
  * Path helpers working for local paths (`/storage/...`), SMB (`smb://host/share/x`), virtual roots
@@ -43,12 +54,29 @@ object FsPath {
 
     private val archiveMarker = Regex("(\\.(?:zip|tar\\.gz|tgz|tar))!(?=/|$)", RegexOption.IGNORE_CASE)
 
+    private fun collapseSlashes(s: String): String {
+        val trimmed = s.trim('/')
+        if (!trimmed.contains("//")) return trimmed
+        return buildString(trimmed.length) {
+            var prevSlash = false
+            for (c in trimmed) {
+                if (c == '/') {
+                    if (!prevSlash) append('/')
+                    prevSlash = true
+                } else {
+                    append(c)
+                    prevSlash = false
+                }
+            }
+        }
+    }
+
     /** Splits `/dir/a.zip!/x/y` or `/dir/a.tar.gz!/x/y` into (`/dir/a.tar.gz`, `x/y`); the archive root yields an empty inner path. */
     fun zipSplit(p: String): Pair<String, String>? {
         if (!isLocal(p)) return null
         val m = archiveMarker.find(p) ?: return null
         val archive = p.substring(0, m.groups[1]!!.range.last + 1)
-        val inner = p.substring(m.range.last + 1).split('/').filter { it.isNotEmpty() }.joinToString("/")
+        val inner = collapseSlashes(p.substring(m.range.last + 1))
         return archive to inner
     }
 
@@ -57,13 +85,13 @@ object FsPath {
 
     fun normalize(p: String): String = when {
         isPhone(p) -> {
-            val sub = p.removePrefix(PHONE_ROOT).split('/').filter { it.isNotEmpty() }.joinToString("/")
+            val sub = collapseSlashes(p.removePrefix(PHONE_ROOT))
             if (sub.isEmpty()) PHONE_ROOT else "$PHONE_ROOT$sub"
         }
         isDoc(p) -> "doc://" + p.removePrefix("doc://").trimEnd('/')
         isRemote(p) -> {
             val scheme = p.substringBefore("://") + "://"
-            scheme + p.removePrefix(scheme).split('/').filter { it.isNotEmpty() }.joinToString("/")
+            scheme + collapseSlashes(p.removePrefix(scheme))
         }
         isVirtual(p) -> p
         else -> p.trimEnd('/').ifEmpty { "/" }
@@ -151,10 +179,15 @@ object FsPath {
 
     fun parseSmb(p: String): SmbPath {
         val parts = p.removePrefix(SMB_ROOT).split('/').filter { it.isNotEmpty() }
+        val authority = parts.getOrElse(0) { "" }
+        // smb://host/... (port 445), smb://host:1445/..., smb://[fe80::1]:1445/...
+        val (server, port) = RemoteUri.splitAuthority(authority, Protocol.SMB.defaultPort)
         return SmbPath(
-            host = parts.getOrElse(0) { "" },
+            host = authority,
             share = parts.getOrNull(1),
             rel = parts.drop(2).joinToString("/"),
+            server = server,
+            port = port,
         )
     }
 

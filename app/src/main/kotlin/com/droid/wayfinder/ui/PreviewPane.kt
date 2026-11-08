@@ -89,7 +89,7 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                 }
                 1 -> {
                     val e = sel[0]
-                    Preview(e.takeIf { it.kind == FileKind.Image || it.kind == FileKind.Video }?.takeIf { FsPath.isLocalFile(it.path) }?.path, e.name, e.kind.label, e)
+                    Preview(null, e.name, e.kind.label, e, vm)
                     Fact("Type", e.typeLabel)
                     e.subtitle?.takeIf { it.isNotBlank() }?.let { Fact("Summary", it) }
                     if (!e.isDir) Fact("Size", formatSize(e.size))
@@ -127,13 +127,22 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
 }
 
 @Composable
-private fun Preview(imagePath: String?, name: String, kindLabel: String, entry: com.droid.wayfinder.data.FileEntry? = null) {
+private fun Preview(
+    imagePath: String?,
+    name: String,
+    kindLabel: String,
+    entry: com.droid.wayfinder.data.FileEntry? = null,
+    vm: BrowserViewModel? = null,
+) {
     val cs = MaterialTheme.colorScheme
     Box(
         Modifier.padding(top = 12.dp).fillMaxWidth().aspectRatio(1.5f).clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainerLow),
         contentAlignment = Alignment.Center,
     ) {
-        if (imagePath != null) {
+        if (entry != null && vm != null && vm.canThumbnail(entry)) {
+            // Local and network/cloud (SMB, NAS, WebDAV, FTP, SAF) images and videos.
+            EntryThumbnail(vm, entry, sizePx = 720, iconSize = 64.dp, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else if (imagePath != null) {
             val ctx = LocalContext.current
             AsyncImage(
                 remember(imagePath) { ImageRequest.Builder(ctx).data(File(imagePath)).size(720).build() },

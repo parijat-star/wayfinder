@@ -24,6 +24,7 @@ import com.droid.wayfinder.data.Conflict
 import com.droid.wayfinder.data.DocFileSystem
 import com.droid.wayfinder.data.DriveRestFileSystem
 import com.droid.wayfinder.data.FileEntry
+import com.droid.wayfinder.data.FileKind
 import com.droid.wayfinder.data.FileInfo
 import com.droid.wayfinder.data.FileOperations
 import com.droid.wayfinder.data.FileRepository
@@ -80,6 +81,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.roundToInt
@@ -111,6 +114,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         const val EXTRA_PICKER_MODE = "com.droid.wayfinder.extra.PICKER_MODE"
         const val EXTRA_PICKER_TITLE = "com.droid.wayfinder.extra.PICKER_TITLE"
         private const val RECENT_DAYS = 30
+        internal const val THUMBS_DIR = "thumbs"
+        internal const val REMOTE_THUMB_MAX_IMAGE_BYTES = 40L * 1024 * 1024
+        internal const val REMOTE_THUMB_VIDEO_PREFIX_BYTES = 16L * 1024 * 1024
     }
 
     private val settings = Settings(app)
@@ -189,10 +195,16 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             FsPath.isVirtual(it) || (FsPath.isRemote(it) && (!FsPath.isSaf(it) || safMounts.any { m -> FsPath.isWithin(m.path, it) })) ||
                 File(it).isDirectory || FsPath.zipSplit(it)?.let { z -> File(z.first).isFile } == true
         }
+        // A requested file (e.g. an .apk from another app) opens its enclosing folder with the file selected.
+        val startNorm = startPath?.let { localizeDocPath(FsPath.normalize(it)) }
+        val startFile = startNorm?.let { fileTarget(it) }
+        val start = startFile?.first ?: startNorm?.let { p -> archiveTarget(p) ?: p }
+        val startShowsHidden = start != null &&
+            (hasHiddenSegment(start) || startFile?.second?.let { hasHiddenSegment(it) } == true)
         val startPaths = when {
-            picker != null -> listOf(startPath ?: File(primary, Environment.DIRECTORY_DOWNLOADS).path.takeIf { File(it).isDirectory } ?: primary)
-            secondaryWindow -> listOf(startPath ?: FsPath.RECENTS_ROOT)
-            startPath != null -> listOf(startPath)
+            picker != null -> listOf(start ?: File(primary, Environment.DIRECTORY_DOWNLOADS).path.takeIf { File(it).isDirectory } ?: primary)
+            secondaryWindow -> listOf(start ?: FsPath.RECENTS_ROOT)
+            start != null -> listOf(start)
             else -> savedTabs.ifEmpty { listOf(FsPath.RECENTS_ROOT) }
         }
         val tabs = startPaths.map { newTabState(it) }
@@ -206,7 +218,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         _state.value = AppState(
             tabs = tabs,
             activeId = tabs[(if (secondaryWindow || picker != null || startPath != null) 0 else settings.activeTab).coerceIn(0, tabs.lastIndex)].id,
-            roots = roots, pins = pins, showHidden = settings.showHidden,
+            roots = roots, pins = pins, showHidden = settings.showHidden || startShowsHidden,
             sidebarVisible = settings.sidebarVisible, previewVisible = settings.previewVisible,
             sidebarWidth = settings.sidebarWidth, gridSize = settings.gridSize,
             marks = SharedUi.marks.value, zoom = settings.zoom.coerceIn(0.7f, 1.6f), theme = SharedUi.theme.value,
@@ -223,7 +235,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             workProfiles = initialWorkProfiles,
         )
         refreshMounts()
-        tabs.forEach { load(it.id) }
+        tabs.forEachIndexed { i, t -> load(t.id, select = startFile?.second?.takeIf { i == 0 }) }
         revealInTree(_state.value.active.path)
         roots.firstOrNull()?.let { ensureChildren(it.path) }
         discovery.start()
@@ -684,7 +696,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     ): List<FileEntry> {
         val mounts = activeMounts.map { FileEntry(it.path, it.label, true, isServer = true, subtitle = it.subtitle) }
         val map = LinkedHashMap<String, FileEntry>()
-        saved.filter { it.protocol == Protocol.SMB }.forEach { sv -> map[sv.host] = FileEntry("smb://${sv.host}", sv.host, true, isServer = true) }
+        saved.filter { it.protocol == Protocol.SMB }.forEach { sv ->
+            val authority = sv.address.authority
+            map[authority] = FileEntry("smb://$authority", authority, true, isServer = true)
+        }
         recentHosts.forEach { h -> map.putIfAbsent(h, FileEntry("smb://$h", h, true, isServer = true)) }
         discovery.hosts.value.forEach { d ->
             val existing = map[d.address]
@@ -1009,12 +1024,82 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     // ---------------------------------------------------------------- navigation
 
     fun navigate(path: String, id: Long = tab.id, select: String? = null) {
-        val p = FsPath.normalize(path)
+        var p = localizeDocPath(FsPath.normalize(path))
+        var sel = select
+        var requestedFile: String? = null
+        // Asked to open a file (e.g. an .apk): open the folder that contains it, with the file selected.
+        fileTarget(p)?.let { (folder, file) -> p = folder; sel = file; requestedFile = file }
+            ?: archiveTarget(p)?.let { p = it }
+        revealHiddenFor(p, requestedFile)
         if (p == FsPath.RECENTS_ROOT) recentsCache = null
         updateTab(id) { it.navigatedTo(p) }
-        load(id, select = select); persist(); noteRecent(p)
+        load(id, select = sel); persist(); noteRecent(p)
         if (id == tab.id) revealInTree(p)
         _state.update { it.copy(addressEditing = false) }
+    }
+
+    /**
+     * doc:// paths from providers that mirror shared storage with relative-path IDs (e.g. Antigravity) map to the
+     * local path. Locations Wayfinder can already browse (phone, Linux files, Drive and SAF mounts) are left alone.
+     */
+    private fun localizeDocPath(p: String): String {
+        if (!FsPath.isDoc(p) || com.droid.wayfinder.data.SystemDocumentsBridge.isPhonePath(p)) return p
+        val s = _state.value
+        val browsable = listOfNotNull(s.pairedPhone?.path, s.linuxRootPath) +
+            s.driveAccounts.mapNotNull { it.mountPath } + s.mounts.map { it.path }
+        if (browsable.any { FsPath.isWithin(it, p) }) return p
+        return com.droid.wayfinder.data.SystemDocumentsBridge.localPathForRelativeDocId(p.removePrefix("doc://").substringAfter('/', ""), primary) ?: p
+    }
+
+    /** Opens a location requested by another app (folder, archive, or a file such as an .apk) in the active tab. */
+    fun openExternalPath(path: String) {
+        if (path.isBlank() || path.contains('\u0000')) return
+        navigate(path)
+    }
+
+    /**
+     * If [p] points at a file rather than a folder (e.g. `/…/app-debug.apk`), returns the enclosing folder
+     * and the file. Browsable archives, folders and virtual locations return null.
+     */
+    private fun fileTarget(p: String): Pair<String, String>? {
+        if (FsPath.isVirtual(p) || FsPath.isZip(p) || FsPath.isDoc(p) || FsPath.isPhone(p)) return null
+        val name = FsPath.name(p)
+        val apk = com.droid.wayfinder.MainActivity.isApkName(name)
+        val isFile = if (FsPath.isLocalFile(p)) {
+            val f = File(p)
+            if (f.isDirectory) false
+            else if (f.isFile) apk || !com.droid.wayfinder.MainActivity.isSupportedArchiveName(name)
+            else apk
+        } else {
+            apk
+        }
+        if (!isFile) return null
+        val parent = FsPath.parent(p) ?: return null
+        return parent to p
+    }
+
+    /** A local archive file path opens as its browsable root. */
+    private fun archiveTarget(p: String): String? =
+        p.takeIf {
+            FsPath.isLocalFile(it) && com.droid.wayfinder.MainActivity.isSupportedArchiveName(FsPath.name(it)) && File(it).isFile
+        }?.let { FsPath.zipRoot(it) }
+
+    /** True when [p] goes through a hidden (dot) folder or names a hidden file. */
+    internal fun hasHiddenSegment(p: String): Boolean {
+        if (FsPath.isVirtual(p) || FsPath.isDoc(p) || trash.isInTrash(p)) return false
+        return p.split('/', '!').any { it.length > 1 && it.startsWith('.') && it != ".." }
+    }
+
+    /**
+     * Opening a path that goes through hidden folders (or selects a hidden file) turns hidden files on for
+     * this session so the requested location is actually visible. The saved preference is left alone.
+     */
+    private fun revealHiddenFor(path: String, select: String?) {
+        if (hidden) return
+        if (hasHiddenSegment(path) || (select != null && hasHiddenSegment(select))) {
+            _state.update { it.copy(showHidden = true) }
+            toast(str(com.droid.wayfinder.R.string.toast_showing_hidden))
+        }
     }
 
     private fun noteRecent(p: String) {
@@ -1042,6 +1127,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             entry.isDir -> navigate(entry.path)
             isBrowsableArchive(entry) && newTab -> newTab(FsPath.zipRoot(entry.path), activate = false)
             isBrowsableArchive(entry) -> navigate(FsPath.zipRoot(entry.path))
+            // APKs found via Recents / Starred / tags / search open their containing folder, with the APK selected.
+            com.droid.wayfinder.MainActivity.isApkName(entry.name) &&
+                (FsPath.isVirtual(tab.path) || tab.searchResults != null || FsPath.parent(entry.path) != tab.path) ->
+                showInEnclosingFolder(entry.path)
             else -> openFile(entry.path)
         }
     }
@@ -1061,6 +1150,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     /** "Show in enclosing folder" for search results and collection items. */
     fun showInEnclosingFolder(path: String) {
         val parent = FsPath.parent(path) ?: return
+        revealHiddenFor(parent, path)
         navigate(parent, select = path)
     }
 
@@ -1099,6 +1189,67 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private fun cacheKeyFor(path: String): String {
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(path.toByteArray(Charsets.UTF_8))
         return digest.take(16).joinToString("") { "%02x".format(it) }
+    }
+
+    // ---------------------------------------------------------------- thumbnails for network / cloud files
+
+    /** Bounds parallel downloads so scrolling a big SMB/NAS grid doesn't open dozens of streams at once. */
+    private val thumbSlots = kotlinx.coroutines.sync.Semaphore(3)
+    private val thumbLocks = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
+
+    /** True if [e] can get an image/video thumbnail (local files, and network/cloud files such as SMB, NAS, WebDAV, FTP, SAF). */
+    fun canThumbnail(e: FileEntry): Boolean {
+        if (e.isDir || e.isServer || e.isShare) return false
+        if (e.kind != FileKind.Image && e.kind != FileKind.Video) return false
+        if (FsPath.isLocalFile(e.path)) return true
+        if (!FsPath.isRemote(e.path) || FsPath.isZip(e.path) || FsPath.isPhone(e.path)) return false
+        return e.kind == FileKind.Video || e.size <= REMOTE_THUMB_MAX_IMAGE_BYTES
+    }
+
+    /**
+     * Local file to decode a thumbnail/preview from. Local files are used as-is; network and cloud files
+     * (SMB/NAS, WebDAV, FTP, SAF/Drive) are fetched once into `cacheDir/thumbs` keyed by path, size and
+     * modification time. Large videos only fetch their first [REMOTE_THUMB_VIDEO_PREFIX_BYTES], which is
+     * enough for a frame from most streamable files. Returns null when no thumbnail can be produced.
+     */
+    suspend fun thumbnailSource(e: FileEntry): File? {
+        if (!canThumbnail(e)) return null
+        if (FsPath.isLocalFile(e.path)) return File(e.path)
+        val ext = e.extension.lowercase().filter { it.isLetterOrDigit() }.take(8).ifEmpty { "bin" }
+        val dir = File(app.cacheDir, THUMBS_DIR)
+        val target = File(dir, "${cacheKeyFor("${e.path}|${e.size}|${e.modified}")}.$ext")
+        if (target.length() > 0) return target
+        val lock = thumbLocks.getOrPut(target.name) { kotlinx.coroutines.sync.Mutex() }
+        return lock.withLock {
+                if (target.length() > 0) return@withLock target
+                thumbSlots.withPermit {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            dir.mkdirs()
+                            val limit = if (e.kind == FileKind.Video) REMOTE_THUMB_VIDEO_PREFIX_BYTES else REMOTE_THUMB_MAX_IMAGE_BYTES
+                            val tmp = File(dir, "${target.name}.part")
+                            try {
+                                repo.fs(e.path).openInput(e.path).use { inp ->
+                                    tmp.outputStream().use { out ->
+                                        val buf = ByteArray(64 * 1024)
+                                        var total = 0L
+                                        while (total < limit) {
+                                            currentCoroutineContext().ensureActive()
+                                            val n = inp.read(buf, 0, minOf(buf.size.toLong(), limit - total).toInt())
+                                            if (n < 0) break
+                                            out.write(buf, 0, n)
+                                            total += n
+                                        }
+                                    }
+                                }
+                                if (tmp.length() > 0 && tmp.renameTo(target)) target else null
+                            } finally {
+                                tmp.delete()
+                            }
+                        }.getOrNull()
+                    }
+                }
+            }
     }
 
     // ---------------------------------------------------------------- selection & focus
@@ -2015,7 +2166,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             cred, cfg.remember,
         )
         disconnectKey(addr.credKey)
-        if (addr.protocol == Protocol.SMB) recentHosts += addr.host
+        if (addr.protocol == Protocol.SMB) recentHosts += addr.authority
         refreshMounts()
         navigate(addr.rootPath)
     }
@@ -2033,7 +2184,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             if (a.password != null || stored == null || stored.user != a.user) servers.putSession(a.credKey, SmbCred(a.user, a.password.orEmpty()))
             disconnectKey(a.credKey)
         }
-        if (a.protocol == Protocol.SMB) { recentHosts += a.host; _state.update { it.copy(network = networkEntries()) } }
+        if (a.protocol == Protocol.SMB) { recentHosts += a.authority; _state.update { it.copy(network = networkEntries()) } }
         navigate(a.rootPath)
         return true
     }
@@ -2241,7 +2392,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     fun requestMountSaf(accountEmail: String? = null) {
-        if (settings.showSafMountTip) {
+        // Google Drive always explains why the top-level "My Drive" can't be mounted by a non-system app.
+        if (accountEmail != null || settings.showSafMountTip) {
             showDialog(Dialog.SafMountTip(accountEmail))
         } else {
             confirmSafMountTip(dontShowAgain = false, accountEmail = accountEmail)

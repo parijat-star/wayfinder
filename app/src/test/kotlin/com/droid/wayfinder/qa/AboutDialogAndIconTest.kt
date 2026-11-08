@@ -62,7 +62,11 @@ class AboutDialogAndIconTest {
         rule.waitForIdle()
         assertEquals(Dialog.About, harness.s.dialog)
 
-        rule.onNodeWithText("Version 2.1").assertIsDisplayed()
+        // Version-agnostic: read the installed versionName the same way the About dialog does.
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val versionName = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
+        assertTrue("versionName must be readable", !versionName.isNullOrBlank())
+        rule.onNodeWithText("Version $versionName").assertIsDisplayed()
         rule.onNodeWithText("Apache License, Version 2.0", substring = true).assertIsDisplayed()
 
         // Toggle Open-source licenses view and verify bundled asset text loads

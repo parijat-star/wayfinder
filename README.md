@@ -48,18 +48,18 @@
 * **Tabs directly in the title bar:** Drawn straight into Android 15's desktop caption bar alongside window controls. Open new tabs (`Ctrl+T`), close (`Ctrl+W`), switch (`Ctrl+Tab` or `Alt+1…9`), duplicate, reopen recently closed tabs, or tear off into independent desktop windows (`Ctrl+N`).
 * **Four versatile view modes + clean Recents:**
   * **Details View (`Ctrl+1`):** Resizable, sortable columns for Name, Date modified, Type, Size, POSIX permissions, and Color tags.
-  * **Grid View (`Ctrl+2`):** Rich thumbnail previews with smooth trackpad zoom (`Ctrl+=` / `Ctrl+-` / `Ctrl+0`).
+  * **Grid View (`Ctrl+2`):** Rich thumbnail previews with smooth trackpad zoom (`Ctrl+=` / `Ctrl+-` / `Ctrl+0`), including images and videos on SMB / NAS shares, WebDAV, FTP, and mounted cloud folders (fetched once into a size-capped, auto-cleaned cache).
   * **Miller Columns (`Ctrl+3`):** macOS Finder-style multi-column cascading hierarchy navigation.
   * **Dual-Pane Commander (`Ctrl+4` / `F3`):** Two independent side-by-side browser panes with `F5` copy and `F6` move.
   * **Distraction-free Recents:** Starts on Recents on first launch and new windows, showing recently modified files across storage with clean titles and no redundant file-path clutter underneath.
 * **First-class desktop input:** Single-click selects, double-click opens, right-click opens context menus, middle-click opens in a background tab, rubber-band marquee drag selection, and drag-and-drop between folders or from other apps.
-* **Quick Look (`Space`):** Instant desktop preview for images, video frames, PDFs, audio waveforms, archives, and syntax-highlighted code with line numbers without launching heavy external viewers.
+* **Quick Look (`Space`):** Instant desktop preview for images, video frames (also from network shares), PDFs, audio waveforms, archives, and syntax-highlighted code with line numbers without launching heavy external viewers.
 * **Archive filesystem:** Navigate into `.zip`, `.tar.gz`, `.tgz`, and `.tar` archives as virtual read-only folders, view contents, copy files out, and compress selections with one shortcut.
 * **Network & cloud storage:** Connect directly to local and remote servers via **SMB 2/3** (NTLM), **WebDAV / WebDAVS**, **FTP / FTPS**, and Android **Storage Access Framework** providers (**Google Drive**, external USB SSDs).
 * **Connected Phone Integration:** Automatically discovers paired and connected Android phones over **Googlebook Cross-Device Services** (`QuickAccessDocumentsProvider`), **USB MTP**, and **Bluetooth**, browsing live phone directories (`Alarms`, `Android`, `DCIM`, `Documents`, `Download`, `Movies`, `Music`, `Pictures`, etc.) wirelessly with human-friendly breadcrumbs (`Pixel 8a / Documents`) and incoming **Quick Share** integration.
 * **Googlebook Ecosystem (`Linux files` & Work Profile):** Auto-discovers the Googlebook Linux development environment (`Linux files`) with one-click **Share with Linux** transfers and supports managed **Work / Personal Profile** switching via `CrossProfileApps`.
 * **Command palette (`Ctrl+K`):** Spotlight-style fuzzy command launcher to run any operation or jump to any folder in milliseconds.
-* **Complete system file, folder & archive handler:** Registers for `GET_CONTENT`, `OPEN_DOCUMENT`, `OPEN_DOCUMENT_TREE`, `ACTION_CREATE_DOCUMENT` ("Save As"), `VIEW_DOWNLOADS`, and `ACTION_VIEW` on folders and archives (`.zip`, `.tar.gz`, `.tgz`, `.tar`), with optional default handler onboarding.
+* **Complete system file, folder & archive handler:** Registers for `GET_CONTENT`, `OPEN_DOCUMENT`, `OPEN_DOCUMENT_TREE`, `ACTION_CREATE_DOCUMENT` ("Save As"), `VIEW_DOWNLOADS`, and `ACTION_VIEW` on folders and archives (`.zip`, `.tar.gz`, `.tgz`, `.tar`), with optional default handler onboarding. Asking Wayfinder to open a file such as an `.apk` opens the folder containing it with the file selected (Wayfinder never installs packages), and paths that go through hidden folders (e.g. `.gemini/…`) turn on hidden files for that session so the location is visible.
 
 ---
 
@@ -68,7 +68,7 @@
 Wayfinder integrates with your paired Android phone and Google Drive right from the left navigation sidebar:
 
 * **Wireless & Wired Phone Access (`Pixel 8a` / `Pixel 9`):** Detects your paired phone via Cross-Device Services, Bluetooth, or USB MTP. When `MANAGE_DOCUMENTS` is granted via [ADB setup](#adb-direct-mounts), Wayfinder mounts `QuickAccessDocumentsProvider` directly with zero prompts (`Pixel 8a/Documents`) and live reconnect updates; on standard unprivileged installs, Wayfinder supports side-by-side system **Files** drag-and-drop, SAF folder mounts, and incoming **Quick Share** folders out of the box.
-* **Google Drive in Network & Cloud:** Google Drive appears natively in the **Network & cloud** sidebar section with its multicolor Drive icon—mounting `My Drive` directly when `MANAGE_DOCUMENTS` is granted, or delegating folder mounts to the system document tree selector and persisting read/write access across reboots.
+* **Google Drive in Network & Cloud:** Google Drive appears natively in the **Network & cloud** sidebar section with its multicolor Drive icon—mounting `My Drive` directly when `MANAGE_DOCUMENTS` is granted, or delegating folder mounts to the system document tree selector and persisting read/write access across reboots. Because Wayfinder isn't a system pre-installed app, Android doesn't let it mount the top level of `My Drive` on retail builds; the mount dialog explains this and walks you through mounting a specific folder inside your Drive instead.
 
 <p align="center">
   <img src="docs/images/mock_4_phone_drive.jpg" width="900" alt="Wayfinder Phone and Google Drive integration showing Pixel 9 paired in Quick access with the 13 standard Android folders and Google Drive in Network and cloud" />

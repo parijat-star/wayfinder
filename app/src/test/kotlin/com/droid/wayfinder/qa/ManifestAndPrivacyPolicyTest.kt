@@ -32,6 +32,7 @@ class ManifestAndPrivacyPolicyTest {
 
         assertFalse("READ_CONTACTS must not be requested", Manifest.permission.READ_CONTACTS in requested)
         assertFalse("GET_ACCOUNTS must not be requested", Manifest.permission.GET_ACCOUNTS in requested)
+        assertFalse("REQUEST_INSTALL_PACKAGES must not be requested", Manifest.permission.REQUEST_INSTALL_PACKAGES in requested)
         assertFalse("Legacy READ_EXTERNAL_STORAGE must not be requested", Manifest.permission.READ_EXTERNAL_STORAGE in requested)
         assertFalse("Legacy WRITE_EXTERNAL_STORAGE must not be requested", Manifest.permission.WRITE_EXTERNAL_STORAGE in requested)
         assertTrue("MANAGE_EXTERNAL_STORAGE must remain declared", Manifest.permission.MANAGE_EXTERNAL_STORAGE in requested)

@@ -109,7 +109,7 @@ class ParserFuzzTest {
         // parent() chains terminate (no cycles) within the number of segments.
         var cur: String? = p
         var steps = 0
-        while (cur != null) { cur = FsPath.parent(cur); assertTrue("parent loop for ${k.escape(p)}", ++steps <= p.length + 4) }
+        while (cur != null) { cur = FsPath.parent(cur); assertTrue(++steps <= p.length + 4) }
         FsPath.zipSplit(p)?.let { (archive, inner) ->
             val lower = archive.lowercase()
             assertTrue(lower.endsWith(".zip") || lower.endsWith(".tar.gz") || lower.endsWith(".tgz") || lower.endsWith(".tar"))
@@ -154,7 +154,7 @@ class ParserFuzzTest {
     @Test
     fun sanitizeFileName() = k.run("sanitizeFileName", 40_000, { r -> k.input(r, 300) }, k.corpus) { raw ->
         val n = FileInfo.sanitizeFileName(raw, "fallback")
-        assertNull("'${k.escape(n)}' -> ${FsPath.nameError(n)}", FsPath.nameError(n))
+        assertNull(FsPath.nameError(n))
         assertTrue(FsPath.isSafeName(n))
     }
 
@@ -414,9 +414,9 @@ class ParserFuzzTest {
             while (cur != null) {
                 assertEquals("parentOf must return normalized path", FsPath.normalize(cur), cur)
                 val next = SystemDocumentsBridge.parentOf(cur)
-                if (next != null) assertFalse("self-parent cycle for ${k.escape(cur)}", next == cur)
+                if (next != null) assertFalse(next == cur)
                 cur = next
-                assertTrue("parentOf loop for ${k.escape(raw)}", ++steps <= raw.length + 10)
+                assertTrue(++steps <= raw.length + 10)
             }
 
             val friendly = FsPath.friendlyPath(raw, state.rootLabels)
@@ -424,7 +424,7 @@ class ParserFuzzTest {
 
             val resolved = resolveAddress(raw, state)
             if (resolved != null) {
-                assertEquals("resolveAddress must return normalized path for '${k.escape(raw)}'", FsPath.normalize(resolved), resolved)
+                assertEquals(FsPath.normalize(resolved), resolved)
             }
         }
     }

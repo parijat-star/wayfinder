@@ -303,6 +303,12 @@ object SystemDocumentsBridge {
             }
         }.getOrNull() ?: return null
 
+        // DownloadsProvider (and some others) expose plain file paths as "raw:/storage/…" document IDs.
+        if (docId.startsWith("raw:/")) {
+            val raw = docId.removePrefix("raw:")
+            if (!raw.contains('\u0000')) return FsPath.normalize(raw)
+        }
+
         if (auth == EXTERNAL_STORAGE_AUTHORITY) {
             if (docId.startsWith("primary:")) {
                 val rel = docId.removePrefix("primary:").trimStart('/')
@@ -317,6 +323,29 @@ object SystemDocumentsBridge {
             }
         }
         return "doc://$auth/$docId"
+    }
+
+    /**
+     * Some providers (e.g. the Antigravity documents provider) expose a folder of shared storage and use
+     * plain relative paths as document IDs, like `antigravity/scratch/app/build/outputs/apk/debug`. Wayfinder
+     * usually holds no grant to list such a provider, but with All-files access it can open the same folder
+     * directly. Looks for an existing shared-storage path ending in [docId] at most two folders below
+     * [primaryStorageRoot] (e.g. `Documents/.gemini/<docId>`). Returns null when [docId] isn't a relative path.
+     */
+    fun localPathForRelativeDocId(docId: String, primaryStorageRoot: String): String? {
+        val rel = docId.trim('/')
+        if (rel.isEmpty() || !rel.contains('/') || rel.contains(':') || rel.contains('\u0000')) return null
+        val segs = rel.split('/')
+        if (segs.any { it.isEmpty() || it == "." || it == ".." }) return null
+        val root = java.io.File(primaryStorageRoot)
+        fun hit(base: java.io.File): String? = java.io.File(base, rel).takeIf { it.exists() }?.path
+        hit(root)?.let { return it }
+        val level1 = root.listFiles { f -> f.isDirectory }.orEmpty().sortedBy { it.name }
+        for (d in level1) hit(d)?.let { return it }
+        for (d in level1) {
+            for (dd in d.listFiles { f -> f.isDirectory }.orEmpty().sortedBy { it.name }) hit(dd)?.let { return it }
+        }
+        return null
     }
 
     /** Discovers all accessible DocumentsProvider roots on the system. */

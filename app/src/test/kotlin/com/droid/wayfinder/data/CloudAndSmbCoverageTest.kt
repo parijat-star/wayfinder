@@ -254,7 +254,8 @@ class CloudAndSmbCoverageTest {
         val bus = SMBEventBus()
 
         val client = object : SMBClient(config, bus) {
-            override fun connect(hostname: String): Connection {
+            override fun connect(hostname: String): Connection = connect(hostname, SMBClient.DEFAULT_PORT)
+            override fun connect(hostname: String, port: Int): Connection {
                 if (hostname == "unreachable.local") throw IOException("Host down")
                 return createConnection()
             }

@@ -20,6 +20,10 @@
     <string name="status_searching" description="Progress indicator text appended to the bottom status bar while a folder search is actively running. [CHAR_LIMIT=25]">Searching…</string>
     <string name="properties_calculating" description="Placeholder value shown in the Size row of the Properties dialog while folder byte size is still being computed. [CHAR_LIMIT=25]">Calculating…</string>
     <string name="empty_folder_title" description="Centered heading shown inside the file list pane when the current folder contains zero items. [CHAR_LIMIT=40]">No files in this folder</string>
+    <string name="empty_only_hidden_title" description="Centered heading shown when the current folder only contains hidden (dot) files while hidden files are not shown. [CHAR_LIMIT=40]">Only hidden files here</string>
+    <string name="empty_only_hidden_body_plural" description="Body text under the hidden-only folder heading. {0} is the number of hidden items (e.g. 1, 12). [CHAR_LIMIT=80]">{0, plural, =1 {This folder contains # hidden item.} other {This folder contains # hidden items.}}</string>
+    <string name="action_show_hidden_files" description="Button that turns on display of hidden (dot) files. [CHAR_LIMIT=30]">Show hidden files</string>
+    <string name="toast_showing_hidden" description="Toast shown when Wayfinder automatically shows hidden files because the requested location is or contains a hidden (dot) folder or file. [CHAR_LIMIT=60]">Showing hidden files for this location</string>
     <string name="empty_trash_title" description="Centered heading shown inside the file list pane when the Trash folder contains zero deleted items. [CHAR_LIMIT=30]">Trash is empty</string>
     <string name="empty_recents_title" description="Centered heading shown inside the file list pane when Recents has no recently modified files. [CHAR_LIMIT=30]">No recent files</string>
     <string name="empty_starred_title" description="Centered heading shown inside the file list pane when the user has not starred any files or folders yet. [CHAR_LIMIT=30]">No starred items</string>
@@ -249,7 +253,10 @@
     <string name="saf_tip_generic_title" description="Dialog title for the Cloud or External Storage Access Framework mount assistant. [CHAR_LIMIT=45]">Mount Cloud or External Storage</string>
     <string name="saf_tip_drive_intro" description="Introductory paragraph in the Google Drive mount dialog. %1$s is the user Google account email (e.g. alex@example.com). [CHAR_LIMIT=160]">Mount folders from Google Drive account %1$s directly into Wayfinder\'s sidebar for easy browsing and file management.</string>
     <string name="saf_tip_generic_intro" description="Introductory paragraph in the generic cloud/USB storage mount dialog. [CHAR_LIMIT=150]">You can mount folders from Google Drive, external USB drives, SD cards, or local storage into Wayfinder\'s sidebar.</string>
-    <string name="saf_tip_drive_callout_title" description="Callout card heading in the Google Drive mount dialog. [CHAR_LIMIT=40]">Google Drive Selection Tip</string>
+    <string name="saf_tip_drive_callout_title" description="Callout card heading in the Google Drive mount dialog. [CHAR_LIMIT=40]">Why can\'t I mount all of My Drive?</string>
+    <string name="saf_tip_drive_why_body" description="Explanation in the Google Drive mount dialog of why the top-level Drive root cannot be mounted. [CHAR_LIMIT=NONE]">Because Wayfinder is not a system pre-installed app, the Android security model does not allow it to mount the top-level of your Google Drive (\"My Drive\"). In the folder picker the \"Use this folder\" button stays disabled at the top level. This is an Android restriction, not a Wayfinder bug.</string>
+    <string name="saf_tip_drive_steps_title" description="Heading above step-by-step instructions for mounting a Google Drive subfolder. [CHAR_LIMIT=50]">Instead, mount a specific folder:</string>
+    <string name="saf_tip_drive_steps" description="Numbered steps for mounting a specific Google Drive folder. %1$s is the user Google account email. [CHAR_LIMIT=NONE]">1. Tap \"Open Drive Picker\" below.\n2. In the picker, choose Drive for %1$s.\n3. Open the folder you want inside My Drive. If you want everything in one place, tap ⋮ › New folder to create one and move your files into it.\n4. Tap \"Use this folder\", then \"Allow\".\n\nThe folder appears under Google Drive in the sidebar. Repeat these steps to mount more folders.</string>
     <string name="saf_tip_generic_callout_title" description="Callout card heading in the generic storage mount dialog. [CHAR_LIMIT=35]">Important Android Tip</string>
     <string name="saf_tip_dont_show_again" description="Checkbox label in the storage mount tip dialog to skip showing the tip next time. [CHAR_LIMIT=40]">Don\'t show this tip again</string>
     <string name="saf_tip_open_drive_picker" description="Primary button in the Google Drive mount dialog that launches the system folder picker. [CHAR_LIMIT=30]">Open Drive Picker</string>
@@ -300,4 +307,5 @@
     <string name="op_emptying_trash" description="Progress banner title while emptying Trash. [CHAR_LIMIT=30]">Emptying Trash</string>
     <string name="op_renaming" description="Progress banner title while renaming items. [CHAR_LIMIT=20]">Renaming</string>
     <string name="op_importing" description="Progress banner title while importing dragged external files. [CHAR_LIMIT=25]">Importing</string>
+    <string name="phone_privilege_note" description="Note shown on the Phone screen explaining that Wayfinder does not have system privileges to directly mount companion phones. [CHAR_LIMIT=140]">Please note: Wayfinder lacks necessary system privileges to directly mount companion phones.</string>
 </resources>

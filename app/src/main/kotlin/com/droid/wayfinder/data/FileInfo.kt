@@ -182,7 +182,11 @@ object FileInfo {
         if (cleaned.toByteArray(Charsets.UTF_8).size <= FsPath.MAX_NAME_BYTES) return cleaned
         val dot = cleaned.lastIndexOf('.')
         val ext = if (dot > 0 && cleaned.length - dot <= 16) cleaned.substring(dot) else ""
-        var base = cleaned.dropLast(ext.length)
+        val maxBaseChars = (FsPath.MAX_NAME_BYTES - ext.toByteArray(Charsets.UTF_8).size).coerceAtLeast(0)
+        var base = cleaned.dropLast(ext.length).let {
+            if (it.length > maxBaseChars) it.take(maxBaseChars) else it
+        }
+        if (base.isNotEmpty() && base.last().isHighSurrogate()) base = base.dropLast(1)
         while (base.isNotEmpty() && (base + ext).toByteArray(Charsets.UTF_8).size > FsPath.MAX_NAME_BYTES) {
             base = base.dropLast(1)
             // Never cut a surrogate pair in half.

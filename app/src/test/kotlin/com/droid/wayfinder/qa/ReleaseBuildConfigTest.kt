@@ -34,5 +34,6 @@ class ReleaseBuildConfigTest {
         assertTrue(rules.contains("@net.engio.mbassy.listener.Handler"))
         assertTrue(rules.contains("com.hierynomus.**"))
         assertTrue(rules.contains("org.bouncycastle.jcajce.provider.**"))
+        assertTrue(rules.contains("org.apache.commons.net.ftp.parser.*"))
     }
 }

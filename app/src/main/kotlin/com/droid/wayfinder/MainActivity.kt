@@ -141,24 +141,15 @@ class MainActivity : ComponentActivity() {
                     i.putExtra(BrowserViewModel.EXTRA_PICKER_TITLE, title)
                     i.putExtra(BrowserViewModel.EXTRA_PICKER_MIME, mimes.toTypedArray())
                 }
-                "android.provider.action.BROWSE", "android.provider.action.MANAGE_DOCUMENT" -> {
-                    val targetPath = com.droid.wayfinder.data.SystemDocumentsBridge.toWayfinderPath(i.data)
-                    if (targetPath != null) {
-                        i.putExtra(BrowserViewModel.EXTRA_NEW_WINDOW, true)
-                        i.putExtra(BrowserViewModel.EXTRA_PATH, targetPath)
-                    }
-                }
-                Intent.ACTION_VIEW -> {
-                    val targetPath = resolveViewTargetPath(this, i.data, i.type)
-                    if (targetPath != null) {
-                        i.putExtra(BrowserViewModel.EXTRA_NEW_WINDOW, true)
-                        i.putExtra(BrowserViewModel.EXTRA_PATH, targetPath)
-                    }
-                }
-                android.app.DownloadManager.ACTION_VIEW_DOWNLOADS -> {
+                "android.provider.action.BROWSE", "android.provider.action.MANAGE_DOCUMENT",
+                Intent.ACTION_VIEW, android.app.DownloadManager.ACTION_VIEW_DOWNLOADS -> {
                     // Opened like an extra window so the main window's saved tabs stay untouched.
-                    i.putExtra(BrowserViewModel.EXTRA_NEW_WINDOW, true)
-                    i.putExtra(BrowserViewModel.EXTRA_PATH, java.io.File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_DOWNLOADS).path)
+                    // File targets (e.g. an .apk) open their enclosing folder with the file selected (see BrowserViewModel).
+                    val targetPath = externalTargetPath(i)
+                    if (targetPath != null) {
+                        i.putExtra(BrowserViewModel.EXTRA_NEW_WINDOW, true)
+                        i.putExtra(BrowserViewModel.EXTRA_PATH, targetPath)
+                    }
                 }
                 Intent.ACTION_MAIN -> {
                     if ((i.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK) != 0) {
@@ -173,6 +164,9 @@ class MainActivity : ComponentActivity() {
 
     private fun hasAccess(): Boolean =
         hasAccessOverride?.invoke() ?: runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
+
+    /** Location requested by an external "show/open this" intent, or null if [i] isn't one. */
+    private fun externalTargetPath(i: Intent): String? = externalTargetPath(this, i)
 
     companion object {
         internal var hasAccessOverride: (() -> Boolean)? = null
@@ -191,9 +185,17 @@ class MainActivity : ComponentActivity() {
             return lower.endsWith(".zip") || lower.endsWith(".tar.gz") || lower.endsWith(".tgz") || lower.endsWith(".tar")
         }
 
+        internal const val APK_MIME = "application/vnd.android.package-archive"
+
+        internal fun isApkName(name: String): Boolean {
+            val lower = name.lowercase()
+            return lower.endsWith(".apk") || lower.endsWith(".apks") || lower.endsWith(".xapk") || lower.endsWith(".apkm")
+        }
+
         /**
-         * Resolves an incoming [Intent.ACTION_VIEW] data URI into a navigable Wayfinder path
-         * (either a folder path or an inline archive root `path!`).
+         * Resolves an incoming [Intent.ACTION_VIEW] / BROWSE data URI into a navigable Wayfinder path:
+         * a folder, an inline archive root `path!`, or a file (e.g. an .apk). File paths are opened by
+         * [BrowserViewModel] as their enclosing folder with the file selected.
          */
         internal fun resolveViewTargetPath(
             context: android.content.Context,
@@ -205,18 +207,49 @@ class MainActivity : ComponentActivity() {
             val rawTarget = when (uri.scheme?.lowercase()) {
                 "file" -> uri.path?.takeIf { it.isNotBlank() && !it.contains('\u0000') }
                 "content" -> com.droid.wayfinder.data.SystemDocumentsBridge.toWayfinderPath(uri, primaryStorageRoot)
+                    ?: localPathForContentUri(context, uri, primaryStorageRoot)
                 else -> null
             }
+            // Providers that mirror shared storage with relative-path document IDs (e.g. Antigravity's
+            // `doc://…antigravity.documents/antigravity/scratch/…/apk/debug`) can't be listed without a grant:
+            // open the same folder (or file) on shared storage instead.
+            val mappedTarget = rawTarget?.takeIf { com.droid.wayfinder.data.FsPath.isDoc(it) }?.let { doc ->
+                val docId = doc.removePrefix("doc://").substringAfter('/', "")
+                com.droid.wayfinder.data.SystemDocumentsBridge.localPathForRelativeDocId(docId, primaryStorageRoot)
+            } ?: rawTarget
+            return resolveTarget(context, mappedTarget, uri, mimeType)?.takeIf { !it.contains('\u0000') }
+        }
+
+        /**
+         * Routes a "show/open this location" intent (folder, file, .apk) delivered to an already-running window.
+         * Returns true when [vm] was navigated.
+         */
+        internal fun externalTargetPath(context: android.content.Context, i: Intent): String? = when (i.action) {
+            "android.provider.action.BROWSE", "android.provider.action.MANAGE_DOCUMENT", Intent.ACTION_VIEW ->
+                resolveViewTargetPath(context, i.data, i.type)
+            android.app.DownloadManager.ACTION_VIEW_DOWNLOADS ->
+                java.io.File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_DOWNLOADS).path
+            else -> null
+        }
+
+        internal fun routeNewIntent(context: android.content.Context, intent: Intent, vm: BrowserViewModel?): Boolean {
+            val i = runCatching { IntentGuard.sanitize(context, intent) }.getOrNull() ?: return false
+            val target = runCatching { externalTargetPath(context, i) }.getOrNull() ?: return false
+            if (vm == null) return false
+            vm.openExternalPath(target)
+            return true
+        }
+
+        private fun resolveTarget(context: android.content.Context, rawTarget: String?, uri: Uri, mimeType: String?): String? {
             if (rawTarget != null) {
                 if (com.droid.wayfinder.data.FsPath.isLocalFile(rawTarget)) {
                     if (com.droid.wayfinder.data.FileInfo.isSymlink(rawTarget) || isPrivateAppPath(context, rawTarget)) {
                         return null
                     }
                     val f = java.io.File(rawTarget)
+                    val apk = isApkName(f.name) || mimeType.equals(APK_MIME, ignoreCase = true)
                     return when {
-                        isSupportedArchiveName(f.name) -> com.droid.wayfinder.data.FsPath.zipRoot(f.path)
-                        f.isDirectory -> f.path
-                        f.isFile -> f.parent
+                        !apk && isSupportedArchiveName(f.name) && !f.isDirectory -> com.droid.wayfinder.data.FsPath.zipRoot(f.path)
                         else -> f.path
                     }
                 }
@@ -230,6 +263,39 @@ class MainActivity : ComponentActivity() {
                     return stageExternalArchiveToCache(context, uri, segName, mimeType)
                 }
             }
+            return null
+        }
+
+        /**
+         * Best-effort mapping of a non-DocumentsContract `content://` URI (another app's FileProvider,
+         * MediaStore, DownloadsProvider) to the shared-storage file it refers to. Only returns paths
+         * of files that actually exist on shared storage.
+         */
+        internal fun localPathForContentUri(context: android.content.Context, uri: Uri, primaryStorageRoot: String): String? {
+            if (uri.authority == "${context.packageName}.fileprovider") return null
+            fun ok(p: String?): String? = p?.takeIf {
+                (it.startsWith("/storage/") || com.droid.wayfinder.data.FsPath.isWithin(primaryStorageRoot, it)) &&
+                    !it.contains('\u0000') && ".." !in it.split('/') && java.io.File(it).exists()
+            }?.let { com.droid.wayfinder.data.FsPath.normalize(it) }
+            var displayName: String? = null
+            runCatching {
+                context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                    if (c.moveToFirst()) {
+                        val dataIdx = c.getColumnIndex(android.provider.MediaStore.MediaColumns.DATA)
+                        if (dataIdx >= 0 && !c.isNull(dataIdx)) ok(c.getString(dataIdx))?.let { return it }
+                        val nameIdx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (nameIdx >= 0 && !c.isNull(nameIdx)) displayName = c.getString(nameIdx)
+                    }
+                }
+            }
+            // FileProvider-style URIs: content://<auth>/<root-name>/<path relative to shared storage>
+            val segs = uri.pathSegments.orEmpty()
+            val decoded = uri.path.orEmpty()
+            ok(decoded.substringAfter("/storage/", "").takeIf { it.isNotEmpty() }?.let { "/storage/$it" })?.let { return it }
+            if (segs.size >= 2) ok(primaryStorageRoot + "/" + segs.drop(1).joinToString("/"))?.let { return it }
+            // Downloads: fall back to the Download folder by display name.
+            val name = displayName?.takeIf { !it.contains('/') && it.isNotBlank() }
+            if (name != null) ok("$primaryStorageRoot/${Environment.DIRECTORY_DOWNLOADS}/$name")?.let { return it }
             return null
         }
 
@@ -288,9 +354,10 @@ class MainActivity : ComponentActivity() {
         val treeUri = persistIncomingTreeGrant(intent)
         if (treeUri != null) {
             vmOrNull?.mountSaf(treeUri)
-        } else {
-            vmOrNull?.refreshAll()
+            return
         }
+        // Already running: a "show/open this location" request (folder, file, .apk) navigates this window.
+        if (!routeNewIntent(this, intent, vmOrNull)) vmOrNull?.refreshAll()
     }
 
     private fun persistIncomingTreeGrant(incoming: Intent?): Uri? {

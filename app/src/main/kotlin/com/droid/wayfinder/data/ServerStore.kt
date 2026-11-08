@@ -17,7 +17,7 @@ import javax.crypto.spec.GCMParameterSpec
 data class SmbCred(val user: String, val password: String, val domain: String = "")
 
 /**
- * A remembered server. [key] is the credential key (host for SMB, `scheme://authority` otherwise),
+ * A remembered server. [key] is the credential key (host, or host:port off 445, for SMB; `scheme://authority` otherwise),
  * [path] the SMB share or WebDAV/FTP base path, [alias] the optional sidebar label, [guest] = guest/anonymous
  * sign-in, [mounted] = shown in the sidebar (ejecting keeps the entry so it can be reconnected quickly).
  */
@@ -102,11 +102,12 @@ object ServerEntryCodec {
         val f = raw.split('\t')
         if (f.size < 3 || key.isEmpty()) return null
         val proto = f.getOrNull(3)?.let { p -> Protocol.entries.firstOrNull { it.name == p } } ?: Protocol.SMB
-        val host = if (proto == Protocol.SMB) key else RemoteUri.splitAuthority(key.substringAfter("://"), proto.defaultPort).first
+        // SMB keys are the authority: "nas" (port 445, as written by older versions) or "nas:1445".
+        val (host, keyPort) = RemoteUri.splitAuthority(if (proto == Protocol.SMB) key else key.substringAfter("://"), proto.defaultPort)
         if (host.isBlank()) return null
         return SavedServer(
             key = key, user = f[0], domain = f[1], hasPassword = f[2].isNotEmpty(), protocol = proto, host = host,
-            port = f.getOrNull(4)?.toIntOrNull()?.takeIf { it in 1..65535 } ?: proto.defaultPort,
+            port = f.getOrNull(4)?.toIntOrNull()?.takeIf { it in 1..65535 } ?: keyPort,
             path = f.getOrNull(5).orEmpty().split('/').filter { it.isNotEmpty() && it != "." && it != ".." }.joinToString("/"),
             alias = f.getOrNull(6).orEmpty(), guest = f.getOrNull(7) == "1", mounted = f.getOrNull(8) != "0",
         )
@@ -141,8 +142,7 @@ class ServerStore(context: Context, private val box: SecretBox = SecretBox()) : 
     fun put(key: String, cred: SmbCred, remember: Boolean) {
         val existing = prefs.getString("srv_$key", null)?.let { decodeEntry(key, it) } ?: run {
             val proto = if (key.contains("://")) RemoteUri.protocolOf(key) ?: Protocol.SMB else Protocol.SMB
-            val (host, port) = if (proto == Protocol.SMB) key to proto.defaultPort
-            else RemoteUri.splitAuthority(key.substringAfter("://"), proto.defaultPort)
+            val (host, port) = RemoteUri.splitAuthority(if (proto == Protocol.SMB) key else key.substringAfter("://"), proto.defaultPort)
             SavedServer(key, "", "", false, proto, host, port)
         }
         save(existing.copy(user = cred.user, domain = cred.domain, guest = false), cred, remember)

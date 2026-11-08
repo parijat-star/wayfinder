@@ -24,3 +24,9 @@
 -keep class org.bouncycastle.jcajce.provider.** { *; }
 -keep class org.bouncycastle.jce.provider.** { *; }
 -dontwarn org.bouncycastle.**
+
+# Apache Commons Net DefaultFTPFileEntryParserFactory supports reflective LIST parser lookup via Class.forName().
+-keep class org.apache.commons.net.ftp.parser.* extends org.apache.commons.net.ftp.FTPFileEntryParser {
+    public <init>();
+    public <init>(org.apache.commons.net.ftp.FTPClientConfig);
+}

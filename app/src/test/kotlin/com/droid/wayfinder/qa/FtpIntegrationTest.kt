@@ -90,6 +90,37 @@ class FtpIntegrationTest {
         assertTrue(r.isServer && r.isDir)
     }
 
+    @Test fun listAndStatFallbackToListWhenServerLacksMlsd() {
+        val noMlsdPort = ServerSocket(0).use { it.localPort }
+        val sf = FtpServerFactory()
+        sf.addListener("default", ListenerFactory().apply { port = noMlsdPort; serverAddress = "127.0.0.1" }.createListener())
+        val um = PropertiesUserManagerFactory().createUserManager()
+        um.save(BaseUser().apply {
+            name = "qa"; password = "pw"; homeDirectory = home.path; enabled = true
+            authorities = listOf<Authority>(WritePermission(), ConcurrentLoginPermission(20, 20), TransferRatePermission(0, 0))
+        })
+        sf.userManager = um
+        val cf = org.apache.ftpserver.command.CommandFactoryFactory()
+        cf.addCommand("FEAT", org.apache.ftpserver.command.Command { session, _, _ ->
+            session.write(org.apache.ftpserver.ftplet.DefaultFtpReply(211, "Extensions supported:\n UTF8\n211 End."))
+        })
+        sf.commandFactory = cf.createCommandFactory()
+        val noMlsdServer = sf.createServer()
+        noMlsdServer.start()
+        val noMlsdRoot = "ftp://127.0.0.1:$noMlsdPort"
+        try {
+            val list = fs.list("$noMlsdRoot/pub").sortedBy { it.name }
+            assertEquals(listOf("readme.txt", "sub", "Ünïcode file.txt"), list.map { it.name })
+            assertEquals(9L, list.first { it.name == "readme.txt" }.size)
+            assertTrue(list.first { it.name == "sub" }.isDir)
+            assertEquals(9L, fs.stat("$noMlsdRoot/pub/readme.txt")!!.size)
+            assertTrue(fs.stat("$noMlsdRoot/pub/sub")!!.isDir)
+        } finally {
+            runCatching { fs.disconnect(noMlsdRoot) }
+            noMlsdServer.stop()
+        }
+    }
+
     @Test fun downloadAndUploadRoundTrip() {
         assertEquals("hello ftp", fs.openInput("$root/pub/readme.txt").use { it.readBytes().decodeToString() })
         assertEquals("utf8", fs.openInput("$root/pub/Ünïcode file.txt").use { it.readBytes().decodeToString() })

@@ -233,6 +233,7 @@ private fun PhoneQuickAccessBanner(
                 Column(Modifier.padding(start = 12.dp, end = 12.dp)) {
                     Text("$phoneName · $subtitle", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
                     Text("Paired with laptop via Cross-Device Services / Phone Hub", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                    Text(stringResource(R.string.phone_privilege_note), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -370,6 +371,7 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
             tab.path == FsPath.STARRED_ROOT -> CenterMessage(Icons.Outlined.StarOutline, stringResource(R.string.empty_starred_title), "Right-click a file or folder and choose “Add to Starred”.")
             tab.path == FsPath.PHONE_ROOT -> {
                 val isUsbMtp = s.pairedPhone?.transport == com.droid.wayfinder.data.PhoneTransport.USB_MTP
+                val note = stringResource(R.string.phone_privilege_note)
                 CenterMessage(
                     Icons.Outlined.Smartphone,
                     s.pairedPhone?.name ?: if (s.quickAccessAvailable) "Cross-Device Phone" else "Connect Phone Storage",
@@ -382,7 +384,7 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
                             "Import files wirelessly from ${s.pairedPhone.name} via Cross-Device Services, or connect over USB File Transfer (MTP) to mount full phone folders."
                         else ->
                             "Import files wirelessly from a phone linked in Cross-Device Services (Phone Hub), or connect via USB File Transfer (MTP) to mount phone folders."
-                    },
+                    } + "\n\n$note",
                 ) {
                     if (isUsbMtp) {
                         Button({ vm.requestMountPhoneStorage(s.pairedPhone) }) {
@@ -421,6 +423,11 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
                 "Connect to a server by address, e.g. smb://nas/media, davs://cloud/dav or ftp://host",
             ) { Button({ vm.showConnectDialog() }) { Text("Connect to server") }; OutlinedButton({ vm.refresh() }) { Text("Rescan") } }
             tab.path == FsPath.TRASH_ROOT -> CenterMessage(Icons.Outlined.FolderOpen, stringResource(R.string.empty_trash_title), "Deleted files appear here until you empty the Trash.")
+            !s.showHidden && tab.entries.any { it.isHidden } -> CenterMessage(
+                Icons.Outlined.FolderOpen,
+                stringResource(R.string.empty_only_hidden_title),
+                icuStringResource(R.string.empty_only_hidden_body_plural, tab.entries.count { it.isHidden }),
+            ) { Button({ vm.toggleHidden() }) { Text(stringResource(R.string.action_show_hidden_files)) } }
             else -> CenterMessage(Icons.Outlined.FolderOpen, stringResource(R.string.empty_folder_title), "Right-click or press Ctrl+Shift+N to create a new folder.")
         }
     }
@@ -704,14 +711,8 @@ private fun GridCell(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEn
             Modifier.fillMaxWidth().aspectRatio(1.3f).clip(RoundedCornerShape(12.dp)).background(cs.surfaceContainerLow),
             contentAlignment = Alignment.Center,
         ) {
-            val thumb = !e.isDir && FsPath.isLocalFile(e.path) && (e.kind == FileKind.Image || e.kind == FileKind.Video)
-            if (thumb) {
-                val ctx = LocalContext.current
-                AsyncImage(
-                    model = remember(e.path, e.modified) { ImageRequest.Builder(ctx).data(File(e.path)).size(360).build() },
-                    contentDescription = e.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
-                )
-            } else Icon(e.icon(), null, Modifier.size(44.dp), tint = e.tint())
+            // Thumbnails for local and network/cloud (SMB, NAS, WebDAV, FTP, SAF) images and videos.
+            EntryThumbnail(vm, e, sizePx = 360, iconSize = 44.dp, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             MarkBadges(s, e.path, Modifier.align(Alignment.TopEnd).padding(6.dp), dot = 10.dp)
         }
         Text(
@@ -793,7 +794,7 @@ private fun MillerColumns(vm: BrowserViewModel, s: AppState, tab: TabState, entr
         CurrentColumn(vm, s, tab, entries)
         if (preview != null) {
             VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.5f))
-            MillerPreview(preview)
+            MillerPreview(vm, preview)
         }
     }
 }
@@ -931,20 +932,14 @@ private fun MillerRow(s: AppState, e: FileEntry, highlighted: Boolean, selected:
 
 /** Small preview/details column shown after the current column when a single file is selected. */
 @Composable
-private fun MillerPreview(e: FileEntry) {
+private fun MillerPreview(vm: BrowserViewModel, e: FileEntry) {
     val cs = MaterialTheme.colorScheme
     Column(Modifier.width(280.dp).fillMaxHeight().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(1.2f).clip(RoundedCornerShape(12.dp)).background(cs.surfaceContainerLow),
             contentAlignment = Alignment.Center,
         ) {
-            if (FsPath.isLocalFile(e.path) && (e.kind == FileKind.Image || e.kind == FileKind.Video)) {
-                val ctx = LocalContext.current
-                AsyncImage(
-                    model = remember(e.path, e.modified) { ImageRequest.Builder(ctx).data(File(e.path)).size(560).build() },
-                    contentDescription = e.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize(),
-                )
-            } else Icon(e.icon(), null, Modifier.size(64.dp), tint = e.tint())
+            EntryThumbnail(vm, e, sizePx = 560, iconSize = 64.dp, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
         }
         Text(e.name, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleSmall, textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis)
         Text("${e.typeLabel} • ${formatSize(e.size)}", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)

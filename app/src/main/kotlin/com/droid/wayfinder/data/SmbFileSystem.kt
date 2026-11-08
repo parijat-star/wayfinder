@@ -34,7 +34,10 @@ open class RemoteAuthException(val host: String, cause: Throwable? = null) :
 
 class SmbAuthException(host: String, cause: Throwable? = null) : RemoteAuthException(host, cause)
 
-/** SMB2/3 file system on top of smbj. Paths look like `smb://host/share/dir/file`. */
+/**
+ * SMB2/3 file system on top of smbj. Paths look like `smb://host/share/dir/file`, or `smb://host:port/share/...`
+ * for servers that don't listen on 445. Sessions and shares are keyed by that authority.
+ */
 class SmbFileSystem(
     private val creds: CredentialProvider,
     private val client: SMBClient = SMBClient(
@@ -67,9 +70,13 @@ class SmbFileSystem(
     @Synchronized
     private fun session(host: String): Session {
         sessions[host]?.let { s -> if (s.connection.isConnected) return s else drop(host) }
-        val cred = creds.get(host)
+        // [host] is the path authority: "nas" (port 445) or "nas:1445" / "[fe80::1]:1445".
+        val (server, port) = RemoteUri.splitAuthority(host, Protocol.SMB.defaultPort)
+        // Credentials are keyed by the bare host on 445 (as in earlier versions), by host:port otherwise.
+        val credKey = RemoteUri.credKey(Protocol.SMB, server, port)
+        val cred = creds.get(credKey)
         val conn: Connection = try {
-            client.connect(host)
+            client.connect(server.removePrefix("[").removeSuffix("]"), port)
         } catch (e: Exception) {
             throw IOException("Can't reach $host. Check the address and your network.", e)
         }
@@ -86,7 +93,7 @@ class SmbFileSystem(
         } catch (e: Exception) {
             runCatching { conn.close() }
             if (e is SMBApiException || e.javaClass.simpleName.contains("Auth", true) || cred == null) {
-                throw SmbAuthException(host, e)
+                throw SmbAuthException(credKey, e)
             }
             throw IOException("Sign-in to $host failed: ${e.message}", e)
         } finally {

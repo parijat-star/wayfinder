@@ -407,7 +407,7 @@ private fun SafMountTipDialog(accountEmail: String? = null, onDismiss: () -> Uni
             Text(if (isDrive) stringResource(R.string.saf_tip_drive_title) else stringResource(R.string.saf_tip_generic_title))
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(
                     if (isDrive) {
                         stringResource(R.string.saf_tip_drive_intro, accountEmail.orEmpty())
@@ -429,7 +429,7 @@ private fun SafMountTipDialog(accountEmail: String? = null, onDismiss: () -> Uni
                         }
                         Text(
                             if (isDrive) {
-                                "In the file picker, select your account ($accountEmail) and open any folder inside your Drive (e.g. My Drive > cloudtest or create a new folder), then tap \"Use this folder\".\n\nAndroid privacy guidelines restrict selecting the top-level root directly, but any folder inside is fully accessible."
+                                stringResource(R.string.saf_tip_drive_why_body)
                             } else {
                                 "In the file picker, open any folder inside your Drive or storage (e.g. Work, Documents, or create a new folder).\n\nAndroid blocks selecting the top-level root (\"My Drive\") for privacy, but any subfolder is fully allowed."
                             },
@@ -438,12 +438,25 @@ private fun SafMountTipDialog(accountEmail: String? = null, onDismiss: () -> Uni
                         )
                     }
                 }
-                Row(
-                    Modifier.fillMaxWidth().clickable { dontShowAgain = !dontShowAgain },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = dontShowAgain, onCheckedChange = { dontShowAgain = it })
-                    Text(stringResource(R.string.saf_tip_dont_show_again), Modifier.padding(start = 4.dp), style = MaterialTheme.typography.bodyMedium)
+                if (isDrive) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(stringResource(R.string.saf_tip_drive_steps_title), style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                        Text(
+                            stringResource(R.string.saf_tip_drive_steps, accountEmail.orEmpty()),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = cs.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    // The Drive explanation is always shown so users understand why "My Drive" can't be mounted;
+                    // only the generic storage tip can be silenced.
+                    Row(
+                        Modifier.fillMaxWidth().clickable { dontShowAgain = !dontShowAgain },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = dontShowAgain, onCheckedChange = { dontShowAgain = it })
+                        Text(stringResource(R.string.saf_tip_dont_show_again), Modifier.padding(start = 4.dp), style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
             }
         },
@@ -466,7 +479,7 @@ private fun AboutDialog(onDismiss: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     var showLicenses by remember { mutableStateOf(false) }
     val versionName = remember(ctx) {
-        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull()?.takeIf { it.isNotBlank() } ?: "2.1"
+        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull()?.takeIf { it.isNotBlank() }
     }
     val noticesText by androidx.compose.runtime.produceState<String?>(initialValue = null, key1 = showLicenses) {
         if (showLicenses && value == null) {
@@ -485,7 +498,8 @@ private fun AboutDialog(onDismiss: () -> Unit) {
         text = {
             if (!showLicenses) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Version $versionName", style = MaterialTheme.typography.titleSmall, color = cs.primary)
+                    // The version line is left out if the installed version can't be read.
+                    if (versionName != null) Text("Version $versionName", style = MaterialTheme.typography.titleSmall, color = cs.primary)
                     Text(
                         "Desktop-class file manager for Android laptops and tablets with multi-tab browsing, dual-pane transfers, archive support, and SMB / WebDAV / FTP networking.",
                         style = MaterialTheme.typography.bodyMedium,
