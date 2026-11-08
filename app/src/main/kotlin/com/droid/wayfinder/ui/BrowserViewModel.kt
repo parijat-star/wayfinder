@@ -223,6 +223,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             sidebarWidth = settings.sidebarWidth, gridSize = settings.gridSize,
             marks = SharedUi.marks.value, zoom = settings.zoom.coerceIn(0.7f, 1.6f), theme = SharedUi.theme.value,
             tagsColumn = settings.tagsColumn, permsColumn = settings.permsColumn,
+            statusBarVisible = settings.statusBarVisible,
             hideStatusBar = SharedUi.hideStatusBar.value,
             secondaryWindow = secondaryWindow,
             picker = picker,
@@ -1369,6 +1370,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun toggleTagsColumn() { val v = !_state.value.tagsColumn; settings.tagsColumn = v; _state.update { it.copy(tagsColumn = v) } }
     fun togglePermsColumn() { val v = !_state.value.permsColumn; settings.permsColumn = v; _state.update { it.copy(permsColumn = v) } }
+
+    fun toggleStatusBar() {
+        val next = !_state.value.statusBarVisible
+        settings.statusBarVisible = next
+        _state.update { it.copy(statusBarVisible = next) }
+    }
 
     fun toggleHideStatusBar() {
         val next = !_state.value.hideStatusBar

@@ -66,6 +66,11 @@ class MainActivity : ComponentActivity() {
             coil3.ImageLoader.Builder(ctx).components { add(coil3.video.VideoFrameDecoder.Factory()) }.build()
         }
         enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
         SharedUi.init(this)
         setContent {
             // Light / Dark / System setting (shared by all windows) drives both the theme and the caption bar.
@@ -173,10 +178,13 @@ class MainActivity : ComponentActivity() {
     }
 
     internal fun applyStatusBarVisibility(hide: Boolean) {
+        val hasDesktopCaption = window.decorView.rootWindowInsets
+            ?.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.captionBar())
+            ?.top?.let { it > 0 } == true
         val controller = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
         controller.systemBarsBehavior =
             androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (hide) {
+        if (hide && !hasDesktopCaption) {
             controller.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
         } else {
             controller.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.captionBar
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -73,15 +74,17 @@ data class CaptionMetrics(
 internal fun computeCaptionMetrics(
     capTopPx: Int,
     statusTopPx: Int,
+    cutoutTopPx: Int = 0,
     startPx: Int,
     endPx: Int,
     density: Density,
 ): CaptionMetrics = with(density) {
     val minCaptionH = (44f * density.fontScale.coerceIn(1f, 1.35f)).dp
     // When no desktop caption bar is active (e.g. phone/tablet fullscreen with DeX disabled) and the
-    // system status bar is visible, reserve statusTopPx above the tab strip so clock/notification icons
-    // never overlap the tabs. When statusBars are hidden (statusTopPx == 0), topInset collapses to 0.dp.
-    val topInset = if (capTopPx == 0 && statusTopPx > 0) statusTopPx.toDp() else 0.dp
+    // system status bar is visible, reserve max(statusTopPx, cutoutTopPx) above the tab strip so clock,
+    // notification icons, and top camera cutouts never overlap the tabs. When statusBars are hidden
+    // (statusTopPx == 0), topInset collapses to 0.dp so the tab strip reclaims the top edge.
+    val topInset = if (capTopPx == 0 && statusTopPx > 0) maxOf(statusTopPx, cutoutTopPx).toDp() else 0.dp
     val height = if (capTopPx == 0 && statusTopPx > 0) topInset + minCaptionH else max(minCaptionH, capTopPx.toDp())
     CaptionMetrics(height = height, start = startPx.toDp(), end = endPx.toDp(), topInset = topInset)
 }
@@ -97,8 +100,9 @@ fun rememberCaptionMetrics(): CaptionMetrics {
     val layoutDir = LocalLayoutDirection.current
     val capTop = WindowInsets.captionBar.getTop(density)
     val statusTop = WindowInsets.statusBars.getTop(density)
+    val cutoutTop = WindowInsets.displayCutout.getTop(density)
     val widthPx = LocalWindowInfo.current.containerSize.width
-    return remember(capTop, statusTop, widthPx, layoutDir) {
+    return remember(capTop, statusTop, cutoutTop, widthPx, layoutDir) {
         var left = 0
         var right = 0
         if (capTop > 0) {
@@ -115,10 +119,20 @@ fun rememberCaptionMetrics(): CaptionMetrics {
                 val fallbackPx = with(density) { 140.dp.roundToPx() }
                 if (layoutDir == LayoutDirection.Rtl) left = fallbackPx else right = fallbackPx
             }
+        } else if (statusTop == 0 && widthPx > 0) {
+            // When the system status bar is hidden in fullscreen mode, clear any corner camera cutout
+            // horizontally so tabs on the top edge never overlap a left/right punch-hole.
+            val topBandPx = with(density) { 44.dp.roundToPx() }
+            val cutoutRects = view.rootWindowInsets?.displayCutout?.boundingRects.orEmpty()
+            for (r in cutoutRects) {
+                if (r.isEmpty || r.top >= topBandPx) continue
+                if (r.left < widthPx * 0.25f) left = maxOf(left, r.right)
+                else if (r.right > widthPx * 0.75f) right = maxOf(right, widthPx - r.left)
+            }
         }
         val startPx = if (layoutDir == LayoutDirection.Rtl) right else left
         val endPx = if (layoutDir == LayoutDirection.Rtl) left else right
-        computeCaptionMetrics(capTop, statusTop, startPx, endPx, density)
+        computeCaptionMetrics(capTop, statusTop, cutoutTop, startPx, endPx, density)
     }
 }
 

@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.captionBar
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -73,6 +75,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -102,7 +105,11 @@ import com.droid.wayfinder.data.SortKey
 import com.droid.wayfinder.data.ViewMode
 
 @Composable
-fun Toolbar(vm: BrowserViewModel, s: AppState) {
+fun Toolbar(
+    vm: BrowserViewModel,
+    s: AppState,
+    hasDesktopCaption: Boolean = WindowInsets.captionBar.getTop(LocalDensity.current) > 0,
+) {
     val cs = MaterialTheme.colorScheme
     val tab = s.active
     BoxWithConstraints(Modifier.fillMaxWidth().background(cs.surfaceContainerLow)) {
@@ -135,7 +142,13 @@ fun Toolbar(vm: BrowserViewModel, s: AppState) {
             SearchField(vm, s, Modifier.width(if (wide > 960.dp) 260.dp else if (wide > 720.dp) 190.dp else 140.dp))
             if (wide > 640.dp) ViewToggle(vm, tab.viewMode, s.dualPane)
             if (wide > 760.dp) SortButton(vm, s)
-            OverflowMenu(vm, s, showViewItems = wide <= 640.dp, showSortItems = wide <= 760.dp)
+            OverflowMenu(
+                vm = vm,
+                s = s,
+                showViewItems = wide <= 640.dp,
+                showSortItems = wide <= 760.dp,
+                hasDesktopCaption = hasDesktopCaption,
+            )
         }
         if (tab.query.isNotBlank()) SearchFilterRow(vm, tab)
         }
@@ -432,7 +445,13 @@ private fun SortButton(vm: BrowserViewModel, s: AppState) {
 }
 
 @Composable
-private fun OverflowMenu(vm: BrowserViewModel, s: AppState, showViewItems: Boolean = false, showSortItems: Boolean = false) {
+private fun OverflowMenu(
+    vm: BrowserViewModel,
+    s: AppState,
+    showViewItems: Boolean = false,
+    showSortItems: Boolean = false,
+    hasDesktopCaption: Boolean = false,
+) {
     val cs = MaterialTheme.colorScheme
     var open by remember { mutableStateOf(false) }
     val virtual = FsPath.isReadOnly(s.active.path)
@@ -464,10 +483,13 @@ private fun OverflowMenu(vm: BrowserViewModel, s: AppState, showViewItems: Boole
             DropdownMenuItem({ Text("Show hidden files") }, { open = false; vm.toggleHidden() }, leadingIcon = check(s.showHidden), trailingIcon = { Hint("Ctrl+H") })
             DropdownMenuItem({ Text("Preview pane") }, { open = false; vm.togglePreview() }, leadingIcon = check(s.previewVisible), trailingIcon = { Hint("Alt+P") })
             DropdownMenuItem({ Text("Sidebar") }, { open = false; vm.toggleSidebar() }, leadingIcon = check(s.sidebarVisible), trailingIcon = { Hint("Ctrl+\\") })
+            DropdownMenuItem({ Text(stringResource(R.string.menu_status_bar)) }, { open = false; vm.toggleStatusBar() }, leadingIcon = check(s.statusBarVisible))
             DropdownMenuItem({ Text("Dual pane") }, { open = false; vm.toggleDualPane() }, leadingIcon = check(s.dualPane), trailingIcon = { Hint("Ctrl+4") })
             DropdownMenuItem({ Text("Tags column") }, { open = false; vm.toggleTagsColumn() }, leadingIcon = check(s.tagsColumn))
             DropdownMenuItem({ Text("Permissions column") }, { open = false; vm.togglePermsColumn() }, leadingIcon = check(s.permsColumn))
-            DropdownMenuItem({ Text(stringResource(com.droid.wayfinder.R.string.menu_hide_status_bar)) }, { open = false; vm.toggleHideStatusBar() }, leadingIcon = check(s.hideStatusBar))
+            if (!hasDesktopCaption) {
+                DropdownMenuItem({ Text(stringResource(R.string.menu_hide_status_bar)) }, { open = false; vm.toggleHideStatusBar() }, leadingIcon = check(s.hideStatusBar))
+            }
             if (showViewItems) {
                 HorizontalDivider()
                 listOf(

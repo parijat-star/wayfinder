@@ -45,6 +45,7 @@ class VmHarness(private val startExtras: Map<String, Any?> = emptyMap()) {
         SharedUi.updateMarks { Marks() }
         SharedUi.setTheme(com.droid.wayfinder.data.ThemeMode.System)
         SharedUi.setHideStatusBar(false)
+        com.droid.wayfinder.data.Settings(app).statusBarVisible = true
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T =
