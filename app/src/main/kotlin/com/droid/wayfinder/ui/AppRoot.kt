@@ -150,7 +150,7 @@ fun AppRoot(vm: BrowserViewModel) {
     LaunchedEffect(Unit) {
         vm.events.collect { e ->
             when (e) {
-                is UiEvent.OpenFile -> openWithSystem(ctx, e.path, e.chooser)
+                is UiEvent.OpenFile -> openWithSystem(ctx, e.path, e.chooser, e.uri)
                 is UiEvent.Share -> shareFiles(ctx, e.paths)
                 is UiEvent.CopyText -> {
                     ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(e.what, e.text))
@@ -588,23 +588,39 @@ private fun launchSystemDocumentTreePicker(
     }
 }
 
-internal fun hasSelfReadUriGrant(ctx: Context, uri: android.net.Uri): Boolean {
+internal fun hasSelfReadUriGrant(ctx: Context, uri: android.net.Uri): Boolean =
+    hasSelfUriGrant(ctx, uri, write = false)
+
+internal fun hasSelfWriteUriGrant(ctx: Context, uri: android.net.Uri): Boolean =
+    hasSelfUriGrant(ctx, uri, write = true)
+
+private fun hasSelfUriGrant(ctx: Context, uri: android.net.Uri, write: Boolean): Boolean {
     val uriStr = uri.toString()
     val hasPersisted = runCatching {
         ctx.contentResolver.persistedUriPermissions.any { perm ->
-            perm.isReadPermission && (uri == perm.uri || uriStr.startsWith(perm.uri.toString().trimEnd('/') + "/"))
+            val modeMatch = if (write) perm.isWritePermission else perm.isReadPermission
+            modeMatch && (uri == perm.uri || uriStr.startsWith(perm.uri.toString().trimEnd('/') + "/"))
         }
     }.getOrDefault(false)
     if (hasPersisted) return true
-    if (uri.authority == com.droid.wayfinder.data.SystemDocumentsBridge.EXTERNAL_STORAGE_AUTHORITY) {
+    if (uri.authority == com.droid.wayfinder.data.SystemDocumentsBridge.EXTERNAL_STORAGE_AUTHORITY &&
+        !android.provider.DocumentsContract.isTreeUri(uri)
+    ) {
         return false
     }
+    val modeFlag = if (write) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else Intent.FLAG_GRANT_READ_URI_PERMISSION
     return ctx.checkUriPermission(
         uri,
         android.os.Process.myPid(),
         android.os.Process.myUid(),
-        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+        modeFlag,
     ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+}
+
+internal fun isStagedCacheFile(ctx: Context, file: File): Boolean {
+    val canonical = runCatching { file.canonicalPath }.getOrDefault(file.path)
+    val cacheRoot = runCatching { ctx.cacheDir.canonicalPath }.getOrDefault(ctx.cacheDir.path)
+    return FsPath.isWithin(cacheRoot, canonical) || FsPath.isWithin(ctx.cacheDir.path, file.path)
 }
 
 internal fun resolveReturnUri(ctx: Context, path: String, preferredUri: android.net.Uri? = null): Pair<android.net.Uri, Boolean> {
@@ -704,22 +720,97 @@ private fun openNewWindow(ctx: Context, path: String?) {
     }
 }
 
-private fun openWithSystem(ctx: Context, path: String, chooser: Boolean = false) {
-    val f = File(path)
-    // The provider only serves shared storage and our download caches (see res/xml/file_paths.xml).
-    val uri = try { FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", safeFileProviderTarget(path)) } catch (_: Exception) {
-        android.widget.Toast.makeText(ctx, "${f.name} can't be opened by other apps from this location", android.widget.Toast.LENGTH_SHORT).show()
+internal fun buildOpenWithSystemIntent(
+    ctx: Context,
+    path: String,
+    preferredUri: android.net.Uri? = null,
+): Intent? {
+    if (preferredUri != null || FsPath.isSaf(path) || FsPath.isDoc(path)) {
+        val docUri = preferredUri
+            ?: com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(path, tree = false)
+            ?: return null
+        var queriedMime: String? = null
+        var providerSupportsWrite = true
+        runCatching {
+            ctx.contentResolver.query(
+                docUri,
+                arrayOf(
+                    android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    android.provider.DocumentsContract.Document.COLUMN_FLAGS,
+                ),
+                null,
+                null,
+                null,
+            )?.use { c ->
+                if (c.moveToFirst()) {
+                    val mimeIdx = c.getColumnIndex(android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE)
+                    if (mimeIdx >= 0 && !c.isNull(mimeIdx)) {
+                        queriedMime = c.getString(mimeIdx)
+                            ?.takeIf { it.isNotBlank() && it != android.provider.DocumentsContract.Document.MIME_TYPE_DIR }
+                    }
+                    val flagsIdx = c.getColumnIndex(android.provider.DocumentsContract.Document.COLUMN_FLAGS)
+                    if (flagsIdx >= 0 && !c.isNull(flagsIdx)) {
+                        providerSupportsWrite =
+                            (c.getInt(flagsIdx) and android.provider.DocumentsContract.Document.FLAG_SUPPORTS_WRITE) != 0
+                    }
+                }
+            }
+        }
+        val ext = FsPath.name(path).substringAfterLast('.', "").lowercase()
+        val mime = queriedMime ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+        val writable = hasSelfWriteUriGrant(ctx, docUri) && providerSupportsWrite
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+            (if (writable) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+        return Intent(Intent.ACTION_VIEW)
+            .setDataAndType(docUri, mime)
+            .addFlags(flags)
+            .apply { clipData = ClipData.newRawUri("", docUri) }
+    }
+
+    // Local file: FileProvider only serves shared storage and our download caches (see res/xml/file_paths.xml).
+    val target = try {
+        safeFileProviderTarget(path)
+    } catch (_: Exception) {
+        return null
+    }
+    val uri = try {
+        FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", target)
+    } catch (_: Exception) {
+        return null
+    }
+    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(target.extension.lowercase()) ?: "*/*"
+    val writable = target.canWrite() && !isStagedCacheFile(ctx, target)
+    val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+        (if (writable) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+    return Intent(Intent.ACTION_VIEW)
+        .setDataAndType(uri, mime)
+        .addFlags(flags)
+        .apply { clipData = ClipData.newRawUri("", uri) }
+}
+
+private fun openWithSystem(
+    ctx: Context,
+    path: String,
+    chooser: Boolean = false,
+    preferredUri: android.net.Uri? = null,
+) {
+    val displayName = FsPath.name(path).ifEmpty { File(path).name }
+    val i = buildOpenWithSystemIntent(ctx, path, preferredUri)
+    if (i == null) {
+        android.widget.Toast.makeText(ctx, "$displayName can't be opened by other apps from this location", android.widget.Toast.LENGTH_SHORT).show()
         return
     }
-    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(f.extension.lowercase()) ?: "*/*"
-    val i = Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    val uri = i.data ?: return
     try {
         ctx.startActivity(if (chooser) Intent.createChooser(i, "Open with") else i)
     } catch (_: ActivityNotFoundException) {
         try {
-            ctx.startActivity(Intent.createChooser(i.setDataAndType(uri, "*/*"), "Open with"))
+            val fallback = Intent(i).setDataAndType(uri, "*/*").apply {
+                clipData = ClipData.newRawUri("", uri)
+            }
+            ctx.startActivity(Intent.createChooser(fallback, "Open with"))
         } catch (_: Exception) {
-            android.widget.Toast.makeText(ctx, "No app can open ${f.name}", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(ctx, "No app can open $displayName", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 }

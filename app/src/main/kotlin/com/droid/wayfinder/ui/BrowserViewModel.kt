@@ -1084,6 +1084,30 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 return
             }
         }
+        if (FsPath.isSaf(path) || FsPath.isDoc(path)) {
+            viewModelScope.launch {
+                val directUri = withContext(Dispatchers.IO) { resolveDirectOpenDocumentUri(path) }
+                if (directUri != null) {
+                    emit(UiEvent.OpenFile(path, chooser, uri = directUri))
+                } else {
+                    stageAndOpenFile(path, chooser)
+                }
+            }
+            return
+        }
+        stageAndOpenFile(path, chooser)
+    }
+
+    private fun resolveDirectOpenDocumentUri(path: String): Uri? {
+        val docUri = when {
+            FsPath.isSaf(path) -> saf.documentUriOf(path)
+            FsPath.isDoc(path) -> com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(path, tree = false)
+            else -> null
+        } ?: return null
+        return docUri.takeIf { hasSelfReadUriGrant(app, it) }
+    }
+
+    private fun stageAndOpenFile(path: String, chooser: Boolean) {
         // Network files, archive entries, and removable/Linux local volumes outside FileProvider roots
         // are staged into cacheDir first so external apps receive a valid FileProvider URI.
         val zip = FsPath.isZip(path)

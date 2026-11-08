@@ -156,6 +156,15 @@ class SafFileSystem(context: Context, private val mounts: () -> List<SafMount>) 
 
     override fun disconnect(key: String) = invalidate("${RemoteUri.SAF_SCHEME}://$key")
 
+    /** Resolves [path] (`saf://<mountId>/...`) to its underlying [DocumentsContract] document URI, or null if missing. */
+    fun documentUriOf(path: String): Uri? = try {
+        val m = mountOf(path)
+        val id = resolve(m, path) ?: return null
+        docUri(m, id)
+    } catch (_: Exception) {
+        null
+    }
+
     private fun toEntry(parent: String, r: Row) = FileEntry(
         path = FsPath.child(parent, r.name), name = r.name, isDir = r.isDir,
         size = if (r.isDir) 0 else r.size, modified = r.modified,
