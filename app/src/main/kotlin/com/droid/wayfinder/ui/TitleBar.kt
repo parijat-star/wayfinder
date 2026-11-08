@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.filled.Add
@@ -114,8 +115,12 @@ fun TitleBar(vm: BrowserViewModel, s: AppState, onShowMenu: (androidx.compose.ui
             val addBtn = 40.dp
             val n = s.tabs.size
             val tabW = ((maxWidth - addBtn - 8.dp) / n).coerceIn(52.dp, 220.dp)
+            // Register the interactive tab strip and "+" button as a system-gesture exclusion rect
+            // so Android desktop / Googlebook WM Shell treats clicks here as app header gestures
+            // rather than pilfering primary mouse-down events for caption drag/maximize, while
+            // leaving empty titlebar space to the right un-excluded for window drag-to-move.
             Row(
-                Modifier.fillMaxHeight().horizontalScroll(rememberScrollState()).padding(top = 6.dp),
+                Modifier.systemGestureExclusion().fillMaxHeight().horizontalScroll(rememberScrollState()).padding(top = 6.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 s.tabs.forEach { tab ->
