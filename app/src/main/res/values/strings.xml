@@ -308,4 +308,9 @@
     <string name="op_renaming" description="Progress banner title while renaming items. [CHAR_LIMIT=20]">Renaming</string>
     <string name="op_importing" description="Progress banner title while importing dragged external files. [CHAR_LIMIT=25]">Importing</string>
     <string name="phone_privilege_note" description="Note shown on the Phone screen explaining that Wayfinder does not have system privileges to directly mount companion phones. [CHAR_LIMIT=140]">Please note: Wayfinder lacks necessary system privileges to directly mount companion phones.</string>
+    <string name="nav_open_sidebar" description="Accessibility label for the compact toolbar menu button that opens the modal navigation sidebar drawer. [CHAR_LIMIT=35]">Open navigation drawer</string>
+    <string name="nav_close_sidebar" description="Accessibility label for the close button inside the compact modal navigation sidebar drawer. [CHAR_LIMIT=35]">Close navigation drawer</string>
+    <string name="nav_drawer_label" description="Accessibility container label for the compact modal navigation sidebar drawer. [CHAR_LIMIT=30]">Navigation drawer</string>
+    <string name="action_close_search" description="Accessibility label for the compact toolbar back button that closes the expanded search field. [CHAR_LIMIT=25]">Close search</string>
+    <string name="drawer_app_title" description="Short application title displayed in the header of the compact modal navigation drawer. [CHAR_LIMIT=20]">Wayfinder</string>
 </resources>
