@@ -141,6 +141,8 @@ data class AppState(
     /** Optional Details-view columns. */
     val tagsColumn: Boolean = false,
     val permsColumn: Boolean = false,
+    /** True when the Android system status bar is hidden by user preference. */
+    val hideStatusBar: Boolean = false,
     /** Incremented to ask the sidebar to scroll to the active folder (Alt+Shift+L). */
     val treeLocate: Int = 0,
     /** True in windows opened with Ctrl+N (they don't persist the tab session). */

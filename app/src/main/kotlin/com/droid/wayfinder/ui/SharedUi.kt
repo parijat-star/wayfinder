@@ -18,20 +18,26 @@ import kotlinx.coroutines.flow.updateAndGet
  * avoids two windows overwriting each other's saved marks.
  */
 object SharedUi {
+    private var appContext: Context? = null
     private var settings: Settings? = null
     private val _marks = MutableStateFlow(Marks())
     private val _theme = MutableStateFlow(ThemeMode.System)
+    private val _hideStatusBar = MutableStateFlow(false)
     val marks: StateFlow<Marks> = _marks.asStateFlow()
     val theme: StateFlow<ThemeMode> = _theme.asStateFlow()
+    val hideStatusBar: StateFlow<Boolean> = _hideStatusBar.asStateFlow()
 
     @Synchronized
     fun init(context: Context) {
-        if (settings != null) return
-        val s = Settings(context.applicationContext)
+        val ctx = context.applicationContext ?: context
+        if (settings != null && appContext === ctx) return
+        appContext = ctx
+        val s = Settings(ctx)
         settings = s
         _marks.value = Marks.parse(s.marks)
         TagIndex.marks = _marks.value
         _theme.value = s.themeMode
+        _hideStatusBar.value = s.hideStatusBar
     }
 
     fun updateMarks(f: (Marks) -> Marks) {
@@ -43,5 +49,10 @@ object SharedUi {
     fun setTheme(t: ThemeMode) {
         _theme.value = t
         settings?.themeMode = t
+    }
+
+    fun setHideStatusBar(hide: Boolean) {
+        _hideStatusBar.value = hide
+        settings?.hideStatusBar = hide
     }
 }

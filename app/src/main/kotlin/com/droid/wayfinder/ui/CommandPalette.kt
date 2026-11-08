@@ -209,6 +209,7 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState): List<PaletteItem> {
         }
         add(c(if (s.tagsColumn) vm.str(R.string.palette_hide_tags_column) else vm.str(R.string.palette_show_tags_column), vm.str(R.string.palette_details_column_desc), null, Icons.AutoMirrored.Outlined.Label) { vm.toggleTagsColumn() })
         add(c(if (s.permsColumn) vm.str(R.string.palette_hide_perms_column) else vm.str(R.string.palette_show_perms_column), vm.str(R.string.palette_details_column_desc), null, Icons.Outlined.Lock) { vm.togglePermsColumn() })
+        add(c(if (s.hideStatusBar) vm.str(R.string.palette_show_status_bar) else vm.str(R.string.palette_hide_status_bar), vm.str(R.string.palette_status_bar_desc), null, Icons.Outlined.Visibility) { vm.toggleHideStatusBar() })
         val one = tab.selectedEntries(s.showHidden).singleOrNull()
         if (one != null && !one.isDir) add(c(vm.str(R.string.action_open_with), vm.str(R.string.palette_open_with_desc, one.name), null, Icons.Outlined.AppRegistration) { vm.openWith() })
         if (one != null && vm.isBrowsableArchive(one)) {
@@ -249,7 +250,7 @@ fun CommandPalette(vm: BrowserViewModel, s: AppState) {
     var index by remember { mutableIntStateOf(0) }
     val fr = remember { FocusRequester() }
     val listState = rememberLazyListState()
-    val commands = remember(s.active.path, s.active.entries, s.active.selection, s.dualPane, s.pins, s.recentFolders, s.showHidden, s.theme, s.zoom, s.tagsColumn, s.permsColumn) {
+    val commands = remember(s.active.path, s.active.entries, s.active.selection, s.dualPane, s.pins, s.recentFolders, s.showHidden, s.theme, s.zoom, s.tagsColumn, s.permsColumn, s.hideStatusBar) {
         paletteCommands(vm, s) to paletteFolders(vm, s)
     }
     val results = remember(query, commands) {

@@ -56,13 +56,35 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import com.droid.wayfinder.data.FsPath
 
-data class CaptionMetrics(val height: Dp, val start: Dp, val end: Dp)
+data class CaptionMetrics(
+    val height: Dp,
+    val start: Dp,
+    val end: Dp,
+    val topInset: Dp = 0.dp,
+)
+
+internal fun computeCaptionMetrics(
+    capTopPx: Int,
+    statusTopPx: Int,
+    startPx: Int,
+    endPx: Int,
+    density: Density,
+): CaptionMetrics = with(density) {
+    val minCaptionH = (44f * density.fontScale.coerceIn(1f, 1.35f)).dp
+    // When no desktop caption bar is active (e.g. phone/tablet fullscreen with DeX disabled) and the
+    // system status bar is visible, reserve statusTopPx above the tab strip so clock/notification icons
+    // never overlap the tabs. When statusBars are hidden (statusTopPx == 0), topInset collapses to 0.dp.
+    val topInset = if (capTopPx == 0 && statusTopPx > 0) statusTopPx.toDp() else 0.dp
+    val height = if (capTopPx == 0 && statusTopPx > 0) topInset + minCaptionH else max(minCaptionH, capTopPx.toDp())
+    CaptionMetrics(height = height, start = startPx.toDp(), end = endPx.toDp(), topInset = topInset)
+}
 
 /**
  * Measures the system caption (title) bar so that our tab strip can live inside it, leaving room for
@@ -96,8 +118,7 @@ fun rememberCaptionMetrics(): CaptionMetrics {
         }
         val startPx = if (layoutDir == LayoutDirection.Rtl) right else left
         val endPx = if (layoutDir == LayoutDirection.Rtl) left else right
-        val minCaptionH = (44f * density.fontScale.coerceIn(1f, 1.35f)).dp
-        with(density) { CaptionMetrics(max(minCaptionH, maxOf(capTop, statusTop).toDp()), startPx.toDp(), endPx.toDp()) }
+        computeCaptionMetrics(capTop, statusTop, startPx, endPx, density)
     }
 }
 
@@ -107,7 +128,7 @@ fun TitleBar(vm: BrowserViewModel, s: AppState, onShowMenu: (androidx.compose.ui
     val cs = MaterialTheme.colorScheme
     Row(
         Modifier.fillMaxWidth().height(cap.height).background(cs.surfaceContainerHighest)
-            .padding(start = maxOf(cap.start, 8.dp), end = cap.end),
+            .padding(top = cap.topInset, start = maxOf(cap.start, 8.dp), end = cap.end),
         verticalAlignment = Alignment.Bottom,
     ) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {

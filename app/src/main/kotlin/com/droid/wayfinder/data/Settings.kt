@@ -78,6 +78,11 @@ class Settings(context: Context) {
         get() = p.getBoolean("permsColumn", false)
         set(v) = p.edit().putBoolean("permsColumn", v).apply()
 
+    /** Whether to hide the Android system status bar across Wayfinder windows. */
+    var hideStatusBar: Boolean
+        get() = p.getBoolean("hideStatusBar", false)
+        set(v) = p.edit().putBoolean("hideStatusBar", v).apply()
+
     /** Mounted document trees (cloud drives, USB, ...), see [SafMount.serialize]. */
     var safMounts: List<SafMount>
         get() = SafMount.parse(p.getString("safMounts", null))

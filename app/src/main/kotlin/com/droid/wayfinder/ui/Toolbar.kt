@@ -467,6 +467,7 @@ private fun OverflowMenu(vm: BrowserViewModel, s: AppState, showViewItems: Boole
             DropdownMenuItem({ Text("Dual pane") }, { open = false; vm.toggleDualPane() }, leadingIcon = check(s.dualPane), trailingIcon = { Hint("Ctrl+4") })
             DropdownMenuItem({ Text("Tags column") }, { open = false; vm.toggleTagsColumn() }, leadingIcon = check(s.tagsColumn))
             DropdownMenuItem({ Text("Permissions column") }, { open = false; vm.togglePermsColumn() }, leadingIcon = check(s.permsColumn))
+            DropdownMenuItem({ Text(stringResource(com.droid.wayfinder.R.string.menu_hide_status_bar)) }, { open = false; vm.toggleHideStatusBar() }, leadingIcon = check(s.hideStatusBar))
             if (showViewItems) {
                 HorizontalDivider()
                 listOf(
