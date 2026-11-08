@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,7 +64,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import com.droid.wayfinder.data.FsPath
 
-data class CaptionMetrics(val height: Dp, val start: Dp, val end: Dp)
+internal val DESKTOP_CAPTION_DRAG_RESERVE = 48.dp
+
+data class CaptionMetrics(
+    val height: Dp,
+    val start: Dp,
+    val end: Dp,
+    val hasDesktopCaption: Boolean = false,
+)
 
 /**
  * Measures the system caption (title) bar so that our tab strip can live inside it, leaving room for
@@ -98,13 +106,25 @@ fun rememberCaptionMetrics(): CaptionMetrics {
         val startPx = if (layoutDir == LayoutDirection.Rtl) right else left
         val endPx = if (layoutDir == LayoutDirection.Rtl) left else right
         val minCaptionH = (44f * density.fontScale.coerceIn(1f, 1.35f)).dp
-        with(density) { CaptionMetrics(max(minCaptionH, maxOf(capTop, statusTop).toDp()), startPx.toDp(), endPx.toDp()) }
+        with(density) {
+            CaptionMetrics(
+                height = max(minCaptionH, maxOf(capTop, statusTop).toDp()),
+                start = startPx.toDp(),
+                end = endPx.toDp(),
+                hasDesktopCaption = capTop > 0,
+            )
+        }
     }
 }
 
 @Composable
-fun TitleBar(vm: BrowserViewModel, s: AppState, onShowMenu: (androidx.compose.ui.geometry.Offset, List<MenuEntry>) -> Unit) {
-    val cap = rememberCaptionMetrics()
+fun TitleBar(
+    vm: BrowserViewModel,
+    s: AppState,
+    captionMetricsOverride: CaptionMetrics? = null,
+    onShowMenu: (androidx.compose.ui.geometry.Offset, List<MenuEntry>) -> Unit,
+) {
+    val cap = captionMetricsOverride ?: rememberCaptionMetrics()
     val cs = MaterialTheme.colorScheme
     Row(
         Modifier.fillMaxWidth().height(cap.height).background(cs.surfaceContainerHighest)
@@ -112,15 +132,19 @@ fun TitleBar(vm: BrowserViewModel, s: AppState, onShowMenu: (androidx.compose.ui
         verticalAlignment = Alignment.Bottom,
     ) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+            // Reserve a dedicated un-excluded drag-handle zone before the desktop window controls so opening
+            // 5+ tabs never lets the tab strip consume 100% of the caption bar and starve window dragging.
+            val dragReserve = if (cap.hasDesktopCaption) (maxWidth - 96.dp).coerceIn(0.dp, DESKTOP_CAPTION_DRAG_RESERVE) else 0.dp
+            val stripMaxWidth = (maxWidth - dragReserve).coerceAtLeast(0.dp)
             val addBtn = 40.dp
             val n = s.tabs.size
-            val tabW = ((maxWidth - addBtn - 8.dp) / n).coerceIn(52.dp, 220.dp)
+            val tabW = ((stripMaxWidth - addBtn - 8.dp) / n).coerceIn(52.dp, 220.dp)
             // Register the interactive tab strip and "+" button as a system-gesture exclusion rect
             // so Android desktop / Googlebook WM Shell treats clicks here as app header gestures
             // rather than pilfering primary mouse-down events for caption drag/maximize, while
             // leaving empty titlebar space to the right un-excluded for window drag-to-move.
             Row(
-                Modifier.systemGestureExclusion().fillMaxHeight().horizontalScroll(rememberScrollState()).padding(top = 6.dp),
+                Modifier.widthIn(max = stripMaxWidth).systemGestureExclusion().fillMaxHeight().horizontalScroll(rememberScrollState()).padding(top = 6.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 s.tabs.forEach { tab ->

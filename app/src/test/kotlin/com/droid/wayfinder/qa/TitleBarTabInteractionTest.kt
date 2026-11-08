@@ -5,10 +5,12 @@ package com.droid.wayfinder.qa
 
 import android.view.View
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.click
-import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -17,8 +19,13 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.rightClick
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.droid.wayfinder.ui.AppRoot
+import com.droid.wayfinder.ui.CaptionMetrics
+import com.droid.wayfinder.ui.DESKTOP_CAPTION_DRAG_RESERVE
+import com.droid.wayfinder.ui.TitleBar
 import com.droid.wayfinder.ui.theme.WayfinderTheme
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -110,6 +117,49 @@ class TitleBarTabInteractionTest {
         assertTrue(
             "Scrollable tab strip exclusion rect (${rectsMany.first().right}) must not exceed window width (${view.width})",
             rectsMany.first().right <= view.width,
+        )
+    }
+
+    @Test
+    fun desktopCaptionReservesUnexcludedWindowDragHandleEvenWithManyTabs() {
+        val harness = VmHarness().also { h = it }
+        val folder = harness.dir("DragReserveTab")
+        harness.navigate(folder.path)
+        repeat(14) { harness.vm.newTab(folder.path) }
+        harness.settle()
+
+        var composeView: View? = null
+        var density: Density? = null
+        val desktopCaption = CaptionMetrics(
+            height = 48.dp,
+            start = 0.dp,
+            end = 140.dp,
+            hasDesktopCaption = true,
+        )
+
+        rule.setContent {
+            composeView = LocalView.current
+            density = LocalDensity.current
+            val s by harness.vm.state.collectAsState()
+            WayfinderTheme(false) {
+                TitleBar(
+                    vm = harness.vm,
+                    s = s,
+                    captionMetricsOverride = desktopCaption,
+                    onShowMenu = { _, _ -> },
+                )
+            }
+        }
+        rule.waitForIdle()
+
+        val view = composeView!!
+        val d = density!!
+        val rects = view.systemGestureExclusionRects
+        assertTrue("Expected non-empty exclusion rects", rects.isNotEmpty())
+        val maxAllowedRight = view.width - with(d) { (desktopCaption.end + DESKTOP_CAPTION_DRAG_RESERVE).roundToPx() }
+        assertTrue(
+            "With 15 tabs open, exclusion rect right (${rects.first().right}) must leave >= 48dp un-excluded drag zone before caption controls (maxAllowedRight=$maxAllowedRight, viewWidth=${view.width})",
+            rects.first().right <= maxAllowedRight + 2,
         )
     }
 }
