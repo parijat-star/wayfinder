@@ -76,6 +76,7 @@ import com.droid.wayfinder.R
 import com.droid.wayfinder.data.ColorTag
 import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FsPath
+import com.droid.wayfinder.data.RemoteUri
 import com.droid.wayfinder.data.ViewMode
 
 sealed interface MenuEntry {
@@ -292,7 +293,7 @@ fun sidebarMenu(vm: BrowserViewModel, s: AppState, path: String, pinned: Boolean
     }
     if (FsPath.isSmb(path) && FsPath.parseSmb(path).share == null) {
         add(MenuEntry.Divider)
-        add(item(vm.str(R.string.action_remove_server), Icons.Outlined.Close) { vm.forgetServer(FsPath.parseSmb(path).host) })
+        add(item(vm.str(R.string.action_remove_server), Icons.Outlined.Close) { vm.forgetServer(RemoteUri.credKeyOf(path) ?: FsPath.parseSmb(path).host) })
     }
 }
 

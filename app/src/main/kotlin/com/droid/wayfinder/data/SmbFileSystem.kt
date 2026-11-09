@@ -15,6 +15,7 @@ import com.hierynomus.smbj.SmbConfig
 import com.hierynomus.smbj.auth.AuthenticationContext
 import com.hierynomus.smbj.auth.Authenticator
 import com.hierynomus.smbj.auth.NtlmAuthenticator
+import com.hierynomus.smbj.common.SMBRuntimeException
 import com.hierynomus.smbj.connection.Connection
 import com.hierynomus.smbj.session.Session
 import com.hierynomus.smbj.share.DiskShare
@@ -43,7 +44,7 @@ class SmbFileSystem(
     private val client: SMBClient = SMBClient(
         SmbConfig.builder()
             .withTimeout(20, TimeUnit.SECONDS)
-            .withSoTimeout(60, TimeUnit.SECONDS)
+            // Keep smbj's default soTimeout = 0 so DirectTcpTransport's background reader thread does not drop idle mounts after 60s.
             .withMultiProtocolNegotiate(true)
             // Kerberos/SPNEGO depend on JDK classes missing on Android; NTLM is what home/office shares use.
             .withAuthenticators(listOf<Factory.Named<Authenticator>>(NtlmAuthenticator.Factory()))
@@ -104,7 +105,10 @@ class SmbFileSystem(
     @Synchronized
     private fun drop(host: String) {
         shares.keys.filter { it.startsWith("$host/") }.forEach { runCatching { shares.remove(it)?.close() } }
-        runCatching { sessions.remove(host)?.close() }
+        val s = sessions.remove(host)
+        val conn = runCatching { s?.connection }.getOrNull()
+        runCatching { s?.close() }
+        runCatching { conn?.close(true) }
     }
 
     @Synchronized
@@ -127,20 +131,28 @@ class SmbFileSystem(
     private fun <T> withShare(path: String, block: (DiskShare, SmbPath) -> T): T {
         val p = FsPath.parseSmb(path)
         require(p.share != null) { "No share in $path" }
+        fun retryReconnect(): T {
+            drop(p.host)
+            return try {
+                block(share(p), p)
+            } catch (e2: SMBApiException) {
+                throw IOException(describe(e2), e2)
+            } catch (e2: SMBRuntimeException) {
+                throw IOException(e2.cause?.message ?: e2.message ?: "SMB transport error", e2)
+            }
+        }
         try {
             return block(share(p), p)
         } catch (e: SmbAuthException) {
             throw e
         } catch (e: SMBApiException) {
             throw IOException(describe(e), e)
+        } catch (e: SMBRuntimeException) {
+            // smbj wraps TransportException / Broken pipe in SMBRuntimeException.
+            return retryReconnect()
         } catch (e: IOException) {
             // Connection may have gone stale: reconnect once.
-            drop(p.host)
-            return try {
-                block(share(p), p)
-            } catch (e2: SMBApiException) {
-                throw IOException(describe(e2), e2)
-            }
+            return retryReconnect()
         }
     }
 

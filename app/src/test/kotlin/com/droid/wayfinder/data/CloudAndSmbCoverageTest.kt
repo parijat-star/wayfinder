@@ -26,9 +26,11 @@ import com.hierynomus.mssmb2.SMB2FileId
 import com.hierynomus.mssmb2.SMB2MessageCommandCode
 import com.hierynomus.mssmb2.SMB2ShareAccess
 import com.hierynomus.mssmb2.SMBApiException
+import com.hierynomus.protocol.transport.TransportException
 import com.hierynomus.smbj.SMBClient
 import com.hierynomus.smbj.SmbConfig
 import com.hierynomus.smbj.auth.AuthenticationContext
+import com.hierynomus.smbj.common.SMBRuntimeException
 import com.hierynomus.smbj.common.SmbPath as SmbjPath
 import com.hierynomus.smbj.connection.Connection
 import com.hierynomus.smbj.connection.ConnectionContext
@@ -237,7 +239,9 @@ class CloudAndSmbCoverageTest {
     private class FakeSmbContext {
         var connected = true
         var failNextListWithIo = false
+        var failNextListWithSmbRuntime = false
         var failAuthWithSmbApi = false
+        var forceClosedConnections = 0
         val files = mutableMapOf(
             "docs\\readme.txt" to "hello smb".toByteArray(),
         )
@@ -262,9 +266,14 @@ class CloudAndSmbCoverageTest {
         }
 
         fun createConnection(): Connection = object : Connection(config, client, bus, ServerList()) {
-            override fun isConnected(): Boolean = connected
+            private var open = true
+            override fun isConnected(): Boolean = connected && open
             override fun close() {
-                connected = false
+                open = false
+            }
+            override fun close(force: Boolean) {
+                open = false
+                if (force) forceClosedConnections++
             }
             override fun authenticate(authContext: AuthenticationContext?): Session {
                 if (failAuthWithSmbApi) {
@@ -302,6 +311,10 @@ class CloudAndSmbCoverageTest {
                     if (failNextListWithIo) {
                         failNextListWithIo = false
                         throw IOException("Broken pipe")
+                    }
+                    if (failNextListWithSmbRuntime) {
+                        failNextListWithSmbRuntime = false
+                        throw SMBRuntimeException(TransportException("Broken pipe"))
                     }
                     val ctor = FileIdBothDirectoryInformation::class.java.declaredConstructors.first().apply { isAccessible = true }
                     val now = FileTime.ofEpochMillis(1700000000000L)
@@ -427,7 +440,7 @@ class CloudAndSmbCoverageTest {
         }
         fake.shareListError = null
 
-        // list directory with automatic reconnect on transient IOException
+        // list directory with automatic reconnect on transient IOException and SMBRuntimeException(TransportException)
         fake.failNextListWithIo = true
         val entries = fs.list("smb://nas.local/Public")
         assertEquals(2, entries.size)
@@ -435,6 +448,12 @@ class CloudAndSmbCoverageTest {
         assertTrue(entries[0].isDir)
         assertEquals(".hidden.txt", entries[1].name)
         assertTrue(entries[1].isHidden)
+
+        val closedBeforeRuntimeRetry = fake.forceClosedConnections
+        fake.failNextListWithSmbRuntime = true
+        val entriesAfterRuntimeDrop = fs.list("smb://nas.local/Public")
+        assertEquals(2, entriesAfterRuntimeDrop.size)
+        assertEquals(closedBeforeRuntimeRetry + 1, fake.forceClosedConnections)
 
         // stat server root, share root, existing folder, existing file, missing file
         assertTrue(fs.stat("smb://nas.local")!!.isServer)
