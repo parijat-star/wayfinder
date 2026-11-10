@@ -66,14 +66,21 @@ class MainActivity : ComponentActivity() {
             coil3.ImageLoader.Builder(ctx).components { add(coil3.video.VideoFrameDecoder.Factory()) }.build()
         }
         enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
         SharedUi.init(this)
         setContent {
             // Light / Dark / System setting (shared by all windows) drives both the theme and the caption bar.
             val mode by SharedUi.theme.collectAsState()
+            val hideStatusBar by SharedUi.hideStatusBar.collectAsState()
             val systemDark = isSystemInDarkTheme()
             val dark = when (mode) { ThemeMode.System -> systemDark; ThemeMode.Light -> false; ThemeMode.Dark -> true }
             // Draw our tab strip into the desktop-mode caption bar instead of a separate system title bar.
             SideEffect {
+                applyStatusBarVisibility(hideStatusBar)
                 window.insetsController?.setSystemBarsAppearance(
                     if (dark) 0 else WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
                     WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
@@ -94,6 +101,7 @@ class MainActivity : ComponentActivity() {
                 var granted by remember { mutableStateOf(hasAccess()) }
                 LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
                     granted = hasAccess()
+                    applyStatusBarVisibility(SharedUi.hideStatusBar.value)
                     vmOrNull?.refreshAll()
                 }
                 if (granted) {
@@ -159,6 +167,27 @@ class MainActivity : ComponentActivity() {
             }
         } catch (_: Exception) {
             intent = Intent(i.action)
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            applyStatusBarVisibility(SharedUi.hideStatusBar.value)
+        }
+    }
+
+    internal fun applyStatusBarVisibility(hide: Boolean) {
+        val hasDesktopCaption = window.decorView.rootWindowInsets
+            ?.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.captionBar())
+            ?.top?.let { it > 0 } == true
+        val controller = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        controller.systemBarsBehavior =
+            androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (hide && !hasDesktopCaption) {
+            controller.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+        } else {
+            controller.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
         }
     }
 

@@ -308,4 +308,13 @@
     <string name="op_renaming" description="Progress banner title while renaming items. [CHAR_LIMIT=20]">Renaming</string>
     <string name="op_importing" description="Progress banner title while importing dragged external files. [CHAR_LIMIT=25]">Importing</string>
     <string name="phone_privilege_note" description="Note shown on the Phone screen explaining that Wayfinder does not have system privileges to directly mount companion phones. [CHAR_LIMIT=140]">Please note: Wayfinder lacks necessary system privileges to directly mount companion phones.</string>
+    <string name="menu_status_bar" description="Overflow menu toggle item to show or hide the bottom item-count status bar. [CHAR_LIMIT=25]">Status bar</string>
+    <string name="palette_toggle_app_status_bar" description="Command palette action title to toggle the bottom item-count status bar. [CHAR_LIMIT=35]">Toggle status bar</string>
+    <string name="palette_app_status_bar_desc" description="Subtitle description for the bottom item-count status bar command in the command palette. [CHAR_LIMIT=60]">Show or hide the bottom item-count bar</string>
+    <string name="menu_hide_status_bar" description="Overflow menu toggle item to hide the Android system status bar in fullscreen windows. [CHAR_LIMIT=35]">Hide system status bar</string>
+    <string name="palette_hide_status_bar" description="Command palette action title to hide the Android system status bar. [CHAR_LIMIT=35]">Hide system status bar</string>
+    <string name="palette_show_status_bar" description="Command palette action title to restore the Android system status bar when hidden. [CHAR_LIMIT=35]">Show system status bar</string>
+    <string name="palette_status_bar_desc" description="Subtitle description for the Android system status bar visibility command in the command palette. [CHAR_LIMIT=65]">Toggle Android system status bar visibility</string>
+    <string name="toast_status_bar_hidden" description="Toast notification shown when hiding the Android system status bar. [CHAR_LIMIT=40]">System status bar hidden</string>
+    <string name="toast_status_bar_shown" description="Toast notification shown when showing the Android system status bar. [CHAR_LIMIT=40]">System status bar shown</string>
 </resources>

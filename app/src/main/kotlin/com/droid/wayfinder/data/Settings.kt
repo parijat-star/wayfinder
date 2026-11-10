@@ -78,6 +78,16 @@ class Settings(context: Context) {
         get() = p.getBoolean("permsColumn", false)
         set(v) = p.edit().putBoolean("permsColumn", v).apply()
 
+    /** Whether to show Wayfinder's bottom item-count status bar inside the file pane. */
+    var statusBarVisible: Boolean
+        get() = p.getBoolean("statusBar", true)
+        set(v) = p.edit().putBoolean("statusBar", v).apply()
+
+    /** Whether to hide the Android system status bar across fullscreen Wayfinder windows. */
+    var hideStatusBar: Boolean
+        get() = p.getBoolean("hideStatusBar", false)
+        set(v) = p.edit().putBoolean("hideStatusBar", v).apply()
+
     /** Mounted document trees (cloud drives, USB, ...), see [SafMount.serialize]. */
     var safMounts: List<SafMount>
         get() = SafMount.parse(p.getString("safMounts", null))

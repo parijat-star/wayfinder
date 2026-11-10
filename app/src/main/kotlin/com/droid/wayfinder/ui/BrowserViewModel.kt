@@ -222,7 +222,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             sidebarVisible = settings.sidebarVisible, previewVisible = settings.previewVisible,
             sidebarWidth = settings.sidebarWidth, gridSize = settings.gridSize,
             marks = SharedUi.marks.value, zoom = settings.zoom.coerceIn(0.7f, 1.6f), theme = SharedUi.theme.value,
-            tagsColumn = settings.tagsColumn, permsColumn = settings.permsColumn, secondaryWindow = secondaryWindow,
+            tagsColumn = settings.tagsColumn, permsColumn = settings.permsColumn,
+            statusBarVisible = settings.statusBarVisible,
+            hideStatusBar = SharedUi.hideStatusBar.value,
+            secondaryWindow = secondaryWindow,
             picker = picker,
             createFileName = picker?.suggestedName.orEmpty(),
             driveAccounts = initialDrive,
@@ -257,6 +260,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             }
         }
         viewModelScope.launch { SharedUi.theme.collect { t -> _state.update { it.copy(theme = t) } } }
+        viewModelScope.launch { SharedUi.hideStatusBar.collect { h -> _state.update { it.copy(hideStatusBar = h) } } }
 
         PhoneDetector.warmConnectedClassicProfiles(app) { refreshPhoneStatus() }
         refreshPhoneStatus()
@@ -1366,6 +1370,18 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun toggleTagsColumn() { val v = !_state.value.tagsColumn; settings.tagsColumn = v; _state.update { it.copy(tagsColumn = v) } }
     fun togglePermsColumn() { val v = !_state.value.permsColumn; settings.permsColumn = v; _state.update { it.copy(permsColumn = v) } }
+
+    fun toggleStatusBar() {
+        val next = !_state.value.statusBarVisible
+        settings.statusBarVisible = next
+        _state.update { it.copy(statusBarVisible = next) }
+    }
+
+    fun toggleHideStatusBar() {
+        val next = !_state.value.hideStatusBar
+        SharedUi.setHideStatusBar(next)
+        toast(str(if (next) com.droid.wayfinder.R.string.toast_status_bar_hidden else com.droid.wayfinder.R.string.toast_status_bar_shown))
+    }
 
     /** Ctrl+N / "Open in new window". */
     fun newWindow(path: String? = null) = emit(UiEvent.NewWindow(path ?: FsPath.RECENTS_ROOT))

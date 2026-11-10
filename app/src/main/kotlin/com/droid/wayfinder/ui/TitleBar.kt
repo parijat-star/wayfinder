@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.captionBar
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -58,6 +59,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -70,8 +72,33 @@ data class CaptionMetrics(
     val height: Dp,
     val start: Dp,
     val end: Dp,
+    val topInset: Dp = 0.dp,
     val hasDesktopCaption: Boolean = false,
 )
+
+internal fun computeCaptionMetrics(
+    capTopPx: Int,
+    statusTopPx: Int,
+    cutoutTopPx: Int = 0,
+    startPx: Int,
+    endPx: Int,
+    density: Density,
+): CaptionMetrics = with(density) {
+    val minCaptionH = (44f * density.fontScale.coerceIn(1f, 1.35f)).dp
+    // When no desktop caption bar is active (e.g. phone/tablet fullscreen with DeX disabled) and the
+    // system status bar is visible, reserve max(statusTopPx, cutoutTopPx) above the tab strip so clock,
+    // notification icons, and top camera cutouts never overlap the tabs. When statusBars are hidden
+    // (statusTopPx == 0), topInset collapses to 0.dp so the tab strip reclaims the top edge.
+    val topInset = if (capTopPx == 0 && statusTopPx > 0) maxOf(statusTopPx, cutoutTopPx).toDp() else 0.dp
+    val height = if (capTopPx == 0 && statusTopPx > 0) topInset + minCaptionH else max(minCaptionH, capTopPx.toDp())
+    CaptionMetrics(
+        height = height,
+        start = startPx.toDp(),
+        end = endPx.toDp(),
+        topInset = topInset,
+        hasDesktopCaption = capTopPx > 0,
+    )
+}
 
 /**
  * Measures the system caption (title) bar so that our tab strip can live inside it, leaving room for
@@ -84,8 +111,9 @@ fun rememberCaptionMetrics(): CaptionMetrics {
     val layoutDir = LocalLayoutDirection.current
     val capTop = WindowInsets.captionBar.getTop(density)
     val statusTop = WindowInsets.statusBars.getTop(density)
+    val cutoutTop = WindowInsets.displayCutout.getTop(density)
     val widthPx = LocalWindowInfo.current.containerSize.width
-    return remember(capTop, statusTop, widthPx, layoutDir) {
+    return remember(capTop, statusTop, cutoutTop, widthPx, layoutDir) {
         var left = 0
         var right = 0
         if (capTop > 0) {
@@ -102,18 +130,20 @@ fun rememberCaptionMetrics(): CaptionMetrics {
                 val fallbackPx = with(density) { 140.dp.roundToPx() }
                 if (layoutDir == LayoutDirection.Rtl) left = fallbackPx else right = fallbackPx
             }
+        } else if (statusTop == 0 && widthPx > 0) {
+            // When the system status bar is hidden in fullscreen mode, clear any corner camera cutout
+            // horizontally so tabs on the top edge never overlap a left/right punch-hole.
+            val topBandPx = with(density) { 44.dp.roundToPx() }
+            val cutoutRects = view.rootWindowInsets?.displayCutout?.boundingRects.orEmpty()
+            for (r in cutoutRects) {
+                if (r.isEmpty || r.top >= topBandPx) continue
+                if (r.left < widthPx * 0.25f) left = maxOf(left, r.right)
+                else if (r.right > widthPx * 0.75f) right = maxOf(right, widthPx - r.left)
+            }
         }
         val startPx = if (layoutDir == LayoutDirection.Rtl) right else left
         val endPx = if (layoutDir == LayoutDirection.Rtl) left else right
-        val minCaptionH = (44f * density.fontScale.coerceIn(1f, 1.35f)).dp
-        with(density) {
-            CaptionMetrics(
-                height = max(minCaptionH, maxOf(capTop, statusTop).toDp()),
-                start = startPx.toDp(),
-                end = endPx.toDp(),
-                hasDesktopCaption = capTop > 0,
-            )
-        }
+        computeCaptionMetrics(capTop, statusTop, cutoutTop, startPx, endPx, density)
     }
 }
 
@@ -128,7 +158,7 @@ fun TitleBar(
     val cs = MaterialTheme.colorScheme
     Row(
         Modifier.fillMaxWidth().height(cap.height).background(cs.surfaceContainerHighest)
-            .padding(start = maxOf(cap.start, 8.dp), end = cap.end),
+            .padding(top = cap.topInset, start = maxOf(cap.start, 8.dp), end = cap.end),
         verticalAlignment = Alignment.Bottom,
     ) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {

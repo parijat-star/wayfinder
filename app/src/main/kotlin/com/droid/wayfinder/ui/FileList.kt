@@ -144,8 +144,10 @@ fun ContentCard(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             } else {
                 Box(Modifier.weight(1f).fillMaxWidth()) { FolderView(vm, s, s.active, active = true) }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            StatusBar(vm, s)
+            if (s.statusBarVisible || s.ops.isNotEmpty()) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                StatusBar(vm, s)
+            }
         }
     }
 }
