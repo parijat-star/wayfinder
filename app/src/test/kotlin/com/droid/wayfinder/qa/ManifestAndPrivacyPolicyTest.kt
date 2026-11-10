@@ -53,6 +53,11 @@ class ManifestAndPrivacyPolicyTest {
                 .containsMatchIn(manifestText),
         )
         assertTrue(
+            "android.hardware.bluetooth must be marked android:required=\"false\" so Play Store device catalog does not require Bluetooth hardware",
+            Regex("""<uses-feature[^>]*android\.hardware\.bluetooth[^>]*android:required="false"""", RegexOption.DOT_MATCHES_ALL)
+                .containsMatchIn(manifestText),
+        )
+        assertTrue(
             "Manifest <queries> must include DocumentsUI visibility",
             manifestText.contains("com.google.android.documentsui") &&
                 manifestText.contains("android.intent.action.OPEN_DOCUMENT_TREE"),
