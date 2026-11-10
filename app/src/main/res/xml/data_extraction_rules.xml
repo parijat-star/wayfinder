@@ -8,6 +8,7 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="smb_servers.xml" />
+        <exclude domain="sharedpref" path="onedrive_accounts.xml" />
         <exclude domain="sharedpref" path="intent_guard.xml" />
         <exclude domain="sharedpref" path="settings.xml" />
         <exclude domain="file" path="." />
@@ -15,6 +16,7 @@
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="smb_servers.xml" />
+        <exclude domain="sharedpref" path="onedrive_accounts.xml" />
         <exclude domain="sharedpref" path="intent_guard.xml" />
         <exclude domain="sharedpref" path="settings.xml" />
         <exclude domain="file" path="." />

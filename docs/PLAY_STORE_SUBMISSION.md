@@ -138,7 +138,7 @@ QUICK LOOK & ARCHIVE BROWSING
 
 NETWORK, CLOUD & CONNECTED DEVICES
 • Network Shares: Connect directly to SMB2/SMB3 (NAS), WebDAV/WebDAVS, and FTP/FTPS servers with automatic local-network share discovery and hardware-backed Android Keystore password encryption.
-• Cloud & Removable Storage: Mount Google Drive and external document trees via Android's Storage Access Framework, browse USB-C SSDs and SD cards, and copy directly to the Linux development environment.
+• Cloud & Removable Storage: Native Microsoft OneDrive (Personal & Microsoft 365 via OAuth 2.0 PKCE + Microsoft Graph), Google Drive and external document trees via Android's Storage Access Framework, USB-C SSDs, SD cards, and direct Linux development environment transfers.
 • Paired Phone Quick Access: Quickly jump to connected phone folders, USB MTP storage, and incoming Quick Share downloads from the sidebar.
 
 FULL KEYBOARD, MOUSE & TRACKPAD PRECISION
@@ -154,13 +154,11 @@ PRIVATE & OPEN SOURCE BY DESIGN
 
 <!-- PLAY_RELEASE_NOTES_START -->
 ```text
-Initial 2.0 release of Wayfinder for Android desktop, Googlebooks, Chromebooks, and tablets:
-• Browser-style folder tabs in the desktop window title bar
-• Details, Grid, Miller Columns, and Dual-Pane Commander views
-• Spacebar Quick Look for images, PDFs, media, archives, and code
-• Native .zip, .tar, and .tar.gz archive browsing and compression
-• SMB2/3, WebDAV/S, FTP/S, Google Drive (SAF), USB/SD, and paired Phone support
-• Full keyboard shortcuts, marquee selection, and zero telemetry
+What's new in Wayfinder 2.3:
+• Native Microsoft OneDrive support for Personal & Microsoft 365 accounts (OAuth 2.0 PKCE & Device Code)
+• Full top-level OneDrive folder trees, live storage quota, Graph thumbnails, chunked large-file uploads, and Open in OneDrive Web
+• Hardware-backed AndroidKeyStore AES-256-GCM encryption for OneDrive tokens with cloud/transfer exclusions
+• Companion phone privilege guidance note and clean external APK open routing
 ```
 <!-- PLAY_RELEASE_NOTES_END -->
 

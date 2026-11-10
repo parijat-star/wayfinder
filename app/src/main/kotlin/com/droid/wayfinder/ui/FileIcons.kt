@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.outlined.TextSnippet
 import androidx.compose.material.icons.outlined.Android
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AudioFile
+import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Dns
@@ -109,6 +110,9 @@ fun pinIcon(path: String, isKnownFile: Boolean = false): ImageVector {
     if (isKnownFile) {
         return FileKind.fromName(com.droid.wayfinder.data.FsPath.name(path)).icon()
     }
+    if (com.droid.wayfinder.data.FsPath.isOneDrive(path) && com.droid.wayfinder.data.RemoteUri.relOf(path).isEmpty()) {
+        return Icons.Outlined.Cloud
+    }
     val name = path.substringAfterLast('/')
     return when (name.lowercase()) {
         "download", "downloads" -> Icons.Outlined.Download
@@ -188,5 +192,63 @@ fun GoogleDriveIcon(modifier: Modifier = Modifier) {
             close()
         }
         drawPath(pBlue, blue)
+    }
+}
+
+/**
+ * Two-tone Microsoft OneDrive cloud emblem (#0078D4 primary + #28A8EA foreground lobe) rendered via Canvas.
+ */
+@Composable
+fun OneDriveIcon(modifier: Modifier = Modifier) {
+    Canvas(
+        modifier = modifier
+            .defaultMinSize(minWidth = 20.dp, minHeight = 20.dp)
+            .semantics { contentDescription = "OneDrive" },
+    ) {
+        val w = size.width
+        val h = size.height
+        val deepBlue = Color(0xFF0078D4)
+        val skyBlue = Color(0xFF28A8EA)
+
+        // Back / upper cloud dome
+        drawCircle(
+            color = deepBlue,
+            radius = w * 0.27f,
+            center = androidx.compose.ui.geometry.Offset(w * 0.44f, h * 0.44f),
+        )
+        drawCircle(
+            color = deepBlue,
+            radius = w * 0.20f,
+            center = androidx.compose.ui.geometry.Offset(w * 0.23f, h * 0.56f),
+        )
+
+        // Foreground right lobe + flat cloud base
+        val base = Path().apply {
+            moveTo(w * 0.22f, h * 0.76f)
+            lineTo(w * 0.77f, h * 0.76f)
+            cubicTo(w * 0.91f, h * 0.76f, w * 0.96f, h * 0.64f, w * 0.94f, h * 0.54f)
+            cubicTo(w * 0.92f, h * 0.42f, w * 0.81f, h * 0.36f, w * 0.69f, h * 0.39f)
+            cubicTo(w * 0.58f, h * 0.42f, w * 0.49f, h * 0.52f, w * 0.44f, h * 0.61f)
+            lineTo(w * 0.22f, h * 0.61f)
+            close()
+        }
+        drawPath(base, skyBlue)
+        drawRoundRect(
+            color = deepBlue,
+            topLeft = androidx.compose.ui.geometry.Offset(w * 0.10f, h * 0.56f),
+            size = androidx.compose.ui.geometry.Size(w * 0.56f, h * 0.20f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(h * 0.10f, h * 0.10f),
+        )
+        drawCircle(
+            color = skyBlue,
+            radius = w * 0.21f,
+            center = androidx.compose.ui.geometry.Offset(w * 0.74f, h * 0.56f),
+        )
+        drawRoundRect(
+            color = skyBlue,
+            topLeft = androidx.compose.ui.geometry.Offset(w * 0.38f, h * 0.58f),
+            size = androidx.compose.ui.geometry.Size(w * 0.42f, h * 0.18f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(h * 0.09f, h * 0.09f),
+        )
     }
 }

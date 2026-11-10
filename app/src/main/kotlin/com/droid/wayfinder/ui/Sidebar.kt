@@ -80,6 +80,7 @@ private data class TreeRowData(
     val expanded: Boolean, val loading: Boolean, val expandable: Boolean,
     val subtitle: String? = null,
     val driveAccount: com.droid.wayfinder.data.DriveAccount? = null,
+    val oneDriveAccount: com.droid.wayfinder.data.OneDriveAccount? = null,
     val pairedPhone: com.droid.wayfinder.data.PairedPhone? = null,
 )
 
@@ -87,11 +88,12 @@ private fun flatten(
     path: String, label: String, icon: ImageVector, tint: Color?, depth: Int, s: AppState, out: MutableList<TreeRowData>,
     subtitle: String? = null,
     driveAccount: com.droid.wayfinder.data.DriveAccount? = null,
+    oneDriveAccount: com.droid.wayfinder.data.OneDriveAccount? = null,
     pairedPhone: com.droid.wayfinder.data.PairedPhone? = null,
 ) {
     val expanded = path in s.tree.expanded
     val kids = s.tree.children[path]
-    out += TreeRowData(path, label, icon, tint, depth, expanded, path in s.tree.loading, kids == null || kids.isNotEmpty(), subtitle, driveAccount, pairedPhone)
+    out += TreeRowData(path, label, icon, tint, depth, expanded, path in s.tree.loading, kids == null || kids.isNotEmpty(), subtitle, driveAccount, oneDriveAccount, pairedPhone)
     if (expanded && kids != null) {
         kids.filter { s.showHidden || !it.isHidden }.forEach {
             flatten(it.path, it.name, if (it.isShare) Icons.Outlined.FolderShared else Icons.Outlined.Folder, null, depth + 1, s, out)
@@ -118,6 +120,23 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                 } else {
                     add(TreeRowData(rootPath, acc.title, Icons.Outlined.Cloud, null, 0, false, false, false, acc.email, driveAccount = acc))
                 }
+            }
+        }
+    }
+    val oneDriveRows = remember(s.oneDriveAccounts, s.tree, s.showHidden) {
+        buildList {
+            s.oneDriveAccounts.forEach { acc ->
+                flatten(
+                    acc.rootPath,
+                    acc.sidebarTitle,
+                    Icons.Outlined.Cloud,
+                    null,
+                    0,
+                    s,
+                    this,
+                    acc.sidebarSubtitle,
+                    oneDriveAccount = acc,
+                )
             }
         }
     }
@@ -291,6 +310,33 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                 TreeItem(vm, s, r, activePath, menu, mount = mount)
             }
         }
+
+        // Microsoft OneDrive (Personal + Microsoft 365) via Graph v1.0
+        item { Divider() }
+        item {
+            val addOneDriveDesc = stringResource(R.string.onedrive_add_account)
+            SectionTitle(stringResource(R.string.onedrive_section), trailing = {
+                HeaderAction(Icons.Outlined.Add, addOneDriveDesc) { vm.showConnectOneDriveDialog() }
+            })
+        }
+        if (oneDriveRows.isEmpty()) {
+            item(key = "onedrive_empty") {
+                SidebarItem(
+                    label = stringResource(R.string.onedrive_sign_in_prompt),
+                    icon = Icons.Outlined.Cloud,
+                    depth = 0,
+                    selected = false,
+                    dropPath = null,
+                    subtitle = stringResource(R.string.onedrive_sign_in_subtitle),
+                    iconComposable = { OneDriveIcon(Modifier.size(20.dp)) },
+                    onClick = { vm.showConnectOneDriveDialog() },
+                )
+            }
+        } else {
+            items(oneDriveRows, key = { "onedrive${it.depth}${it.path}" }) { r ->
+                TreeItem(vm, s, r, activePath, menu)
+            }
+        }
         item { Divider() }
         item {
             SectionTitle(stringResource(R.string.network_and_cloud_section), trailing = {
@@ -343,11 +389,14 @@ private fun HeaderAction(icon: ImageVector, desc: String, onClick: () -> Unit) {
 @Composable
 private fun TreeItem(vm: BrowserViewModel, s: AppState, r: TreeRowData, activePath: String, menu: MenuController, mount: Mount? = null) {
     val driveAcc = r.driveAccount
+    val oneDriveAcc = r.oneDriveAccount
     val phone = r.pairedPhone
     val selected = when {
         driveAcc != null && !r.expanded ->
             (driveAcc.mountPath != null && (driveAcc.mountPath == activePath || FsPath.isWithin(driveAcc.mountPath, activePath))) ||
                 activePath.startsWith("gdrive://${driveAcc.email}")
+        oneDriveAcc != null && !r.expanded ->
+            activePath == oneDriveAcc.rootPath || FsPath.isWithin(oneDriveAcc.rootPath, activePath)
         phone != null && !r.expanded ->
             activePath == phone.path || FsPath.isWithin(phone.path, activePath) || activePath == FsPath.PHONE_ROOT
         else -> r.path == activePath
@@ -356,11 +405,18 @@ private fun TreeItem(vm: BrowserViewModel, s: AppState, r: TreeRowData, activePa
         label = r.label, icon = r.icon, depth = r.depth, selected = selected,
         dropPath = r.path.takeIf { !FsPath.isVirtual(it) && (!FsPath.isSmb(it) || FsPath.parseSmb(it).share != null) },
         subtitle = r.subtitle,
-        iconComposable = if (driveAcc != null) ({ GoogleDriveIcon(Modifier.size(20.dp)) }) else null,
+        iconComposable = when {
+            driveAcc != null -> ({ GoogleDriveIcon(Modifier.size(20.dp)) })
+            oneDriveAcc != null -> ({ OneDriveIcon(Modifier.size(20.dp)) })
+            else -> null
+        },
         expandable = r.expandable, expanded = r.expanded, loading = r.loading, onToggle = { vm.toggleTree(r.path) },
         trailing = when {
             driveAcc != null && driveAcc.isMounted && mount != null -> ({
                 HeaderAction(Icons.Outlined.Eject, "Unmount ${driveAcc.email}") { vm.eject(mount) }
+            })
+            oneDriveAcc != null -> ({
+                HeaderAction(Icons.Outlined.Eject, "Sign out ${oneDriveAcc.email}") { vm.signOutOneDrive(oneDriveAcc.accountId) }
             })
             phone != null && phone.isMounted && mount != null -> ({
                 HeaderAction(Icons.Outlined.Eject, "Unmount ${phone.name}") { vm.eject(mount) }
@@ -372,6 +428,7 @@ private fun TreeItem(vm: BrowserViewModel, s: AppState, r: TreeRowData, activePa
         onClick = {
             when {
                 driveAcc != null -> vm.openDriveAccount(driveAcc)
+                oneDriveAcc != null -> vm.navigate(oneDriveAcc.rootPath)
                 phone != null -> vm.openPairedPhone(phone)
                 else -> vm.navigate(r.path)
             }
@@ -379,6 +436,7 @@ private fun TreeItem(vm: BrowserViewModel, s: AppState, r: TreeRowData, activePa
         onMiddle = {
             when {
                 driveAcc != null -> driveAcc.mountPath?.let { vm.newTab(it, activate = false) }
+                oneDriveAcc != null -> vm.newTab(oneDriveAcc.rootPath, activate = false)
                 phone != null -> vm.newTab(phone.path, activate = false)
                 else -> vm.newTab(r.path, activate = false)
             }
@@ -386,6 +444,7 @@ private fun TreeItem(vm: BrowserViewModel, s: AppState, r: TreeRowData, activePa
         onSecondary = {
             when {
                 driveAcc != null -> menu.show(it, driveAccountMenu(vm, driveAcc, mount))
+                oneDriveAcc != null -> menu.show(it, oneDriveAccountMenu(vm, oneDriveAcc))
                 phone != null -> menu.show(it, phoneMenu(vm, phone, mount))
                 else -> {
                     val base = sidebarMenu(vm, s, r.path, r.path in s.pins)

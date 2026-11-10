@@ -172,6 +172,17 @@ fun AppRoot(vm: BrowserViewModel) {
                     snackbar.showSnackbar("${e.what} copied", duration = SnackbarDuration.Short)
                 }
                 is UiEvent.NewWindow -> openNewWindow(ctx, e.path)
+                is UiEvent.OpenExternalUrl -> {
+                    val uri = runCatching { android.net.Uri.parse(e.url) }.getOrNull()
+                    val scheme = uri?.scheme?.lowercase()
+                    if (uri != null && (scheme == "https" || scheme == "http")) {
+                        try {
+                            ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        } catch (_: Exception) {
+                            snackbar.showSnackbar("No browser available to open ${e.url}", duration = SnackbarDuration.Short)
+                        }
+                    }
+                }
                 UiEvent.RequestBluetoothPermission -> if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                     bluetoothPermissionLauncher.launch(android.Manifest.permission.BLUETOOTH_CONNECT)
                 } else {

@@ -322,4 +322,26 @@
     <string name="nav_drawer_label" description="Accessibility container label for the compact modal navigation sidebar drawer. [CHAR_LIMIT=30]">Navigation drawer</string>
     <string name="action_close_search" description="Accessibility label for the compact toolbar back button that closes the expanded search field. [CHAR_LIMIT=25]">Close search</string>
     <string name="drawer_app_title" description="Short application title displayed in the header of the compact modal navigation drawer. [CHAR_LIMIT=20]">Wayfinder</string>
+
+    <!-- Microsoft OneDrive integration -->
+    <string name="onedrive_section" description="Section header in the left navigation sidebar above connected Microsoft OneDrive accounts. [CHAR_LIMIT=25]">OneDrive</string>
+    <string name="onedrive_add_account" description="Accessibility label and context menu item to connect a Microsoft OneDrive account. [CHAR_LIMIT=40]">Add Microsoft OneDrive account</string>
+    <string name="onedrive_sign_in_prompt" description="Empty-state row label in the OneDrive sidebar section prompting the user to sign in. [CHAR_LIMIT=35]">Sign in to OneDrive…</string>
+    <string name="onedrive_sign_in_subtitle" description="Subtitle under the Sign in to OneDrive sidebar item describing supported account types. [CHAR_LIMIT=55]">Personal (@outlook.com) or Work / School</string>
+    <string name="onedrive_dialog_title" description="Modal dialog title when connecting or re-authenticating a Microsoft OneDrive account. [CHAR_LIMIT=40]">Connect Microsoft OneDrive</string>
+    <string name="onedrive_dialog_subtitle" description="Subtitle in the Connect Microsoft OneDrive dialog listing supported personal and M365 accounts. [CHAR_LIMIT=80]">Personal (@outlook.com / @live.com) or Work / School (Microsoft 365)</string>
+    <string name="onedrive_tab_browser" description="Mode chip label in Connect OneDrive dialog for OAuth 2.0 PKCE system browser sign-in. [CHAR_LIMIT=40]">Browser Sign-In (Recommended)</string>
+    <string name="onedrive_tab_device_code" description="Mode chip label in Connect OneDrive dialog for OAuth 2.0 Device Code sign-in on another device. [CHAR_LIMIT=35]">Sign In on Phone / Code</string>
+    <string name="onedrive_label_optional" description="Text field label in Connect OneDrive dialog for an optional custom sidebar display name. [CHAR_LIMIT=35]">Sidebar Label (optional)</string>
+    <string name="onedrive_client_id_label" description="Text field label in Connect OneDrive dialog for the Microsoft Entra public client application UUID. [CHAR_LIMIT=40]">Entra Application (Client) ID</string>
+    <string name="onedrive_action_sign_in_browser" description="Primary button label in Connect OneDrive dialog to start OAuth 2.0 browser sign-in. [CHAR_LIMIT=30]">Sign in with Microsoft</string>
+    <string name="onedrive_action_start_device_code" description="Primary button label in Connect OneDrive dialog to generate a Device Code for phone/laptop sign-in. [CHAR_LIMIT=30]">Get Sign-In Code</string>
+    <string name="onedrive_action_open_web" description="Context menu action on OneDrive files and folders to open the item in OneDrive on the web. [CHAR_LIMIT=35]">Open in OneDrive Web</string>
+    <string name="onedrive_action_refresh_quota" description="Sidebar context menu action on a connected OneDrive account to refresh its used and total storage quota. [CHAR_LIMIT=35]">Refresh storage quota</string>
+    <string name="onedrive_action_sign_out" description="Sidebar context menu action to sign out and disconnect a Microsoft OneDrive account. [CHAR_LIMIT=35]">Sign out of OneDrive</string>
+    <string name="palette_connect_onedrive" description="Command palette command title to open the Connect Microsoft OneDrive dialog. [CHAR_LIMIT=40]">Connect Microsoft OneDrive…</string>
+    <string name="palette_connect_onedrive_desc" description="Command palette subtitle describing the Connect Microsoft OneDrive command. [CHAR_LIMIT=65]">Mount a Personal or Microsoft 365 OneDrive account</string>
+    <string name="palette_kind_onedrive" description="Category badge in command palette folder jump entries for connected OneDrive roots. [CHAR_LIMIT=20]">OneDrive</string>
+    <string name="toast_onedrive_connected" description="Toast notification shown after connecting a Microsoft OneDrive account. %1$s is the account email or label. [CHAR_LIMIT=50]">Connected %1$s</string>
+    <string name="toast_onedrive_signed_out" description="Toast notification shown after signing out of a Microsoft OneDrive account. %1$s is the account email or label. [CHAR_LIMIT=50]">Signed out of %1$s</string>
 </resources>

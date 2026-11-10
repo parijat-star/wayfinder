@@ -104,6 +104,11 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         FilledTonalButton({ vm.openSelection() }, contentPadding = btnPadding) { Text("Open", maxLines = 1, softWrap = false) }
+                        if (FsPath.isOneDrive(e.path)) {
+                            FilledTonalButton({ vm.openInOneDriveWeb(e.path) }, contentPadding = btnPadding) {
+                                Text(stringResource(R.string.onedrive_action_open_web), maxLines = 1, softWrap = false)
+                            }
+                        }
                         if (FsPath.isLocalFile(e.path) && !e.isDir) FilledTonalButton({ vm.share() }, contentPadding = btnPadding) { Text("Share", maxLines = 1, softWrap = false) }
                         if (!e.isServer && !e.isShare && !FsPath.isZip(e.path) && !FsPath.isVirtual(e.path)) {
                             val pinned = e.path in s.pins

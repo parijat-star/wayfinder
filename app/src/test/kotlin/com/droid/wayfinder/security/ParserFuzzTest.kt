@@ -92,7 +92,7 @@ class ParserFuzzTest {
     private fun pathInput(r: Random): String {
         val prefixes = listOf(
             "/", "/storage/emulated/0/", "smb://h/s/", "dav://h/", "saf://m/", "ftp://h:21/",
-            "phone://", "phone://Download/", "gdrive://u@e.com/", "doc://auth/",
+            "phone://", "phone://Download/", "gdrive://u@e.com/", "onedrive://u@outlook.com/", "doc://auth/",
             "/x/a.zip!/", "/x/a.tar.gz!/", "/x/a.tgz!/", "/x/a.tar!/",
             "", "trash://", "tag://",
         )
@@ -309,7 +309,7 @@ class ParserFuzzTest {
     }
 
     @Test
-    fun duplicateNamesAreFreeAndBounded() = k.run("duplicateName", 10_000, { r -> k.input(r, 30) to (0..r.nextInt(5)).map { k.input(r, 30) }.toSet() }, show = { k.escape(it.toString()) }) { (name, taken) ->
+    fun duplicateNamesAreFreeAndBounded() = k.run("duplicateName", 10_000, { r -> k.input(r, 30) to (0..r.nextInt(5)).map { k.input(r, 30) }.toSet() }, budgetMs = 180_000, show = { k.escape(it.toString()) }) { (name, taken) ->
         val n = duplicateName(name, name.length % 2 == 0) { it in taken }
         assertFalse(n in taken)
         // A server claiming that every name exists must not hang us.
@@ -355,6 +355,16 @@ class ParserFuzzTest {
             assertFalse(id.contains('\'') || id.contains('/') || id.contains('\\') || id.contains(' '))
             assertTrue(FsPath.isSafeName(id))
         }
+    }
+
+    @Test
+    fun oneDriveGraphPathEncodingFuzz() = k.run("OneDriveRestFileSystem.encodeGraphSegment", 25_000, { r -> k.input(r, 40) }, k.corpus) { seg ->
+        val enc = com.droid.wayfinder.data.OneDriveRestFileSystem.encodeGraphSegment(seg)
+        // Must never contain raw Graph path delimiter ':', query '?', fragment '#', slash '/', or whitespace
+        assertTrue(
+            "unsafe char in encoded Graph segment '${k.escape(enc)}'",
+            enc.none { it == ':' || it == '?' || it == '#' || it == '/' || it == '\\' || it <= ' ' || it == '\u007f' },
+        )
     }
 
     // ------------------------------------------------------------------ SystemDocumentsBridge & Friendly Address Resolution

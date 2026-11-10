@@ -61,9 +61,11 @@ data class ServerAddress(
 object RemoteUri {
     const val SAF_SCHEME = "saf"
     const val GDRIVE_SCHEME = "gdrive"
+    const val ONEDRIVE_SCHEME = "onedrive"
     const val DOC_SCHEME = "doc"
     const val PHONE_SCHEME = "phone"
-    private val schemes = Protocol.entries.map { it.scheme } + SAF_SCHEME + GDRIVE_SCHEME + DOC_SCHEME + PHONE_SCHEME
+    private val schemes =
+        Protocol.entries.map { it.scheme } + SAF_SCHEME + GDRIVE_SCHEME + ONEDRIVE_SCHEME + DOC_SCHEME + PHONE_SCHEME
 
     /** Scheme of a remote path (`smb`, `dav`, `davs`, `ftp`, `ftps`, `saf`), or null for local/virtual paths. */
     fun schemeOf(p: String): String? {

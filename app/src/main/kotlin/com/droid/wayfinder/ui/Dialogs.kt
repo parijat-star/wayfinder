@@ -102,6 +102,7 @@ fun Dialogs(vm: BrowserViewModel, s: AppState) {
         )
         is Dialog.Properties -> PropertiesDialog(d, s, vm::dismissDialog) { text, what -> vm.copyValue(text, what) }
         is Dialog.Connect -> ConnectDialog(vm, d.initial, s.savedServers, vm::dismissDialog)
+        is Dialog.ConnectOneDrive -> ConnectOneDriveDialog(vm, s, d.reauthAccountId)
         is Dialog.SmbAuth -> SmbDialog(
             stringResource(R.string.dialog_smb_sign_in_title, d.host), stringResource(R.string.dialog_smb_sign_in_hint),
             d.host, d.user, d.domain, askAddress = false, confirm = stringResource(R.string.action_sign_in), onDismiss = vm::dismissDialog,

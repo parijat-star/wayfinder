@@ -342,7 +342,14 @@ private fun ErrorView(vm: BrowserViewModel, tab: TabState) {
             val email = tab.path.removePrefix("gdrive://").substringBefore('/')
             Button({ vm.requestMountSaf(email) }) { Text("Mount via File Picker (SAF)") }
         }
-        if (e.authHost != null) Button({ vm.showDialog(Dialog.SmbAuth(e.authHost)) }) { Text("Sign in") }
+        if (e.authHost != null) {
+            if (FsPath.isOneDrive(e.authHost)) {
+                val accId = e.authHost.removePrefix("onedrive://").substringBefore('/').takeIf { it.isNotBlank() }
+                Button({ vm.showConnectOneDriveDialog(accId) }) { Text("Sign in") }
+            } else {
+                Button({ vm.showDialog(Dialog.SmbAuth(e.authHost)) }) { Text("Sign in") }
+            }
+        }
         OutlinedButton({ vm.refresh() }) { Text("Retry") }
         if (tab.canGoBack) OutlinedButton({ vm.back() }) { Text("Go back") }
     }

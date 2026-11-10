@@ -128,27 +128,27 @@
     </li>
     <li>
       <strong>Network Access (<code>INTERNET</code>, <code>ACCESS_NETWORK_STATE</code>, <code>ACCESS_WIFI_STATE</code>, <code>CHANGE_WIFI_MULTICAST_STATE</code>):</strong>
-      Used exclusively when you explicitly discover local-network SMB shares (mDNS / NetBIOS discovery on your local LAN) or connect to an SMB, WebDAV/WebDAVS, or FTP/FTPS server that you configure yourself. Files and credentials are transmitted only to the servers or applications you explicitly choose.
+      Used exclusively when you explicitly discover local-network SMB shares (mDNS / NetBIOS discovery on your local LAN), sign in to Microsoft OneDrive (communicating directly over HTTPS with Microsoft's OAuth 2.0 + PKCE and Microsoft Graph v1.0 endpoints with zero intermediary servers), or connect to an SMB, WebDAV/WebDAVS, or FTP/FTPS server that you configure yourself. Files and credentials are transmitted only to the servers, cloud accounts, or applications you explicitly choose.
     </li>
     <li>
       <strong>Cloud &amp; Storage Access Framework (<code>ACTION_OPEN_DOCUMENT_TREE</code>):</strong>
-      When you mount a cloud storage provider (such as Google Drive) or a connected phone folder through Android's system document picker, Android grants Wayfinder scoped URI access strictly to the folder trees you select. You can unmount and revoke those folder grants at any time from Wayfinder's sidebar.
+      When you mount a cloud storage provider (such as Google Drive) or a connected phone folder through Android's system document picker, Android grants Wayfinder scoped URI access strictly to the folder trees you select. You can unmount or sign out of connected cloud accounts at any time from Wayfinder's sidebar.
     </li>
   </ul>
 
   <h2>3. Credential &amp; Session Storage</h2>
   <ul>
     <li>
-      <strong>Saved Server Credentials:</strong>
-      When you choose to remember a password for an SMB, WebDAV, or FTP server, your credentials are encrypted locally on your device using an AES-256-GCM key stored inside the hardware-backed <code>AndroidKeyStore</code>.
+      <strong>Saved Server Credentials &amp; Cloud Tokens:</strong>
+      When you choose to remember a password for an SMB, WebDAV, or FTP server, or sign in to Microsoft OneDrive, your credentials and OAuth tokens are encrypted locally on your device using an AES-256-GCM key stored inside the hardware-backed <code>AndroidKeyStore</code>.
     </li>
     <li>
       <strong>Temporary Staging Caches:</strong>
-      When opening or previewing files from archives or remote servers (including image and video thumbnails for network shares), temporary local cache copies stored inside Wayfinder's private cache directory are automatically pruned after 24 hours and remain inaccessible to other apps unless you explicitly open or share a file with another app.
+      When opening or previewing files from archives, cloud drives, or remote servers (including image and video thumbnails for network shares and OneDrive), temporary local cache copies stored inside Wayfinder's private cache directory are automatically pruned after 24 hours and remain inaccessible to other apps unless you explicitly open or share a file with another app.
     </li>
     <li>
       <strong>Backups &amp; Device Transfers:</strong>
-      Cloud backups are disabled (<code>android:allowBackup="false"</code>), and Android device-to-device data extraction rules explicitly exclude saved server credentials, intent-guard secrets, local session preferences (<code>settings.xml</code>), and temporary file caches.
+      Cloud backups are disabled (<code>android:allowBackup="false"</code>), and Android device-to-device data extraction rules explicitly exclude saved server credentials, Microsoft OneDrive account tokens (<code>onedrive_accounts.xml</code>), intent-guard secrets, local session preferences (<code>settings.xml</code>), and temporary file caches.
     </li>
   </ul>
 

@@ -2,6 +2,7 @@
 <!-- Backup rules for Android 11 and lower (backups are disabled by allowBackup="false"; defence in depth). -->
 <full-backup-content>
     <exclude domain="sharedpref" path="smb_servers.xml" />
+    <exclude domain="sharedpref" path="onedrive_accounts.xml" />
     <exclude domain="sharedpref" path="intent_guard.xml" />
     <exclude domain="sharedpref" path="settings.xml" />
     <exclude domain="file" path="." />

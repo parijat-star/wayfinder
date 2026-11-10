@@ -242,17 +242,23 @@ private fun TabItem(
         contentAlignment = Alignment.CenterStart,
     ) {
         Row(Modifier.padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            val icon = when {
-                com.droid.wayfinder.data.SystemDocumentsBridge.isPhonePath(tab.path) -> if (s.phoneConnected || FsPath.isDoc(tab.path)) Icons.Outlined.Smartphone else pinIcon(tab.path)
-                tab.path == FsPath.SMB_ROOT || FsPath.isRemote(tab.path) -> Icons.Outlined.Dns
-                tab.path == FsPath.TRASH_ROOT -> Icons.Outlined.Delete
-                tab.path == FsPath.RECENTS_ROOT -> Icons.Outlined.History
-                tab.path == FsPath.STARRED_ROOT -> Icons.Outlined.StarOutline
-                FsPath.tagOf(tab.path) != null -> Icons.AutoMirrored.Outlined.Label
-                FsPath.isZip(tab.path) -> Icons.Outlined.FolderZip
-                else -> pinIcon(tab.path)
+            if (width > 72.dp) {
+                if (FsPath.isOneDrive(tab.path)) {
+                    OneDriveIcon(Modifier.size(18.dp))
+                } else {
+                    val icon = when {
+                        com.droid.wayfinder.data.SystemDocumentsBridge.isPhonePath(tab.path) -> if (s.phoneConnected || FsPath.isDoc(tab.path)) Icons.Outlined.Smartphone else pinIcon(tab.path)
+                        tab.path == FsPath.SMB_ROOT || FsPath.isRemote(tab.path) -> Icons.Outlined.Dns
+                        tab.path == FsPath.TRASH_ROOT -> Icons.Outlined.Delete
+                        tab.path == FsPath.RECENTS_ROOT -> Icons.Outlined.History
+                        tab.path == FsPath.STARRED_ROOT -> Icons.Outlined.StarOutline
+                        FsPath.tagOf(tab.path) != null -> Icons.AutoMirrored.Outlined.Label
+                        FsPath.isZip(tab.path) -> Icons.Outlined.FolderZip
+                        else -> pinIcon(tab.path)
+                    }
+                    Icon(icon, null, Modifier.size(18.dp), tint = if (selected) cs.primary else cs.onSurfaceVariant)
+                }
             }
-            if (width > 72.dp) Icon(icon, null, Modifier.size(18.dp), tint = if (selected) cs.primary else cs.onSurfaceVariant)
             Text(
                 s.titleOf(tab.path), Modifier.weight(1f).padding(horizontal = if (width > 72.dp) 8.dp else 0.dp),
                 style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,

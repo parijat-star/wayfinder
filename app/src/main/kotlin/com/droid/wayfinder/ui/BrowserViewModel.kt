@@ -34,6 +34,10 @@ import com.droid.wayfinder.data.WorkProfileTarget
 import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.LocalFileSystem
 import com.droid.wayfinder.data.NetworkDiscovery
+import com.droid.wayfinder.data.OneDriveAccount
+import com.droid.wayfinder.data.OneDriveAccountStore
+import com.droid.wayfinder.data.OneDriveAuthManager
+import com.droid.wayfinder.data.OneDriveRestFileSystem
 import com.droid.wayfinder.data.Progress
 import com.droid.wayfinder.data.RecentFiles
 import com.droid.wayfinder.data.RenamePlan
@@ -141,6 +145,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private var safMounts: List<SafMount> = settings.safMounts
     private val saf = SafFileSystem(app) { safMounts }
     private val gdrive = DriveRestFileSystem(app)
+    internal val oneDriveStore = OneDriveAccountStore(app)
+    internal val oneDriveAuth = OneDriveAuthManager(oneDriveStore)
+    internal val onedrive = OneDriveRestFileSystem(app, oneDriveAuth)
     private val docFs = DocFileSystem(app)
     private val phoneFs = PhoneFileSystem(app)
     private val primary: String = Environment.getExternalStorageDirectory().path
@@ -151,6 +158,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         byScheme = mapOf(
             "dav" to dav, "davs" to dav, "ftp" to ftp, "ftps" to ftp,
             RemoteUri.SAF_SCHEME to saf, RemoteUri.GDRIVE_SCHEME to gdrive,
+            RemoteUri.ONEDRIVE_SCHEME to onedrive,
             RemoteUri.DOC_SCHEME to docFs,
             RemoteUri.PHONE_SCHEME to phoneFs,
         ),
@@ -178,6 +186,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private var rootsObserver: android.database.ContentObserver? = null
     private val observedPhoneTreeUris = HashSet<String>()
     private var phoneRetryJob: Job? = null
+    private var oneDriveAuthJob: Job? = null
     private var storageVolumeCallback: Any? = null
     private var pendingMountAccount: String? = null
     internal var phoneConnectRetryDelaysMs: LongArray = longArrayOf(0L, 1_000L, 3_000L, 6_000L)
@@ -192,7 +201,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val roots = loadRoots()
         val pins = settings.pins ?: defaultPins(roots)
         val savedTabs = settings.tabs.filter {
-            FsPath.isVirtual(it) || (FsPath.isRemote(it) && (!FsPath.isSaf(it) || safMounts.any { m -> FsPath.isWithin(m.path, it) })) ||
+            FsPath.isVirtual(it) ||
+                (FsPath.isRemote(it) &&
+                    (!FsPath.isSaf(it) || safMounts.any { m -> FsPath.isWithin(m.path, it) }) &&
+                    (!FsPath.isOneDrive(it) || oneDriveStore.getAccount(it.removePrefix("onedrive://").substringBefore('/')) != null)) ||
                 File(it).isDirectory || FsPath.zipSplit(it)?.let { z -> File(z.first).isFile } == true
         }
         // A requested file (e.g. an .apk from another app) opens its enclosing folder with the file selected.
@@ -229,6 +241,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             picker = picker,
             createFileName = picker?.suggestedName.orEmpty(),
             driveAccounts = initialDrive,
+            oneDriveAccounts = oneDriveStore.accounts(),
+            oneDriveDefaultClientId = oneDriveStore.defaultClientId,
             pairedPhone = initialPhone,
             phoneConnected = initialPhone != null,
             bluetoothPermissionGranted = initialBtGranted,
@@ -378,6 +392,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         discovery.stop()
         phoneRetryJob?.cancel()
         phoneRetryJob = null
+        oneDriveAuthJob?.cancel()
+        oneDriveAuthJob = null
         phoneReceiver?.let {
             runCatching { app.unregisterReceiver(it) }
             phoneReceiver = null
@@ -681,6 +697,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             mounts = currentMounts,
             network = networkEntries(saved, currentMounts),
             driveAccounts = driveAccs,
+            oneDriveAccounts = oneDriveStore.accounts(),
+            oneDriveDefaultClientId = oneDriveStore.defaultClientId,
             pairedPhone = phone,
             phoneConnected = phone != null,
             bluetoothPermissionGranted = btGranted,
@@ -885,6 +903,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     private fun promptAuth(host: String) {
+        if (FsPath.isOneDrive(host)) {
+            if (_state.value.dialog is Dialog.ConnectOneDrive) return
+            val accId = host.removePrefix("onedrive://").substringBefore('/').takeIf { it.isNotBlank() }
+            showConnectOneDriveDialog(accId)
+            return
+        }
         if (_state.value.dialog is Dialog.SmbAuth) return
         val saved = servers.get(host)
         _state.update { it.copy(dialog = Dialog.SmbAuth(host, saved?.user.orEmpty(), saved?.domain.orEmpty())) }
@@ -1258,16 +1282,21 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                             val limit = if (e.kind == FileKind.Video) REMOTE_THUMB_VIDEO_PREFIX_BYTES else REMOTE_THUMB_MAX_IMAGE_BYTES
                             val tmp = File(dir, "${target.name}.part")
                             try {
-                                repo.fs(e.path).openInput(e.path).use { inp ->
-                                    tmp.outputStream().use { out ->
-                                        val buf = ByteArray(64 * 1024)
-                                        var total = 0L
-                                        while (total < limit) {
-                                            currentCoroutineContext().ensureActive()
-                                            val n = inp.read(buf, 0, minOf(buf.size.toLong(), limit - total).toInt())
-                                            if (n < 0) break
-                                            out.write(buf, 0, n)
-                                            total += n
+                                val fetchedGraphThumb = FsPath.isOneDrive(e.path) &&
+                                    e.kind == FileKind.Image &&
+                                    onedrive.downloadThumbnailToFile(e.path, tmp)
+                                if (!fetchedGraphThumb) {
+                                    repo.fs(e.path).openInput(e.path).use { inp ->
+                                        tmp.outputStream().use { out ->
+                                            val buf = ByteArray(64 * 1024)
+                                            var total = 0L
+                                            while (total < limit) {
+                                                currentCoroutineContext().ensureActive()
+                                                val n = inp.read(buf, 0, minOf(buf.size.toLong(), limit - total).toInt())
+                                                if (n < 0) break
+                                                out.write(buf, 0, n)
+                                                total += n
+                                            }
                                         }
                                     }
                                 }
@@ -2224,7 +2253,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
      */
     fun openAddress(input: String): Boolean {
         val t = input.trim()
-        if (FsPath.isSaf(t) || FsPath.isDoc(t) || FsPath.isPhone(t)) { navigate(t); return true }
+        if (FsPath.isSaf(t) || FsPath.isDoc(t) || FsPath.isPhone(t) || FsPath.isOneDrive(t)) { navigate(t); return true }
         val a = RemoteUri.parse(t) ?: return false
         if (a.user != null) {
             val stored = servers.get(a.credKey)
@@ -2281,7 +2310,202 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         refreshMounts()
     }
 
-    // ---------------------------------------------------------------- cloud / SAF mounts & Google Drive
+    // ---------------------------------------------------------------- cloud / SAF mounts, Google Drive & Microsoft OneDrive
+
+    fun openExternalUrl(url: String) {
+        if (url.isNotBlank()) emit(UiEvent.OpenExternalUrl(url))
+    }
+
+    fun showConnectOneDriveDialog(reauthAccountId: String? = null) {
+        oneDriveAuthJob?.cancel()
+        oneDriveAuthJob = null
+        val savedClientId = reauthAccountId?.let { oneDriveStore.getAccount(it)?.clientId }
+            ?.takeIf { it.isNotBlank() }
+            ?: oneDriveStore.defaultClientId
+        _state.update {
+            it.copy(
+                dialog = Dialog.ConnectOneDrive(reauthAccountId),
+                oneDriveDefaultClientId = savedClientId,
+                oneDriveSigningIn = false,
+                oneDriveAuthError = null,
+                oneDriveDeviceSession = null,
+                compactSidebarOpen = false,
+            )
+        }
+    }
+
+    fun dismissOneDriveDialog() {
+        oneDriveAuthJob?.cancel()
+        oneDriveAuthJob = null
+        _state.update {
+            it.copy(
+                dialog = null,
+                oneDriveSigningIn = false,
+                oneDriveAuthError = null,
+                oneDriveDeviceSession = null,
+            )
+        }
+    }
+
+    fun cancelOneDriveSignIn() {
+        oneDriveAuthJob?.cancel()
+        oneDriveAuthJob = null
+        _state.update {
+            it.copy(
+                oneDriveSigningIn = false,
+                oneDriveDeviceSession = null,
+            )
+        }
+    }
+
+    fun startOneDriveBrowserSignIn(clientId: String, aliasLabel: String) {
+        val cid = clientId.trim()
+        if (!OneDriveAuthManager.isValidClientId(cid)) {
+            _state.update { it.copy(oneDriveAuthError = "Enter a valid Entra Application (Client) ID UUID") }
+            return
+        }
+        oneDriveStore.defaultClientId = cid
+        oneDriveAuthJob?.cancel()
+        _state.update {
+            it.copy(
+                oneDriveDefaultClientId = cid,
+                oneDriveSigningIn = true,
+                oneDriveAuthError = null,
+                oneDriveDeviceSession = null,
+            )
+        }
+        oneDriveAuthJob = viewModelScope.launch {
+            try {
+                val account = withContext(Dispatchers.IO) {
+                    oneDriveAuth.authorizeViaLoopback(
+                        clientIdInput = cid,
+                        aliasLabel = aliasLabel,
+                        onLaunchBrowser = { url -> emit(UiEvent.OpenExternalUrl(url)) },
+                    )
+                }
+                onOneDriveAccountConnected(account)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        oneDriveSigningIn = false,
+                        oneDriveAuthError = e.message ?: "Microsoft OneDrive sign-in failed",
+                    )
+                }
+            }
+        }
+    }
+
+    fun startOneDriveDeviceCodeSignIn(clientId: String, aliasLabel: String) {
+        val cid = clientId.trim()
+        if (!OneDriveAuthManager.isValidClientId(cid)) {
+            _state.update { it.copy(oneDriveAuthError = "Enter a valid Entra Application (Client) ID UUID") }
+            return
+        }
+        oneDriveStore.defaultClientId = cid
+        oneDriveAuthJob?.cancel()
+        _state.update {
+            it.copy(
+                oneDriveDefaultClientId = cid,
+                oneDriveSigningIn = true,
+                oneDriveAuthError = null,
+                oneDriveDeviceSession = null,
+            )
+        }
+        oneDriveAuthJob = viewModelScope.launch {
+            try {
+                val session = withContext(Dispatchers.IO) { oneDriveAuth.startDeviceCode(cid) }
+                _state.update { it.copy(oneDriveDeviceSession = session) }
+                val account = withContext(Dispatchers.IO) {
+                    oneDriveAuth.pollDeviceCode(
+                        session = session,
+                        aliasLabel = aliasLabel,
+                    )
+                }
+                onOneDriveAccountConnected(account)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        oneDriveSigningIn = false,
+                        oneDriveAuthError = e.message ?: "Microsoft OneDrive device code sign-in failed",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun onOneDriveAccountConnected(account: OneDriveAccount) {
+        onedrive.disconnect(account.accountId)
+        _state.update {
+            it.copy(
+                dialog = null,
+                oneDriveSigningIn = false,
+                oneDriveAuthError = null,
+                oneDriveDeviceSession = null,
+            )
+        }
+        refreshMounts()
+        val matchingTabs = (_state.value.tabs + listOfNotNull(_state.value.secondary))
+            .filter { FsPath.isWithin(account.rootPath, it.path) }
+        if (matchingTabs.isNotEmpty()) {
+            matchingTabs.forEach { load(it.id) }
+        } else {
+            navigate(account.rootPath)
+        }
+        toast(str(com.droid.wayfinder.R.string.toast_onedrive_connected, account.sidebarTitle))
+    }
+
+    fun signOutOneDrive(accountId: String) {
+        val acc = oneDriveStore.getAccount(accountId)
+        val rootPath = "onedrive://$accountId"
+        oneDriveStore.remove(accountId)
+        onedrive.disconnect(accountId)
+        val fallback = roots().firstOrNull()?.path ?: FsPath.RECENTS_ROOT
+        val s = _state.value
+        (s.tabs + listOfNotNull(s.secondary))
+            .filter { FsPath.isWithin(rootPath, it.path) }
+            .forEach { navigate(fallback, it.id) }
+        _state.update { st ->
+            st.copy(
+                tree = st.tree.copy(
+                    children = st.tree.children.filterKeys { !FsPath.isWithin(rootPath, it) },
+                    expanded = st.tree.expanded.filterTo(HashSet()) { !FsPath.isWithin(rootPath, it) },
+                ),
+            )
+        }
+        refreshMounts()
+        toast(str(com.droid.wayfinder.R.string.toast_onedrive_signed_out, acc?.sidebarTitle ?: accountId))
+    }
+
+    fun refreshOneDriveQuota(accountId: String) {
+        viewModelScope.launch {
+            val updated = withContext(Dispatchers.IO) {
+                runCatching { oneDriveAuth.refreshAccountQuota(accountId) }.getOrNull()
+            }
+            refreshMounts()
+            if (updated != null) {
+                toast("${updated.sidebarTitle}: ${updated.sidebarSubtitle}")
+            } else {
+                toast("Couldn't refresh OneDrive storage quota")
+            }
+        }
+    }
+
+    fun openInOneDriveWeb(path: String) {
+        viewModelScope.launch {
+            val url = withContext(Dispatchers.IO) {
+                runCatching { onedrive.resolveWebUrl(path) }.getOrNull()
+            }
+            if (!url.isNullOrBlank()) {
+                emit(UiEvent.OpenExternalUrl(url))
+            } else {
+                toast("Couldn't resolve OneDrive web link")
+            }
+        }
+    }
 
     fun requestGoogleAccountSignIn() {
         setCompactSidebarOpen(false)

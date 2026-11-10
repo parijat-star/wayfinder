@@ -15,8 +15,8 @@ object CacheJanitor {
     const val SWEEP_INTERVAL_MS: Long = 30L * 60_000L
 
     private val STAGED_SUBDIRS = listOf("remote-open", "zip-open", "picker", "view-archive", "thumbs")
-    private const val GDRIVE_TEMP_PREFIX = "wf-gdrive"
-    private const val GDRIVE_TEMP_SUFFIX = ".part"
+    private val CLOUD_TEMP_PREFIXES = listOf("wf-gdrive", "wf-onedrive")
+    private const val CLOUD_TEMP_SUFFIX = ".part"
 
     private val lastSweepMillis = AtomicLong(0L)
 
@@ -50,8 +50,8 @@ object CacheJanitor {
         }
         cacheDir.listFiles()?.forEach { entry ->
             if (entry.isFile &&
-                entry.name.startsWith(GDRIVE_TEMP_PREFIX) &&
-                entry.name.endsWith(GDRIVE_TEMP_SUFFIX) &&
+                CLOUD_TEMP_PREFIXES.any { entry.name.startsWith(it) } &&
+                entry.name.endsWith(CLOUD_TEMP_SUFFIX) &&
                 nowMillis - entry.lastModified() > ttlMillis
             ) {
                 if (entry.delete()) removed++

@@ -45,4 +45,23 @@ class ReleaseConfigSecurityTest {
             content.contains("isShrinkResources = true"),
         )
     }
+
+    @Test
+    fun oneDrivePublicClientSourceNeverEmbedsClientSecretAndPrivacyDocsCoverOneDrive() {
+        val root = sequenceOf(File("."), File(".."))
+            .map { it.canonicalFile }
+            .first { File(it, "app/build.gradle.kts").isFile }
+        val oneDriveSources = listOf(
+            File(root, "app/src/main/kotlin/com/droid/wayfinder/data/OneDriveAccountStore.kt"),
+            File(root, "app/src/main/kotlin/com/droid/wayfinder/data/OneDriveAuthManager.kt"),
+            File(root, "app/src/main/kotlin/com/droid/wayfinder/data/OneDriveRestFileSystem.kt"),
+        )
+        for (src in oneDriveSources) {
+            val text = src.readText()
+            assertTrue("${src.name} must carry Apache-2.0 SPDX header", text.contains("SPDX-License-Identifier: Apache-2.0"))
+            assertFalse("${src.name} must never embed an OAuth client_secret", text.contains("client_secret", ignoreCase = true))
+        }
+        assertTrue(File(root, "PRIVACY.md").readText().contains("OneDrive"))
+        assertTrue(File(root, "docs/privacy.html").readText().contains("OneDrive"))
+    }
 }

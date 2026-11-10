@@ -96,6 +96,7 @@ import androidx.compose.ui.unit.dp
 import com.droid.wayfinder.R
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.outlined.AppRegistration
+import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Contrast
 import androidx.compose.material.icons.outlined.FindInPage
 import androidx.compose.material.icons.outlined.FolderZip
@@ -178,6 +179,7 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState, hasDesktopCaption: Boolea
         }
         add(c(pinLabel, vm.str(R.string.palette_pin_desc), "Ctrl+B", Icons.Outlined.PushPin) { vm.togglePins(effectivePinTargets) })
         add(c(vm.str(R.string.palette_connect_server), vm.str(R.string.palette_connect_server_desc), "Ctrl+Shift+K", Icons.Outlined.Dns) { vm.showConnectDialog() })
+        add(c(vm.str(R.string.palette_connect_onedrive), vm.str(R.string.palette_connect_onedrive_desc), null, Icons.Outlined.Cloud) { vm.showConnectOneDriveDialog() })
         add(c(vm.str(R.string.palette_mount_provider), vm.str(R.string.palette_mount_provider_desc), null, Icons.Outlined.Dns) { vm.requestMountSaf() })
         add(c(vm.str(R.string.palette_network), vm.str(R.string.palette_network_desc), null, Icons.Outlined.Dns) { vm.navigate(FsPath.SMB_ROOT) })
         add(c(vm.str(R.string.nav_trash), vm.str(R.string.palette_trash_desc), null, Icons.Outlined.Delete) { vm.navigate(FsPath.TRASH_ROOT) })
@@ -243,6 +245,7 @@ fun paletteFolders(vm: BrowserViewModel, s: AppState): List<PaletteItem> {
     }
     s.pins.forEach { add(it, vm.str(R.string.pinned_section)) }
     s.roots.forEach { add(it.path, vm.str(R.string.palette_kind_storage)) }
+    s.oneDriveAccounts.forEach { add(it.rootPath, vm.str(R.string.palette_kind_onedrive)) }
     if (s.phoneConnected) add(FsPath.PHONE_ROOT, vm.str(R.string.quick_access_section))
     s.recentFolders.forEach { add(it, vm.str(R.string.nav_recents)) }
     s.active.visible(s.showHidden).filter { it.isDir && !it.isServer }.forEach { add(it.path, vm.str(R.string.palette_kind_current_folder)) }
@@ -263,6 +266,7 @@ fun CommandPalette(vm: BrowserViewModel, s: AppState) {
         s.active.selection,
         s.dualPane,
         s.pins,
+        s.oneDriveAccounts,
         s.recentFolders,
         s.showHidden,
         s.theme,

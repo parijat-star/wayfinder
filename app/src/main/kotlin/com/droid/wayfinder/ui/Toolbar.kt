@@ -249,7 +249,7 @@ internal fun resolveAddress(input: String, s: AppState? = null): String? {
         t.equals("recents", true) || t == FsPath.RECENTS_ROOT -> return FsPath.RECENTS_ROOT
         t.equals("starred", true) || t == FsPath.STARRED_ROOT -> return FsPath.STARRED_ROOT
         t.startsWith(FsPath.TAG_PREFIX) && FsPath.tagOf(t) != null -> return t
-        FsPath.isDoc(t) || FsPath.isPhone(t) -> return FsPath.normalize(t)
+        FsPath.isDoc(t) || FsPath.isPhone(t) || FsPath.isOneDrive(t) -> return FsPath.normalize(t)
     }
     if (t.equals("phone", ignoreCase = true) || t.startsWith("phone/", ignoreCase = true)) {
         val sub = if (t.length > 5) t.substring(6).trim('/') else ""
@@ -335,16 +335,20 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (i == 0) {
-                            val ic = when {
-                                path == FsPath.SMB_ROOT -> Icons.Outlined.Dns
-                                path == FsPath.TRASH_ROOT -> Icons.Outlined.Delete
-                                path == FsPath.RECENTS_ROOT -> Icons.Outlined.History
-                                path == FsPath.STARRED_ROOT -> Icons.Outlined.StarOutline
-                                com.droid.wayfinder.data.SystemDocumentsBridge.isPhonePath(path) -> Icons.Outlined.Smartphone
-                                FsPath.tagOf(path) != null -> Icons.Filled.Circle
-                                else -> rootIcon(s.roots.firstOrNull { it.path == path }?.removable == true)
+                            if (FsPath.isOneDrive(path)) {
+                                OneDriveIcon(Modifier.size(18.dp))
+                            } else {
+                                val ic = when {
+                                    path == FsPath.SMB_ROOT -> Icons.Outlined.Dns
+                                    path == FsPath.TRASH_ROOT -> Icons.Outlined.Delete
+                                    path == FsPath.RECENTS_ROOT -> Icons.Outlined.History
+                                    path == FsPath.STARRED_ROOT -> Icons.Outlined.StarOutline
+                                    com.droid.wayfinder.data.SystemDocumentsBridge.isPhonePath(path) -> Icons.Outlined.Smartphone
+                                    FsPath.tagOf(path) != null -> Icons.Filled.Circle
+                                    else -> rootIcon(s.roots.firstOrNull { it.path == path }?.removable == true)
+                                }
+                                Icon(ic, null, Modifier.size(18.dp).padding(end = 0.dp), tint = FsPath.tagOf(path)?.let { androidx.compose.ui.graphics.Color(it.argb) } ?: cs.onSurfaceVariant)
                             }
-                            Icon(ic, null, Modifier.size(18.dp).padding(end = 0.dp), tint = FsPath.tagOf(path)?.let { androidx.compose.ui.graphics.Color(it.argb) } ?: cs.onSurfaceVariant)
                             Box(Modifier.width(6.dp))
                         }
                         Text(
@@ -645,6 +649,7 @@ private fun OverflowMenu(
             DropdownMenuItem({ Text("New window") }, { open = false; vm.newWindow() }, trailingIcon = { Hint("Ctrl+N") })
             DropdownMenuItem({ Text("Command palette…") }, { open = false; vm.openPalette() }, trailingIcon = { Hint("Ctrl+K") })
             DropdownMenuItem({ Text("Connect to server…") }, { open = false; vm.showConnectDialog() }, trailingIcon = { Hint("Ctrl+Shift+K") })
+            DropdownMenuItem({ Text(stringResource(R.string.palette_connect_onedrive)) }, { open = false; vm.showConnectOneDriveDialog() })
             DropdownMenuItem({ Text("Default file handler…") }, { open = false; vm.showDefaultHandlerDialog() })
             DropdownMenuItem({ Text("Keyboard shortcuts") }, { open = false; vm.showDialog(Dialog.Shortcuts) }, trailingIcon = { Hint("F1") })
             DropdownMenuItem({ Text("About Wayfinder") }, { open = false; vm.showDialog(Dialog.About) })

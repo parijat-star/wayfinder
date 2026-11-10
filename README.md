@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>A desktop-grade, tabbed file manager for Googlebooks.</b><br>
-  Tabs in the title bar, Miller columns, dual-pane commander, paired Phone &amp; Google Drive integration, network shares (SMB, WebDAV, FTP), archive browsing (<code>.zip</code>, <code>.tar.gz</code>, <code>.tgz</code>, <code>.tar</code>), and full keyboard &amp; mouse navigation: one download for every Googlebook, Intel and Snapdragon.
+  Tabs in the title bar, Miller columns, dual-pane commander, paired Phone, Google Drive &amp; Microsoft OneDrive integration, network shares (SMB, WebDAV, FTP), archive browsing (<code>.zip</code>, <code>.tar.gz</code>, <code>.tgz</code>, <code>.tar</code>), and full keyboard &amp; mouse navigation: one download for every Googlebook, Intel and Snapdragon.
 </p>
 
 <p align="center">
@@ -55,7 +55,7 @@
 * **First-class desktop input:** Single-click selects, double-click opens, right-click opens context menus, middle-click opens in a background tab, rubber-band marquee drag selection, and drag-and-drop between folders or from other apps.
 * **Quick Look (`Space`):** Instant desktop preview for images, video frames (also from network shares), PDFs, audio waveforms, archives, and syntax-highlighted code with line numbers without launching heavy external viewers.
 * **Archive filesystem:** Navigate into `.zip`, `.tar.gz`, `.tgz`, and `.tar` archives as virtual read-only folders, view contents, copy files out, and compress selections with one shortcut.
-* **Network & cloud storage:** Connect directly to local and remote servers via **SMB 2/3** (NTLM), **WebDAV / WebDAVS**, **FTP / FTPS**, and Android **Storage Access Framework** providers (**Google Drive**, external USB SSDs).
+* **Network & cloud storage:** Connect directly to **Microsoft OneDrive** (Personal & Microsoft 365 accounts via native OAuth 2.0 PKCE / Device Code + Microsoft Graph v1.0), **SMB 2/3** (NTLM), **WebDAV / WebDAVS**, **FTP / FTPS**, and Android **Storage Access Framework** providers (**Google Drive**, external USB SSDs).
 * **Connected Phone Integration:** Automatically discovers paired and connected Android phones over **Googlebook Cross-Device Services** (`QuickAccessDocumentsProvider`), **USB MTP**, and **Bluetooth**, browsing live phone directories (`Alarms`, `Android`, `DCIM`, `Documents`, `Download`, `Movies`, `Music`, `Pictures`, etc.) wirelessly with human-friendly breadcrumbs (`Pixel 8a / Documents`) and incoming **Quick Share** integration.
 * **Googlebook Ecosystem (`Linux files` & Work Profile):** Auto-discovers the Googlebook Linux development environment (`Linux files`) with one-click **Share with Linux** transfers and supports managed **Work / Personal Profile** switching via `CrossProfileApps`.
 * **Command palette (`Ctrl+K`):** Spotlight-style fuzzy command launcher to run any operation or jump to any folder in milliseconds.
@@ -63,12 +63,19 @@
 
 ---
 
-<h2 id="phone-and-cloud">Phone &amp; Google Drive Integration</h2>
+<h2 id="phone-and-cloud">Phone, Google Drive &amp; Microsoft OneDrive Integration</h2>
 
-Wayfinder integrates with your paired Android phone and Google Drive right from the left navigation sidebar:
+Wayfinder integrates with your paired Android phone, Google Drive, and Microsoft OneDrive right from the left navigation sidebar:
 
+* **Microsoft OneDrive (Personal & Work/School):** Connect multiple Personal (`@outlook.com`, `@live.com`, `@hotmail.com`) and Microsoft 365 accounts directly from the **OneDrive** sidebar section via 1-click **Browser Sign-In (OAuth 2.0 + PKCE)** or **Sign In on Phone / Code** (`microsoft.com/devicelogin`). Mounts full top-level OneDrive roots (`onedrive://<account>`), expandable folder trees, live storage quota (`42.4 GB / 1.0 TB`), Microsoft Graph thumbnail previews, streaming downloads, chunked resumable uploads (> 4 MiB), server-side rename/move, and **Open in OneDrive Web**, with tokens encrypted in `AndroidKeyStore`.
 * **Wireless & Wired Phone Access (`Pixel 8a` / `Pixel 9`):** Detects your paired phone via Cross-Device Services, Bluetooth, or USB MTP. When `MANAGE_DOCUMENTS` is granted via [ADB setup](#adb-direct-mounts), Wayfinder mounts `QuickAccessDocumentsProvider` directly with zero prompts (`Pixel 8a/Documents`) and live reconnect updates; on standard unprivileged installs, Wayfinder supports side-by-side system **Files** drag-and-drop, SAF folder mounts, and incoming **Quick Share** folders out of the box.
-* **Google Drive in Network & Cloud:** Google Drive appears natively in the **Network & cloud** sidebar section with its multicolor Drive icon—mounting `My Drive` directly when `MANAGE_DOCUMENTS` is granted, or delegating folder mounts to the system document tree selector and persisting read/write access across reboots. Because Wayfinder isn't a system pre-installed app, Android doesn't let it mount the top level of `My Drive` on retail builds; the mount dialog explains this and walks you through mounting a specific folder inside your Drive instead.
+* **Google Drive in Sidebar:** Google Drive appears natively in the sidebar with its multicolor Drive icon—mounting `My Drive` directly when `MANAGE_DOCUMENTS` is granted, or delegating folder mounts to the system document tree selector and persisting read/write access across reboots. Because Wayfinder isn't a system pre-installed app, Android doesn't let it mount the top level of `My Drive` on retail builds; the mount dialog explains this and walks you through mounting a specific folder inside your Drive instead.
+
+<p align="center">
+  <img src="docs/images/mock_5_onedrive.jpg" width="900" alt="Wayfinder Microsoft OneDrive integration showing Personal and Work OneDrive accounts in the sidebar with live storage quota, folder tree, file details, and Open in OneDrive Web preview pane" />
+  <br>
+  <sub>Native Microsoft OneDrive integration: Personal &amp; Microsoft 365 accounts with full top-level folder trees, live storage quota, Graph previews, and Open in OneDrive Web.</sub>
+</p>
 
 <p align="center">
   <img src="docs/images/mock_4_phone_drive.jpg" width="900" alt="Wayfinder Phone and Google Drive integration showing Pixel 9 paired in Quick access with the 13 standard Android folders and Google Drive in Network and cloud" />
@@ -163,10 +170,10 @@ adb shell am force-stop --user "$USER_ID" com.droid.wayfinder
 ## Privacy & Security
 
 * **Zero telemetry, zero ads:** Wayfinder contains no trackers, advertising SDKs, analytics, or third-party tracking scripts.
-* **Credentials secured with Keystore:** Server passwords for SMB, WebDAV, and FTP shares are encrypted using hardware-backed AES-256-GCM via the Android Keystore.
-* **Hardened file operations:** Built-in safeguards against zip-slip and tar-symlink vulnerabilities, symlink recursion loops, `FileProvider` symlink traversal, HMAC-authenticated internal window intents, and corrupted network data.
-* **Strict backup exclusions:** Credentials and server auth tokens are explicitly excluded from cloud backups (`dataExtractionRules` & `backup_rules`).
-* **Audited & tested:** Backed by 265+ automated unit tests, property-based fuzzers (537,000+ iterations), WCAG 2.1 AA accessibility checks, and headless Robolectric UI integration tests. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
+* **Credentials secured with Keystore:** Server passwords for SMB, WebDAV, and FTP shares and Microsoft OneDrive OAuth tokens are encrypted using hardware-backed AES-256-GCM via the Android Keystore.
+* **Hardened file operations:** Built-in safeguards against zip-slip and tar-symlink vulnerabilities, symlink recursion loops, `FileProvider` symlink traversal, `onedrive://` / `gdrive://` / `phone://` path & SSRF guards, HMAC-authenticated internal window intents, and corrupted network data.
+* **Strict backup exclusions:** Credentials, OneDrive OAuth tokens (`onedrive_accounts.xml`), and server auth tokens are explicitly excluded from cloud backups and device transfers (`dataExtractionRules` & `backup_rules`).
+* **Audited & tested:** Backed by 280+ automated unit tests, property-based fuzzers (560,000+ iterations), WCAG 2.1 AA accessibility checks, and headless Robolectric UI integration tests. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ---
 
@@ -177,6 +184,7 @@ Wayfinder is written in 100% modern Kotlin with Jetpack Compose:
 * **Language & Tooling:** Kotlin 2.1, Jetpack Compose 1.7, Material 3 Expressive, Gradle 8.11, Android SDK 36 (Android 15+ Desktop Windowing).
 * **Storage & Network Engines:**
   * Local & Phone: Java NIO, Android StorageManager & Cross-Device discovery (`LocalFileSystem`, `PhoneFileSystem`, `SafFileSystem`).
+  * Microsoft OneDrive: Pure-Kotlin OAuth 2.0 PKCE / Device Code & Microsoft Graph v1.0 engine (`OneDriveAuthManager`, `OneDriveRestFileSystem`) with chunked resumable upload sessions over OkHttp.
   * Archives: Apache Commons Compress (`ZipFileSystem` supporting `.zip`, `.tar.gz`, `.tgz`, `.tar` with symlink/traversal guards).
   * SMB: `smbj` SMB2/SMB3 client with NTLM authentication.
   * WebDAV: OkHttp with streaming bodies and safe XML pull parser.
@@ -188,7 +196,7 @@ Wayfinder is written in 100% modern Kotlin with Jetpack Compose:
 git clone https://github.com/parijat-star/wayfinder.git
 cd wayfinder
 bash build.sh assembleDebug        # Builds app/build/outputs/apk/debug/Wayfinder-debug.apk
-bash build.sh testDebugUnitTest    # Runs all 231 unit, UI, security, and fuzz tests
+bash build.sh testDebugUnitTest    # Runs all 280+ unit, UI, security, and fuzz tests
 ```
 
 ---
