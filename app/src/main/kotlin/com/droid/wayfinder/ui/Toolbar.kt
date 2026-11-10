@@ -3,6 +3,7 @@
 
 package com.droid.wayfinder.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
@@ -112,43 +114,117 @@ fun Toolbar(
 ) {
     val cs = MaterialTheme.colorScheme
     val tab = s.active
+    val focusManager = LocalFocusManager.current
+    var compactSearchOpen by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxWidth().background(cs.surfaceContainerLow)) {
         val wide = maxWidth
+        val isCompact = wide < 600.dp
+        val isNarrowCompact = wide < 480.dp
+        LaunchedEffect(s.focusSearch, isCompact) {
+            if (isCompact && s.focusSearch > 0) compactSearchOpen = true
+        }
+        LaunchedEffect(isCompact) {
+            if (!isCompact && compactSearchOpen) compactSearchOpen = false
+        }
+        val showExpandedCompactSearch = isCompact && (compactSearchOpen || tab.query.isNotEmpty())
+        BackHandler(enabled = showExpandedCompactSearch) {
+            vm.setQuery("")
+            focusManager.clearFocus()
+            compactSearchOpen = false
+        }
+        val iconBtnColors = IconButtonDefaults.iconButtonColors(
+            contentColor = cs.onSurfaceVariant,
+            disabledContentColor = cs.onSurface.copy(alpha = 0.38f),
+        )
         Column(Modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            NavButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back (Alt+←)", tab.canGoBack) { vm.back() }
-            NavButton(Icons.AutoMirrored.Outlined.ArrowForward, "Forward (Alt+→)", tab.canGoForward) { vm.forward() }
-            NavButton(Icons.Outlined.ArrowUpward, "Up (Alt+↑)", FsPath.parent(tab.path) != null) { vm.up() }
-            PathBar(vm, s, Modifier.weight(1f))
-            val iconBtnColors = IconButtonDefaults.iconButtonColors(
-                contentColor = cs.onSurfaceVariant,
-                disabledContentColor = cs.onSurface.copy(alpha = 0.38f),
-            )
-            IconButton({ vm.refresh() }, Modifier.size(40.dp), colors = iconBtnColors) {
-                Icon(Icons.Outlined.Refresh, if (s.dualPane) "Refresh (Ctrl+R)" else "Refresh (F5)")
-            }
-            if (wide > 560.dp) {
-                IconButton({ vm.undo() }, Modifier.size(40.dp), enabled = s.canUndo, colors = iconBtnColors) {
-                    Icon(Icons.AutoMirrored.Outlined.Undo, "Undo (Ctrl+Z)")
+            if (showExpandedCompactSearch) {
+                IconButton(
+                    {
+                        vm.setQuery("")
+                        focusManager.clearFocus()
+                        compactSearchOpen = false
+                    },
+                    Modifier.size(40.dp),
+                    colors = iconBtnColors,
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.action_close_search))
                 }
-                IconButton({ vm.redo() }, Modifier.size(40.dp), enabled = s.canRedo, colors = iconBtnColors) {
-                    Icon(Icons.AutoMirrored.Outlined.Redo, "Redo (Ctrl+Y)")
+                SearchField(
+                    vm = vm,
+                    s = s,
+                    modifier = Modifier.weight(1f),
+                    autoFocusOnMount = compactSearchOpen,
+                    onEscapeCollapse = { compactSearchOpen = false },
+                )
+                OverflowMenu(
+                    vm = vm,
+                    s = s,
+                    showViewItems = true,
+                    showSortItems = true,
+                    hasDesktopCaption = hasDesktopCaption,
+                    isCompactViewport = true,
+                    showCompactNavItems = isNarrowCompact,
+                )
+            } else {
+                if (isCompact) {
+                    IconButton(
+                        { vm.toggleCompactSidebar() },
+                        Modifier.size(40.dp),
+                        colors = iconBtnColors,
+                    ) {
+                        Icon(Icons.Outlined.Menu, stringResource(R.string.nav_open_sidebar))
+                    }
                 }
+                NavButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back (Alt+←)", tab.canGoBack) { vm.back() }
+                if (!isNarrowCompact) {
+                    NavButton(Icons.AutoMirrored.Outlined.ArrowForward, "Forward (Alt+→)", tab.canGoForward) { vm.forward() }
+                }
+                NavButton(Icons.Outlined.ArrowUpward, "Up (Alt+↑)", FsPath.parent(tab.path) != null) { vm.up() }
+                PathBar(vm, s, Modifier.weight(1f))
+                if (!isNarrowCompact) {
+                    IconButton({ vm.refresh() }, Modifier.size(40.dp), colors = iconBtnColors) {
+                        Icon(Icons.Outlined.Refresh, if (s.dualPane) "Refresh (Ctrl+R)" else "Refresh (F5)")
+                    }
+                }
+                if (wide > 560.dp) {
+                    IconButton({ vm.undo() }, Modifier.size(40.dp), enabled = s.canUndo, colors = iconBtnColors) {
+                        Icon(Icons.AutoMirrored.Outlined.Undo, "Undo (Ctrl+Z)")
+                    }
+                    IconButton({ vm.redo() }, Modifier.size(40.dp), enabled = s.canRedo, colors = iconBtnColors) {
+                        Icon(Icons.AutoMirrored.Outlined.Redo, "Redo (Ctrl+Y)")
+                    }
+                }
+                if (isCompact) {
+                    IconButton(
+                        {
+                            compactSearchOpen = true
+                            vm.requestSearchFocus()
+                        },
+                        Modifier.size(40.dp),
+                        colors = iconBtnColors,
+                    ) {
+                        Icon(Icons.Outlined.Search, stringResource(R.string.search_placeholder))
+                    }
+                } else {
+                    SearchField(vm, s, Modifier.width(if (wide > 960.dp) 260.dp else if (wide > 720.dp) 190.dp else 140.dp))
+                }
+                if (wide > 640.dp) ViewToggle(vm, tab.viewMode, s.dualPane)
+                if (wide > 760.dp) SortButton(vm, s)
+                OverflowMenu(
+                    vm = vm,
+                    s = s,
+                    showViewItems = wide <= 640.dp,
+                    showSortItems = wide <= 760.dp,
+                    hasDesktopCaption = hasDesktopCaption,
+                    isCompactViewport = isCompact,
+                    showCompactNavItems = isNarrowCompact,
+                )
             }
-            SearchField(vm, s, Modifier.width(if (wide > 960.dp) 260.dp else if (wide > 720.dp) 190.dp else 140.dp))
-            if (wide > 640.dp) ViewToggle(vm, tab.viewMode, s.dualPane)
-            if (wide > 760.dp) SortButton(vm, s)
-            OverflowMenu(
-                vm = vm,
-                s = s,
-                showViewItems = wide <= 640.dp,
-                showSortItems = wide <= 760.dp,
-                hasDesktopCaption = hasDesktopCaption,
-            )
         }
         if (tab.query.isNotBlank()) SearchFilterRow(vm, tab)
         }
@@ -245,6 +321,7 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         LaunchedEffect(tab.path, crumbs.size) { scroll.scrollTo(scroll.maxValue) }
         Row(
             modifier.heightIn(min = 40.dp).clip(shape).background(cs.surfaceContainerHigh)
+                .semantics { contentDescription = "Address bar" }
                 .clickable { vm.setAddressEditing(true) }.padding(horizontal = 6.dp, vertical = 4.dp).horizontalScroll(scroll),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -282,13 +359,21 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
 }
 
 @Composable
-private fun SearchField(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
+private fun SearchField(
+    vm: BrowserViewModel,
+    s: AppState,
+    modifier: Modifier,
+    autoFocusOnMount: Boolean = false,
+    onEscapeCollapse: (() -> Unit)? = null,
+) {
     val cs = MaterialTheme.colorScheme
     val tab = s.active
     val fr = remember { FocusRequester() }
     val focus = LocalFocusManager.current
     val searchA11yLabel = stringResource(R.string.search_placeholder)
-    LaunchedEffect(s.focusSearch) { if (s.focusSearch > 0) fr.requestFocus() }
+    LaunchedEffect(s.focusSearch, autoFocusOnMount) {
+        if (s.focusSearch > 0 || autoFocusOnMount) fr.requestFocus()
+    }
     Row(
         modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(24.dp)).background(cs.surfaceContainerLowest)
             .padding(horizontal = 12.dp, vertical = 4.dp),
@@ -303,7 +388,12 @@ private fun SearchField(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                     .semantics { contentDescription = searchA11yLabel }
                     .onFocusChanged { vm.setTextFocus(it.isFocused) }
                     .onPreviewKeyEvent { e ->
-                        if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) { vm.setQuery(""); focus.clearFocus(); true }
+                        if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) {
+                            vm.setQuery("")
+                            focus.clearFocus()
+                            onEscapeCollapse?.invoke()
+                            true
+                        }
                         else if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) { focus.clearFocus(); vm.moveFocus(1); true }
                         else false
                     },
@@ -451,6 +541,8 @@ private fun OverflowMenu(
     showViewItems: Boolean = false,
     showSortItems: Boolean = false,
     hasDesktopCaption: Boolean = false,
+    isCompactViewport: Boolean = false,
+    showCompactNavItems: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
     var open by remember { mutableStateOf(false) }
@@ -463,6 +555,20 @@ private fun OverflowMenu(
             colors = IconButtonDefaults.iconButtonColors(contentColor = cs.onSurfaceVariant),
         ) { Icon(Icons.Outlined.MoreVert, "More") }
         DropdownMenu(open, { open = false }) {
+            if (showCompactNavItems) {
+                DropdownMenuItem(
+                    { Text("Forward") },
+                    { open = false; vm.forward() },
+                    enabled = s.active.canGoForward,
+                    trailingIcon = { Hint("Alt+→") },
+                )
+                DropdownMenuItem(
+                    { Text("Refresh") },
+                    { open = false; vm.refresh() },
+                    trailingIcon = { Hint(if (s.dualPane) "Ctrl+R" else "F5") },
+                )
+                HorizontalDivider()
+            }
             DropdownMenuItem({ Text("New folder") }, { open = false; vm.requestNewItem(true) }, enabled = !virtual, trailingIcon = { Hint("Ctrl+Shift+N") })
             DropdownMenuItem({ Text("New text file") }, { open = false; vm.requestNewItem(false) }, enabled = !virtual, trailingIcon = { Hint("Ctrl+Shift+M") })
             DropdownMenuItem({ Text("Select all") }, { open = false; vm.selectAll() }, trailingIcon = { Hint("Ctrl+A") })
@@ -482,7 +588,12 @@ private fun OverflowMenu(
             HorizontalDivider()
             DropdownMenuItem({ Text("Show hidden files") }, { open = false; vm.toggleHidden() }, leadingIcon = check(s.showHidden), trailingIcon = { Hint("Ctrl+H") })
             DropdownMenuItem({ Text("Preview pane") }, { open = false; vm.togglePreview() }, leadingIcon = check(s.previewVisible), trailingIcon = { Hint("Alt+P") })
-            DropdownMenuItem({ Text("Sidebar") }, { open = false; vm.toggleSidebar() }, leadingIcon = check(s.sidebarVisible), trailingIcon = { Hint("Ctrl+\\") })
+            DropdownMenuItem(
+                { Text("Sidebar") },
+                { open = false; if (isCompactViewport) vm.toggleCompactSidebar() else vm.toggleSidebar() },
+                leadingIcon = check(if (isCompactViewport) s.compactSidebarOpen else s.sidebarVisible),
+                trailingIcon = { Hint("Ctrl+\\") },
+            )
             DropdownMenuItem({ Text(stringResource(R.string.menu_status_bar)) }, { open = false; vm.toggleStatusBar() }, leadingIcon = check(s.statusBarVisible))
             DropdownMenuItem({ Text("Dual pane") }, { open = false; vm.toggleDualPane() }, leadingIcon = check(s.dualPane), trailingIcon = { Hint("Ctrl+4") })
             DropdownMenuItem({ Text("Tags column") }, { open = false; vm.toggleTagsColumn() }, leadingIcon = check(s.tagsColumn))

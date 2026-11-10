@@ -1039,7 +1039,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         updateTab(id) { it.navigatedTo(p) }
         load(id, select = sel); persist(); noteRecent(p)
         if (id == tab.id) revealInTree(p)
-        _state.update { it.copy(addressEditing = false) }
+        _state.update { it.copy(addressEditing = false, compactSidebarOpen = false) }
     }
 
     /**
@@ -1171,6 +1171,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     private fun openFile(path: String, chooser: Boolean = false) {
+        setCompactSidebarOpen(false)
         if (FsPath.isLocalFile(path)) {
             if (isUnsafeToExpose(path)) { toast("This file can't be opened"); return }
             if (isDirectlyServableByFileProvider(path)) {
@@ -1322,6 +1323,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun toggleHidden() { settings.showHidden = !hidden; _state.update { it.copy(showHidden = !it.showHidden) } }
     fun toggleSidebar() { settings.sidebarVisible = !_state.value.sidebarVisible; _state.update { it.copy(sidebarVisible = !it.sidebarVisible) } }
+    fun setCompactSidebarOpen(open: Boolean) {
+        if (_state.value.compactSidebarOpen != open) {
+            _state.update { it.copy(compactSidebarOpen = open) }
+        }
+    }
+    fun toggleCompactSidebar() = setCompactSidebarOpen(!_state.value.compactSidebarOpen)
     fun togglePreview() { settings.previewVisible = !_state.value.previewVisible; _state.update { it.copy(previewVisible = !it.previewVisible) } }
     fun setSidebarWidth(w: Float) { settings.sidebarWidth = w; _state.update { it.copy(sidebarWidth = w) } }
     fun setGridSize(s: Float) { val v = s.coerceIn(80f, 280f); settings.gridSize = v; _state.update { it.copy(gridSize = v) } }
@@ -1331,7 +1338,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun requestSearchFocus() = _state.update { it.copy(focusSearch = it.focusSearch + 1) }
     fun showDialog(d: Dialog?) {
         if (d !is Dialog.Properties) { hashJob?.cancel(); hashJob = null }
-        _state.update { it.copy(dialog = d) }
+        _state.update { it.copy(dialog = d, compactSidebarOpen = if (d != null) false else it.compactSidebarOpen) }
     }
     fun dismissDialog() = showDialog(null)
 
@@ -2252,7 +2259,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     // ---------------------------------------------------------------- cloud / SAF mounts & Google Drive
 
-    fun requestGoogleAccountSignIn() = emit(UiEvent.PickGoogleAccount)
+    fun requestGoogleAccountSignIn() {
+        setCompactSidebarOpen(false)
+        emit(UiEvent.PickGoogleAccount)
+    }
 
     fun onGoogleAccountPicked(email: String?) {
         refreshMounts()
@@ -2283,6 +2293,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     fun requestMountPhoneStorage(phone: com.droid.wayfinder.data.PairedPhone? = _state.value.pairedPhone) {
+        setCompactSidebarOpen(false)
         // QuickAccessDocumentsProvider omits FLAG_SUPPORTS_IS_CHILD on user builds, so folder-tree
         // mounting via ACTION_OPEN_DOCUMENT_TREE targets MTP (or another tree-capable provider).
         val targetAuth = phone?.authority?.takeIf { it != PhoneDetector.QUICK_ACCESS_AUTHORITY }
@@ -2299,15 +2310,18 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     fun openCrossDevicePhoneInSystemFiles() {
+        setCompactSidebarOpen(false)
         emit(UiEvent.OpenSystemPhoneFiles)
     }
 
     fun requestImportFromPhone() {
+        setCompactSidebarOpen(false)
         val initialUri = PhoneDetector.buildInitialQuickAccessRootUri(settings.lastQuickAccessRootId)
         emit(UiEvent.ImportPhoneDocuments(initialUri = initialUri))
     }
 
     fun requestMountLinuxFiles() {
+        setCompactSidebarOpen(false)
         val auth = _state.value.linuxProviderAuthority
             ?: GooglebookEcosystem.findInstalledLinuxProviderAuthority(app)
         val initialUri = auth?.let {

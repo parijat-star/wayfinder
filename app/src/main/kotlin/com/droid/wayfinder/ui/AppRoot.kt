@@ -19,9 +19,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,6 +32,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -43,9 +46,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -69,6 +75,7 @@ import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -85,10 +92,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.droid.wayfinder.MainActivity
+import com.droid.wayfinder.R
 import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.ViewMode
 import java.io.File
@@ -116,6 +127,7 @@ fun AppRoot(vm: BrowserViewModel) {
     val fm = LocalFocusManager.current
     var lastPointer by remember { mutableStateOf(Offset(400f, 300f)) }
     var typeBuffer by remember { mutableStateOf("") }
+    var isCompactViewport by remember { mutableStateOf(false) }
     var typeTime by remember { mutableStateOf(0L) }
 
     // "Mount Cloud / SAF…": the system document-tree picker; access is persisted by the view model.
@@ -291,7 +303,7 @@ fun AppRoot(vm: BrowserViewModel) {
                 k == Key.H -> { vm.toggleHidden(); return true }
                 k == Key.R && shift -> { vm.requestBatchRename(); return true }
                 k == Key.R -> { vm.refresh(); return true }
-                k == Key.Backslash -> { vm.toggleSidebar(); return true }
+                k == Key.Backslash -> { if (isCompactViewport) vm.toggleCompactSidebar() else vm.toggleSidebar(); return true }
                 k == Key.B -> {
                     val targets = tab.selectedEntries(st.showHidden).filter { !it.isServer && !it.isShare && !FsPath.isZip(it.path) }.map { it.path }
                     if (targets.isNotEmpty()) vm.togglePins(targets) else vm.togglePin(tab.path)
@@ -342,7 +354,7 @@ fun AppRoot(vm: BrowserViewModel) {
             Key.Spacebar -> vm.toggleQuickLook()
             Key.Backspace, Key.Back -> vm.back()
             Key.Forward -> vm.forward()
-            Key.Escape -> if (tab.selection.isNotEmpty()) vm.clearSelection() else if (tab.query.isNotEmpty()) vm.setQuery("") else return false
+            Key.Escape -> if (st.compactSidebarOpen) vm.setCompactSidebarOpen(false) else if (tab.selection.isNotEmpty()) vm.clearSelection() else if (tab.query.isNotEmpty()) vm.setQuery("") else return false
             Key.DirectionDown -> vm.moveFocus(cols, shift)
             Key.DirectionUp -> vm.moveFocus(-cols, shift)
             Key.DirectionRight -> if (columns) vm.columnEnter() else if (cols > 1) vm.moveFocus(1, shift) else return false
@@ -396,7 +408,12 @@ fun AppRoot(vm: BrowserViewModel) {
                 s.picker?.let { PickerBanner(vm, s) }
                 Toolbar(vm, s)
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().reclaimFocus(vm, fm, rootFocus)) {
-                    val showSidebar = s.sidebarVisible && maxWidth >= 600.dp
+                    val compact = maxWidth < 600.dp
+                    SideEffect { isCompactViewport = compact }
+                    LaunchedEffect(compact) {
+                        if (!compact && s.compactSidebarOpen) vm.setCompactSidebarOpen(false)
+                    }
+                    val showSidebar = s.sidebarVisible && !compact
                     val showPreview = s.previewVisible && maxWidth >= 900.dp
                     Row(Modifier.fillMaxSize().padding(end = 8.dp, bottom = 8.dp)) {
                         if (showSidebar) {
@@ -411,12 +428,59 @@ fun AppRoot(vm: BrowserViewModel) {
                     }
                 }
             }
+            if (isCompactViewport && s.compactSidebarOpen) {
+                CompactSidebarDrawer(vm, s)
+            }
             QuickLook(vm, s)
             if (s.paletteOpen) CommandPalette(vm, s)
             MenuHost(menu)
             Dialogs(vm, s)
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp))
             if (drag.active) DragGhost(drag)
+        }
+    }
+}
+
+@Composable
+private fun CompactSidebarDrawer(vm: BrowserViewModel, s: AppState) {
+    val cs = MaterialTheme.colorScheme
+    val dismissInteraction = remember { MutableInteractionSource() }
+    val drawerA11yLabel = stringResource(R.string.nav_drawer_label)
+    BackHandler(enabled = true) { vm.setCompactSidebarOpen(false) }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val drawerWidth = minOf(304.dp, maxWidth * 0.86f)
+        Box(
+            Modifier.fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.38f))
+                .clickable(interactionSource = dismissInteraction, indication = null) {
+                    vm.setCompactSidebarOpen(false)
+                },
+        )
+        Surface(
+            modifier = Modifier.width(drawerWidth).fillMaxHeight().semantics { contentDescription = drawerA11yLabel },
+            shape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp),
+            color = cs.surfaceContainerLow,
+            tonalElevation = 2.dp,
+            shadowElevation = 8.dp,
+        ) {
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        stringResource(R.string.drawer_app_title),
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = cs.onSurface,
+                    )
+                    IconButton({ vm.setCompactSidebarOpen(false) }, Modifier.size(40.dp)) {
+                        Icon(Icons.Outlined.Close, stringResource(R.string.nav_close_sidebar))
+                    }
+                }
+                HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.5f))
+                Sidebar(vm, s, Modifier.weight(1f).fillMaxWidth().padding(vertical = 6.dp))
+            }
         }
     }
 }

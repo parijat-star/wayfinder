@@ -145,6 +145,8 @@ data class AppState(
     val statusBarVisible: Boolean = true,
     /** True when the Android system status bar is hidden by user preference. */
     val hideStatusBar: Boolean = false,
+    /** Transient modal navigation drawer open state on compact (< 600.dp) viewports. */
+    val compactSidebarOpen: Boolean = false,
     /** Incremented to ask the sidebar to scroll to the active folder (Alt+Shift+L). */
     val treeLocate: Int = 0,
     /** True in windows opened with Ctrl+N (they don't persist the tab session). */
