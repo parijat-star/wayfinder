@@ -15,8 +15,8 @@ android {
     minSdk = 30
     targetSdk = 36
     // Bump every release. Google Play already has 13 (the Play build of v2.1), so releases continue monotonically.
-    versionCode = 15
-    versionName = "2.2"
+    versionCode = 16
+    versionName = "2.3"
     // Pure Kotlin/JVM app: no native libs, so the single APK runs on x86_64 and arm64-v8a.
   }
 
