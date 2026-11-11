@@ -11,6 +11,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
@@ -338,15 +339,15 @@ class DetailsColumnsCustomizationTest {
         assertEquals(102f, harness.s.columnWidth(SortKey.Type), 2f)
         assertEquals(88f, harness.s.columnWidth(SortKey.Size), 0.5f)
 
-        // Dragging that same divider left (-30dp) narrows Date modified (-30dp -> 168dp) and widens Type (+30dp -> 132dp).
+        // Double-tapping that interior divider resets BOTH adjacent columns (Modified -> 168dp, Type -> 132dp).
         rule.onNodeWithContentDescription("Resize Type column").performTouchInput {
-            down(center)
-            moveBy(Offset(-30f * densityPx, 0f))
-            up()
+            doubleClick()
         }
         rule.waitForIdle()
-        assertEquals(168f, harness.s.columnWidth(SortKey.Modified), 2f)
-        assertEquals(132f, harness.s.columnWidth(SortKey.Type), 2f)
+        assertEquals(168f, harness.s.columnWidth(SortKey.Modified), 0.5f)
+        assertEquals(132f, harness.s.columnWidth(SortKey.Type), 0.5f)
+        assertEquals(168f, Settings(harness.app).columnWidth(SortKey.Modified), 0.5f)
+        assertEquals(132f, Settings(harness.app).columnWidth(SortKey.Type), 0.5f)
 
         // Verify fontScale scaling & pairwise coupling on Size's left divider (1.25f scale -> -50dp screen = +40dp Size, -40dp Type)
         testFontScale.floatValue = 1.25f
@@ -445,12 +446,133 @@ class DetailsColumnsCustomizationTest {
         rule.onNodeWithText("Name").performClick()
         rule.waitForIdle()
 
-        // Switch to Grid view -> OverflowMenu should hide the Details-only column toggles
+        // Switch to Grid view -> OverflowMenu hides Details-only column toggles,
+        // while SortButton and CommandPalette restore ALL SortKey options (including hidden Type, Tags, Permissions).
         harness.vm.setViewMode(ViewMode.Grid)
         rule.waitForIdle()
         rule.onNodeWithContentDescription("More").performClick()
         assertEquals(0, rule.onAllNodesWithText("Date modified column").fetchSemanticsNodes().size)
         assertEquals(0, rule.onAllNodesWithText("Tags column").fetchSemanticsNodes().size)
+        // Dismiss OverflowMenu by toggling Show hidden files off/on or clicking Sort after closing
+        rule.onNodeWithText("Show hidden files").performClick()
+        rule.waitForIdle()
+
+        rule.onNodeWithText("Sort").performClick()
+        rule.onNodeWithText("Name").assertIsDisplayed()
+        rule.onNodeWithText("Date modified").assertIsDisplayed()
+        rule.onNodeWithText("Type").assertIsDisplayed()
+        rule.onNodeWithText("Size").assertIsDisplayed()
+        rule.onNodeWithText("Tags").assertIsDisplayed()
+        rule.onNodeWithText("Permissions").assertIsDisplayed()
+        // Sort by Tags while in Grid view (even though Tags column is hidden in Details view)
+        rule.onNodeWithText("Tags").performClick()
+        rule.waitForIdle()
+        assertEquals(SortKey.Tags, harness.s.active.sortKey)
+
+        // All non-Details modes (Grid, List, Columns) expose all 6 sort keys in CommandPalette
+        for (mode in listOf(ViewMode.Grid, ViewMode.List, ViewMode.Columns)) {
+            harness.vm.setViewMode(mode)
+            val sortNames = paletteCommands(harness.vm, harness.s).filter { it.name.startsWith("Sort by ") }.map { it.name }
+            assertEquals(
+                listOf("Sort by name", "Sort by date modified", "Sort by type", "Sort by size", "Sort by tags", "Sort by permissions"),
+                sortNames,
+            )
+        }
+
+        // Switching back to Details view while sorted by hidden Tags resets sort to Name (ascending)
+        harness.vm.setSort(SortKey.Tags, asc = false)
+        harness.vm.setViewMode(ViewMode.Details)
+        rule.waitForIdle()
+        assertEquals(SortKey.Name, harness.s.active.sortKey)
+        assertTrue(harness.s.active.sortAsc)
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun abortedAndEdgeHeaderDragsDoNotTriggerSortAndNarrowPaneScopesReorderToDisplayedColumns() {
+        val harness = VmHarness().also { h = it }
+        harness.file("alpha.txt", "hello")
+        harness.navigate(harness.root.path)
+
+        val paneWidth = mutableStateOf(1000.dp)
+        rule.setContent {
+            val s by harness.vm.state.collectAsState()
+            WayfinderTheme(false) {
+                Box(Modifier.size(width = paneWidth.value, height = 500.dp)) {
+                    ContentCard(harness.vm, s, Modifier.size(width = paneWidth.value, height = 500.dp))
+                }
+            }
+        }
+        rule.waitForIdle()
+        val densityPx = rule.density.density
+
+        assertEquals(SortKey.Name, harness.s.active.sortKey)
+        assertTrue(harness.s.active.sortAsc)
+
+        // 1a. Aborted short drag (~29dp: > touchSlop, < 40dp reorder threshold) must neither reorder nor sort
+        rule.onNodeWithText("Type").performTouchInput {
+            down(center)
+            moveBy(Offset(29f * densityPx, 0f))
+            up()
+        }
+        rule.waitForIdle()
+        assertEquals(listOf(SortKey.Modified, SortKey.Type, SortKey.Size), harness.s.visibleMetadataColumns)
+        assertEquals(SortKey.Name, harness.s.active.sortKey)
+
+        // 1b. Outward edge drag on rightmost column ("Size" dragged right +60dp) must neither reorder nor sort
+        rule.onNodeWithText("Size").performTouchInput {
+            down(center)
+            moveBy(Offset(60f * densityPx, 0f))
+            up()
+        }
+        rule.waitForIdle()
+        assertEquals(listOf(SortKey.Modified, SortKey.Type, SortKey.Size), harness.s.visibleMetadataColumns)
+        assertEquals(SortKey.Name, harness.s.active.sortKey)
+
+        // 1c. Outward edge drag on leftmost metadata column ("Date modified" dragged left -60dp) must not sort
+        rule.onNodeWithText("Date modified").performTouchInput {
+            down(center)
+            moveBy(Offset(-60f * densityPx, 0f))
+            up()
+        }
+        rule.waitForIdle()
+        assertEquals(SortKey.Name, harness.s.active.sortKey)
+
+        // Normal click on "Size" still triggers sort as expected
+        rule.onNodeWithText("Size").performClick()
+        rule.waitForIdle()
+        assertEquals(SortKey.Size, harness.s.active.sortKey)
+        harness.vm.setSort(SortKey.Name, asc = true)
+        rule.waitForIdle()
+
+        // 2. Narrow / split-pane width (540dp): Modified (168dp) + Type (132dp) fit; Size (88dp) is hidden by width.
+        paneWidth.value = 540.dp
+        rule.waitForIdle()
+        rule.onNodeWithText("Date modified").assertIsDisplayed()
+        rule.onNodeWithText("Type").assertIsDisplayed()
+        assertEquals(0, rule.onAllNodesWithText("Size").fetchSemanticsNodes().size)
+        assertEquals(listOf(SortKey.Modified, SortKey.Type), harness.s.displayedMetadataColumns)
+
+        // Dragging rightmost displayed header ("Type") right (+80dp) must NOT swap with width-hidden "Size"
+        rule.onNodeWithText("Type").performTouchInput {
+            down(center)
+            moveBy(Offset(80f * densityPx, 0f))
+            up()
+        }
+        rule.waitForIdle()
+        assertEquals(DEFAULT_METADATA_COLUMNS, harness.s.columnOrder)
+        rule.onNodeWithText("Type").assertIsDisplayed()
+        assertEquals(0, rule.onAllNodesWithText("Size").fetchSemanticsNodes().size)
+        assertEquals(SortKey.Name, harness.s.active.sortKey)
+
+        // CommandPalette and vm.moveColumn also gate moves to displayedMetadataColumns ([Modified, Type])
+        val narrowCmds = paletteCommands(harness.vm, harness.s)
+        assertNotNull(narrowCmds.find { it.name == "Move Date modified right" })
+        assertNotNull(narrowCmds.find { it.name == "Move Type left" })
+        assertNull(narrowCmds.find { it.name == "Move Type right" })
+        assertNull(narrowCmds.find { it.name == "Move Size left" })
+        harness.vm.moveColumn(SortKey.Type, 1)
+        assertEquals(DEFAULT_METADATA_COLUMNS, harness.s.columnOrder)
     }
 
     @OptIn(ExperimentalTestApi::class)

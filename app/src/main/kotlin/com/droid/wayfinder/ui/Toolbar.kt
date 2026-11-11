@@ -518,7 +518,7 @@ private fun SortButton(vm: BrowserViewModel, s: AppState) {
             listOf(
                 SortKey.Name to "Name", SortKey.Modified to "Date modified", SortKey.Type to "Type", SortKey.Size to "Size",
                 SortKey.Tags to "Tags", SortKey.Permissions to "Permissions",
-            ).filter { (k, _) -> s.isColumnVisible(k) }.forEach { (k, label) ->
+            ).filter { (k, _) -> s.isSortKeyAvailable(k, tab.viewMode) }.forEach { (k, label) ->
                 DropdownMenuItem(
                     { Text(label) },
                     { vm.setSort(k, if (tab.sortKey == k) tab.sortAsc else true); open = false },
@@ -634,7 +634,7 @@ private fun OverflowMenu(
                     SortKey.Size to "Sort by Size",
                     SortKey.Tags to "Sort by Tags",
                     SortKey.Permissions to "Sort by Permissions",
-                ).filter { (k, _) -> s.isColumnVisible(k) }.forEach { (k, label) ->
+                ).filter { (k, _) -> s.isSortKeyAvailable(k, s.active.viewMode) }.forEach { (k, label) ->
                     DropdownMenuItem(
                         { Text(label) },
                         { open = false; vm.setSort(k, if (s.active.sortKey == k) s.active.sortAsc else true) },

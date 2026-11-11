@@ -199,6 +199,10 @@ data class AppState(
     val linuxProviderAuthority: String? = null,
     /** Discovered managed Work / Personal profiles via CrossProfileApps. */
     val workProfiles: List<com.droid.wayfinder.data.WorkProfileTarget> = emptyList(),
+    /** Width in dp of the active Details-view pane when mounted, used to scope column-move actions to displayed columns. */
+    val activeDetailsWidthDp: Float? = null,
+    /** Effective font scale of the active Details-view pane. */
+    val activeFontScale: Float = 1f,
 ) {
     /** The tab selected in the tab strip (left pane in dual-pane mode). */
     val mainTab: TabState get() = tabs.firstOrNull { it.id == activeId } ?: tabs.first()
@@ -239,12 +243,21 @@ data class AppState(
         com.droid.wayfinder.data.SortKey.Permissions -> permsColumn
     }
 
+    fun isSortKeyAvailable(
+        key: com.droid.wayfinder.data.SortKey,
+        viewMode: com.droid.wayfinder.data.ViewMode = active.viewMode,
+    ): Boolean = viewMode != com.droid.wayfinder.data.ViewMode.Details || isColumnVisible(key)
+
     fun columnWidth(key: com.droid.wayfinder.data.SortKey): Float =
         (columnWidths[key] ?: com.droid.wayfinder.data.defaultColumnWidth(key))
             .coerceIn(com.droid.wayfinder.data.MIN_COLUMN_WIDTH_DP, com.droid.wayfinder.data.MAX_COLUMN_WIDTH_DP)
 
     val visibleMetadataColumns: List<com.droid.wayfinder.data.SortKey>
         get() = com.droid.wayfinder.data.normalizeColumnOrder(columnOrder).filter { isColumnVisible(it) }
+
+    val displayedMetadataColumns: List<com.droid.wayfinder.data.SortKey>
+        get() = activeDetailsWidthDp?.let { w -> visibleColumnsForWidthDp(this, w, activeFontScale) }
+            ?: visibleMetadataColumns
 }
 
 val Conflict.label: String

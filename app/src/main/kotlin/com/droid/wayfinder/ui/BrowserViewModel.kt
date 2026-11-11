@@ -1375,7 +1375,22 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     // ---------------------------------------------------------------- view options
 
-    fun setViewMode(m: ViewMode) { settings.viewMode = m; updateTab(tab.id) { it.copy(viewMode = m) } }
+    fun setViewMode(m: ViewMode) {
+        settings.viewMode = m
+        val s = _state.value
+        val t = tab
+        if (m == ViewMode.Details && !s.isColumnVisible(t.sortKey) && settings.sortKey == t.sortKey) {
+            settings.sortKey = SortKey.Name
+            settings.sortAsc = true
+        }
+        updateTab(t.id) { cur ->
+            if (m == ViewMode.Details && !s.isColumnVisible(cur.sortKey)) {
+                cur.copy(viewMode = m, sortKey = SortKey.Name, sortAsc = true)
+            } else {
+                cur.copy(viewMode = m)
+            }
+        }
+    }
 
     fun setSort(key: SortKey, asc: Boolean? = null) {
         val t = tab
@@ -1494,23 +1509,34 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         setColumnWidth(key, com.droid.wayfinder.data.defaultColumnWidth(key))
     }
 
-    fun moveColumn(key: SortKey, delta: Int) {
+    fun resetColumnWidths(vararg keys: SortKey) {
+        val updates = keys.filter { it != SortKey.Name }
+            .associateWith { com.droid.wayfinder.data.defaultColumnWidth(it) }
+        setColumnWidths(updates)
+    }
+
+    fun setActiveDetailsViewport(widthDp: Float?, fontScale: Float = 1f) {
+        val cur = _state.value
+        val sameWidth = when {
+            cur.activeDetailsWidthDp == null && widthDp == null -> true
+            cur.activeDetailsWidthDp != null && widthDp != null -> kotlin.math.abs(cur.activeDetailsWidthDp - widthDp) < 0.5f
+            else -> false
+        }
+        if (sameWidth && kotlin.math.abs(cur.activeFontScale - fontScale) < 0.01f) return
+        _state.update { it.copy(activeDetailsWidthDp = widthDp, activeFontScale = fontScale) }
+    }
+
+    fun moveColumn(key: SortKey, delta: Int, scope: List<SortKey>? = null) {
         if (key == SortKey.Name || delta == 0) return
         val s = _state.value
         val order = com.droid.wayfinder.data.normalizeColumnOrder(s.columnOrder).toMutableList()
-        val visible = order.filter { s.isColumnVisible(it) }
+        val visible = scope ?: s.displayedMetadataColumns
         val visIdx = visible.indexOf(key)
         val fromIdx = order.indexOf(key)
-        if (fromIdx < 0) return
-        val targetIdx = if (visIdx >= 0) {
-            val targetVisIdx = visIdx + delta
-            if (targetVisIdx !in visible.indices) return
-            order.indexOf(visible[targetVisIdx])
-        } else {
-            val t = fromIdx + delta
-            if (t !in order.indices) return
-            t
-        }
+        if (fromIdx < 0 || visIdx < 0) return
+        val targetVisIdx = visIdx + delta
+        if (targetVisIdx !in visible.indices) return
+        val targetIdx = order.indexOf(visible[targetVisIdx])
         if (targetIdx < 0 || targetIdx == fromIdx) return
         order.add(targetIdx, order.removeAt(fromIdx))
         settings.columnOrder = order

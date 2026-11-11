@@ -208,11 +208,18 @@ private fun Pane(vm: BrowserViewModel, s: AppState, tab: TabState, right: Boolea
 @Composable
 private fun FolderView(vm: BrowserViewModel, s: AppState, tab: TabState, active: Boolean) {
     val visible = remember(tab.entries, tab.searchResults, tab.sortKey, tab.sortAsc, s.showHidden, s.marks) { tab.visible(s.showHidden) }
+    val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.35f)
     Column(Modifier.fillMaxSize().externalDrop(vm, tab.path)) {
         if (tab.path == FsPath.PHONE_ROOT && (s.phoneConnected || s.quickAccessAvailable)) {
             PhoneQuickAccessBanner(vm, s.pairedPhone, s.quickAccessAvailable)
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val paneWidthDp = maxWidth.value
+            LaunchedEffect(active, tab.viewMode, paneWidthDp, fontScale) {
+                if (active) {
+                    vm.setActiveDetailsViewport(if (tab.viewMode == ViewMode.Details) paneWidthDp else null, fontScale)
+                }
+            }
             when {
                 tab.viewMode == ViewMode.Columns && tab.searchResults == null && tab.error == null -> MillerColumns(vm, s, tab, visible, active)
                 tab.error != null && visible.isEmpty() -> ErrorView(vm, tab)
@@ -558,10 +565,10 @@ private fun Modifier.fillParentMaxHeightCompat(): Modifier = this.height(160.dp)
 
 private const val ROW_FIXED_OVERHEAD_DP = 82f // 48dp row horizontal padding + 34dp leading icon/gap
 
-/** Returns the visible metadata columns in order that fit within [width] while keeping `Name >= 140.dp`. */
-internal fun visibleColumnsForWidth(s: AppState, width: Dp, fontScale: Float = 1f): List<SortKey> {
+/** Returns the visible metadata columns in order that fit within [widthDp] while keeping `Name >= 140.dp`. */
+internal fun visibleColumnsForWidthDp(s: AppState, widthDp: Float, fontScale: Float = 1f): List<SortKey> {
     val scale = fontScale.coerceIn(1f, 1.35f)
-    val availableForMetadataDp = (width.value - ROW_FIXED_OVERHEAD_DP - MIN_NAME_COLUMN_WIDTH_DP).coerceAtLeast(0f)
+    val availableForMetadataDp = (widthDp - ROW_FIXED_OVERHEAD_DP - MIN_NAME_COLUMN_WIDTH_DP).coerceAtLeast(0f)
     val out = ArrayList<SortKey>(s.columnOrder.size)
     var usedDp = 0f
     for (col in s.columnOrder) {
@@ -576,6 +583,10 @@ internal fun visibleColumnsForWidth(s: AppState, width: Dp, fontScale: Float = 1
     }
     return out
 }
+
+/** Returns the visible metadata columns in order that fit within [width] while keeping `Name >= 140.dp`. */
+internal fun visibleColumnsForWidth(s: AppState, width: Dp, fontScale: Float = 1f): List<SortKey> =
+    visibleColumnsForWidthDp(s, width.value, fontScale)
 
 /** Right-click menu of the Details header: toggles all metadata columns and offers Reset columns. */
 fun columnsMenu(vm: BrowserViewModel, s: AppState): List<MenuEntry> = listOf(
@@ -668,34 +679,46 @@ private fun DetailsHeader(vm: BrowserViewModel, s: AppState, tab: TabState, widt
                 } else {
                     Modifier
                         .onGloballyPositioned { coordsHolder[0] = it }
-                        .pointerInput(key, fontScale) {
+                        .pointerInput(key, fontScale, width) {
                             val minTriggerPx = 40.dp.toPx()
                             awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                                 if (currentEvent.buttons.isSecondaryPressed) return@awaitEachGesture
-                                var anchorRootX = (coordsHolder[0]?.positionInRoot()?.x ?: 0f) + down.position.x
+                                val touchSlopPx = viewConfiguration.touchSlop
+                                val startRootX = (coordsHolder[0]?.positionInRoot()?.x ?: 0f) + down.position.x
+                                var anchorRootX = startRootX
+                                var dragged = false
                                 while (true) {
-                                    val event = awaitPointerEvent()
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
                                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                    if (!change.pressed) break
+                                    if (!change.pressed) {
+                                        if (dragged) change.consume()
+                                        break
+                                    }
                                     val curRootX = (coordsHolder[0]?.positionInRoot()?.x ?: 0f) + change.position.x
-                                    val dxPx = curRootX - anchorRootX
-                                    val curState = vm.state.value
-                                    val curVisible = curState.visibleMetadataColumns
-                                    val idx = curVisible.indexOf(key)
-                                    if (idx >= 0) {
-                                        if (dxPx >= minTriggerPx && idx < curVisible.lastIndex) {
-                                            val neighbor = curVisible[idx + 1]
-                                            val neighborWidthPx = (curState.columnWidth(neighbor) * fontScale).dp.toPx()
-                                            change.consume()
-                                            vm.moveColumn(key, 1)
-                                            anchorRootX += neighborWidthPx.coerceAtLeast(minTriggerPx)
-                                        } else if (dxPx <= -minTriggerPx && idx > 0) {
-                                            val neighbor = curVisible[idx - 1]
-                                            val neighborWidthPx = (curState.columnWidth(neighbor) * fontScale).dp.toPx()
-                                            change.consume()
-                                            vm.moveColumn(key, -1)
-                                            anchorRootX -= neighborWidthPx.coerceAtLeast(minTriggerPx)
+                                    if (!dragged && abs(curRootX - startRootX) > touchSlopPx) {
+                                        dragged = true
+                                    }
+                                    if (dragged) {
+                                        // Consume once horizontal movement passes touchSlop so aborted (< 40.dp)
+                                        // or edge-bound drags cancel .clickable instead of triggering sort on release.
+                                        change.consume()
+                                        val dxPx = curRootX - anchorRootX
+                                        val curState = vm.state.value
+                                        val curVisible = visibleColumnsForWidth(curState, width, fontScale)
+                                        val idx = curVisible.indexOf(key)
+                                        if (idx >= 0) {
+                                            if (dxPx >= minTriggerPx && idx < curVisible.lastIndex) {
+                                                val neighbor = curVisible[idx + 1]
+                                                val neighborWidthPx = (curState.columnWidth(neighbor) * fontScale).dp.toPx()
+                                                vm.moveColumn(key, 1, scope = curVisible)
+                                                anchorRootX += neighborWidthPx.coerceAtLeast(minTriggerPx)
+                                            } else if (dxPx <= -minTriggerPx && idx > 0) {
+                                                val neighbor = curVisible[idx - 1]
+                                                val neighborWidthPx = (curState.columnWidth(neighbor) * fontScale).dp.toPx()
+                                                vm.moveColumn(key, -1, scope = curVisible)
+                                                anchorRootX -= neighborWidthPx.coerceAtLeast(minTriggerPx)
+                                            }
                                         }
                                     }
                                 }
@@ -825,7 +848,11 @@ private fun ColumnDividerHandle(
                     }
                     if (!dragged) {
                         if (downTime - lastTapUpUptimeMs <= viewConfiguration.doubleTapTimeoutMillis) {
-                            vm.resetColumnWidth(col)
+                            if (leftCol == SortKey.Name) {
+                                vm.resetColumnWidth(col)
+                            } else {
+                                vm.resetColumnWidths(leftCol, col)
+                            }
                             lastTapUpUptimeMs = -10_000L
                         } else {
                             lastTapUpUptimeMs = upTime

@@ -192,7 +192,7 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState, hasDesktopCaption: Boolea
             SortKey.Size to "size",
             SortKey.Tags to "tags",
             SortKey.Permissions to "permissions",
-        ).filter { (k, _) -> s.isColumnVisible(k) }.forEach { (k, l) ->
+        ).filter { (k, _) -> s.isSortKeyAvailable(k, tab.viewMode) }.forEach { (k, l) ->
             add(c("Sort by $l", "Order items by $l", null, Icons.Outlined.SortByAlpha) { vm.setSort(k, if (tab.sortKey == k) tab.sortAsc else true) })
         }
         add(c(vm.str(R.string.action_open_in_new_window), vm.str(R.string.palette_new_window_desc), "Ctrl+N", Icons.Outlined.Web) { vm.newWindow() })
@@ -226,14 +226,16 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState, hasDesktopCaption: Boolea
         add(c(if (s.sizeColumn) vm.str(R.string.palette_hide_size_column) else vm.str(R.string.palette_show_size_column), vm.str(R.string.palette_details_column_desc), null, Icons.Outlined.ViewHeadline) { vm.toggleSizeColumn() })
         add(c(if (s.tagsColumn) vm.str(R.string.palette_hide_tags_column) else vm.str(R.string.palette_show_tags_column), vm.str(R.string.palette_details_column_desc), null, Icons.AutoMirrored.Outlined.Label) { vm.toggleTagsColumn() })
         add(c(if (s.permsColumn) vm.str(R.string.palette_hide_perms_column) else vm.str(R.string.palette_show_perms_column), vm.str(R.string.palette_details_column_desc), null, Icons.Outlined.Lock) { vm.togglePermsColumn() })
-        val visibleCols = s.visibleMetadataColumns
-        visibleCols.forEachIndexed { idx, col ->
-            val label = col.headerLabel
-            if (idx > 0) {
-                add(c(vm.str(R.string.palette_move_column_left, label), vm.str(R.string.palette_move_column_desc, label), null, Icons.AutoMirrored.Outlined.ArrowBack) { vm.moveColumn(col, -1) })
-            }
-            if (idx < visibleCols.lastIndex) {
-                add(c(vm.str(R.string.palette_move_column_right, label), vm.str(R.string.palette_move_column_desc, label), null, Icons.AutoMirrored.Outlined.ArrowForward) { vm.moveColumn(col, 1) })
+        if (tab.viewMode == ViewMode.Details) {
+            val visibleCols = s.displayedMetadataColumns
+            visibleCols.forEachIndexed { idx, col ->
+                val label = col.headerLabel
+                if (idx > 0) {
+                    add(c(vm.str(R.string.palette_move_column_left, label), vm.str(R.string.palette_move_column_desc, label), null, Icons.AutoMirrored.Outlined.ArrowBack) { vm.moveColumn(col, -1) })
+                }
+                if (idx < visibleCols.lastIndex) {
+                    add(c(vm.str(R.string.palette_move_column_right, label), vm.str(R.string.palette_move_column_desc, label), null, Icons.AutoMirrored.Outlined.ArrowForward) { vm.moveColumn(col, 1) })
+                }
             }
         }
         add(c(vm.str(R.string.action_reset_columns), vm.str(R.string.palette_reset_columns_desc), null, Icons.Outlined.Refresh) { vm.resetColumns() })
@@ -303,6 +305,8 @@ fun CommandPalette(vm: BrowserViewModel, s: AppState) {
         s.permsColumn,
         s.columnOrder,
         s.columnWidths,
+        s.activeDetailsWidthDp,
+        s.activeFontScale,
         s.statusBarVisible,
         s.hideStatusBar,
         hasDesktopCaption,
