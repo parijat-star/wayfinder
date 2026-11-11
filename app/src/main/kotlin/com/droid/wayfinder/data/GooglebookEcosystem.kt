@@ -53,6 +53,24 @@ object GooglebookEcosystem {
             lower.contains("linuxfiles")
     }
 
+    /**
+     * True when [path] or [label] represents the Googlebook Linux development environment
+     * (whether mounted via `DocumentsProvider`, SAF tree grant, or local `LinuxFiles` directory).
+     */
+    fun isLinuxLocation(path: String, label: String = "", linuxRootPath: String? = null): Boolean {
+        if (linuxRootPath != null && path == linuxRootPath) return true
+        if (path.startsWith("doc://")) {
+            val auth = path.removePrefix("doc://").substringBefore('/')
+            if (isLinuxAuthority(auth)) return true
+        }
+        if (path == "/mnt/chromeos/LinuxFiles" || path.endsWith("/LinuxFiles")) return true
+        val trimmed = label.trim()
+        return trimmed.equals("Linux files", ignoreCase = true) ||
+            trimmed.equals("Linux VM", ignoreCase = true) ||
+            trimmed.startsWith("Linux files ·", ignoreCase = true) ||
+            trimmed.startsWith("Linux VM ·", ignoreCase = true)
+    }
+
     /** Default root ID advertised by AVF Terminal's `GuestDocumentsProvider` (`content://.../root/guest_root`). */
     const val AVF_GUEST_ROOT_ID = "guest_root"
 

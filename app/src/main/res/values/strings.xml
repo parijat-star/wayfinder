@@ -344,4 +344,5 @@
     <string name="palette_kind_onedrive" description="Category badge in command palette folder jump entries for connected OneDrive roots. [CHAR_LIMIT=20]">OneDrive</string>
     <string name="toast_onedrive_connected" description="Toast notification shown after connecting a Microsoft OneDrive account. %1$s is the account email or label. [CHAR_LIMIT=50]">Connected %1$s</string>
     <string name="toast_onedrive_signed_out" description="Toast notification shown after signing out of a Microsoft OneDrive account. %1$s is the account email or label. [CHAR_LIMIT=50]">Signed out of %1$s</string>
+    <string name="badge_beta" description="Compact pill badge label shown next to experimental sidebar locations such as Phone and Linux VM to indicate beta status. [CHAR_LIMIT=12]">Beta</string>
 </resources>

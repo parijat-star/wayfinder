@@ -111,6 +111,11 @@ class GooglebookEcosystemTest {
             assertNotNull(fallbackRoot)
             assertEquals(localLinuxDir.absolutePath, fallbackRoot!!.path)
             assertEquals("Linux files", fallbackRoot.label)
+            assertTrue(GooglebookEcosystem.isLinuxLocation(providerRoot.path, providerRoot.label, providerRoot.path))
+            assertTrue(GooglebookEcosystem.isLinuxLocation(fallbackRoot.path, fallbackRoot.label, fallbackRoot.path))
+            assertTrue(GooglebookEcosystem.isLinuxLocation("saf://linux1", "Linux files · Linux VM", null))
+            assertTrue(GooglebookEcosystem.isLinuxLocation("doc://com.android.virtualization.terminal.guestdocuments/guest_root", "Linux VM", null))
+            assertFalse(GooglebookEcosystem.isLinuxLocation(tempPrimary.absolutePath, "Internal storage", providerRoot.path))
         } finally {
             tempPrimary.deleteRecursively()
         }

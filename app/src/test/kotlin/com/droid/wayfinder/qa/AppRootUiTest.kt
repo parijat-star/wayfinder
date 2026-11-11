@@ -231,4 +231,40 @@ class AppRootUiTest {
         }
         assertTrue("Expected selected file row and active tab/sidebar item to expose Selected=true", selectedNodes.isNotEmpty())
     }
+
+    @Test fun sidebarDisplaysBetaBadgeOnLinuxVmAndPhoneItems() {
+        h = VmHarness()
+        val linuxPath = "doc://com.android.virtualization.terminal.guestdocuments/guest_root"
+        val phone = com.droid.wayfinder.data.PairedPhone(
+            name = "Pixel 9",
+            subtitle = "Cross-Device · Browse or import",
+            path = com.droid.wayfinder.data.FsPath.PHONE_ROOT,
+            isConnected = true,
+            authority = com.droid.wayfinder.data.PhoneDetector.QUICK_ACCESS_AUTHORITY,
+            isMounted = false,
+            transport = com.droid.wayfinder.data.PhoneTransport.QUICK_ACCESS,
+        )
+        val sWithBeta = h.s.copy(
+            roots = h.s.roots + com.droid.wayfinder.ui.RootVolume(
+                path = linuxPath,
+                label = "Linux VM",
+                removable = false,
+                subtitle = "Linux development environment",
+            ),
+            linuxRootPath = linuxPath,
+            pairedPhone = phone,
+            phoneConnected = true,
+            quickAccessAvailable = true,
+        )
+        rule.setContent {
+            WayfinderTheme(false) {
+                com.droid.wayfinder.ui.Sidebar(h.vm, sWithBeta, androidx.compose.ui.Modifier)
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithText("Linux VM", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithText("Pixel 9", useUnmergedTree = true).assertIsDisplayed()
+        val betaNodes = rule.onAllNodesWithText("Beta", useUnmergedTree = true).fetchSemanticsNodes()
+        assertEquals("Expected Beta badge on both Linux VM and Phone sidebar rows", 2, betaNodes.size)
+    }
 }
