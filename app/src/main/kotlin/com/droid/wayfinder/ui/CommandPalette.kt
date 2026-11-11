@@ -113,6 +113,7 @@ import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.SortKey
 import com.droid.wayfinder.data.ViewMode
 import com.droid.wayfinder.data.fuzzyScore
+import com.droid.wayfinder.data.headerLabel
 
 /** One entry in the command palette: a command or a "jump to folder" target. */
 data class PaletteItem(
@@ -184,7 +185,14 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState, hasDesktopCaption: Boolea
         add(c(vm.str(R.string.palette_network), vm.str(R.string.palette_network_desc), null, Icons.Outlined.Dns) { vm.navigate(FsPath.SMB_ROOT) })
         add(c(vm.str(R.string.nav_trash), vm.str(R.string.palette_trash_desc), null, Icons.Outlined.Delete) { vm.navigate(FsPath.TRASH_ROOT) })
         add(c(vm.str(R.string.action_empty_trash), vm.str(R.string.palette_empty_trash_desc), null, Icons.Outlined.DeleteForever) { vm.emptyTrash() })
-        listOf(SortKey.Name to "name", SortKey.Modified to "date modified", SortKey.Type to "type", SortKey.Size to "size").forEach { (k, l) ->
+        listOf(
+            SortKey.Name to "name",
+            SortKey.Modified to "date modified",
+            SortKey.Type to "type",
+            SortKey.Size to "size",
+            SortKey.Tags to "tags",
+            SortKey.Permissions to "permissions",
+        ).filter { (k, _) -> s.isColumnVisible(k) }.forEach { (k, l) ->
             add(c("Sort by $l", "Order items by $l", null, Icons.Outlined.SortByAlpha) { vm.setSort(k, if (tab.sortKey == k) tab.sortAsc else true) })
         }
         add(c(vm.str(R.string.action_open_in_new_window), vm.str(R.string.palette_new_window_desc), "Ctrl+N", Icons.Outlined.Web) { vm.newWindow() })
@@ -213,8 +221,22 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState, hasDesktopCaption: Boolea
             add(c("Tag: ${t.label}", "Toggle the ${t.label} color tag on the selection", null, Icons.AutoMirrored.Outlined.Label) { vm.toggleTag(t) })
             add(c("Show ${t.label} items", "Open the ${t.label} color tag view", null, Icons.Filled.Circle) { vm.navigate(FsPath.tagPath(t)) })
         }
+        add(c(if (s.modifiedColumn) vm.str(R.string.palette_hide_modified_column) else vm.str(R.string.palette_show_modified_column), vm.str(R.string.palette_details_column_desc), null, Icons.Outlined.History) { vm.toggleModifiedColumn() })
+        add(c(if (s.typeColumn) vm.str(R.string.palette_hide_type_column) else vm.str(R.string.palette_show_type_column), vm.str(R.string.palette_details_column_desc), null, Icons.Outlined.ViewColumn) { vm.toggleTypeColumn() })
+        add(c(if (s.sizeColumn) vm.str(R.string.palette_hide_size_column) else vm.str(R.string.palette_show_size_column), vm.str(R.string.palette_details_column_desc), null, Icons.Outlined.ViewHeadline) { vm.toggleSizeColumn() })
         add(c(if (s.tagsColumn) vm.str(R.string.palette_hide_tags_column) else vm.str(R.string.palette_show_tags_column), vm.str(R.string.palette_details_column_desc), null, Icons.AutoMirrored.Outlined.Label) { vm.toggleTagsColumn() })
         add(c(if (s.permsColumn) vm.str(R.string.palette_hide_perms_column) else vm.str(R.string.palette_show_perms_column), vm.str(R.string.palette_details_column_desc), null, Icons.Outlined.Lock) { vm.togglePermsColumn() })
+        val visibleCols = s.visibleMetadataColumns
+        visibleCols.forEachIndexed { idx, col ->
+            val label = col.headerLabel
+            if (idx > 0) {
+                add(c(vm.str(R.string.palette_move_column_left, label), vm.str(R.string.palette_move_column_desc, label), null, Icons.AutoMirrored.Outlined.ArrowBack) { vm.moveColumn(col, -1) })
+            }
+            if (idx < visibleCols.lastIndex) {
+                add(c(vm.str(R.string.palette_move_column_right, label), vm.str(R.string.palette_move_column_desc, label), null, Icons.AutoMirrored.Outlined.ArrowForward) { vm.moveColumn(col, 1) })
+            }
+        }
+        add(c(vm.str(R.string.action_reset_columns), vm.str(R.string.palette_reset_columns_desc), null, Icons.Outlined.Refresh) { vm.resetColumns() })
         if (!hasDesktopCaption) {
             add(c(if (s.hideStatusBar) vm.str(R.string.palette_show_status_bar) else vm.str(R.string.palette_hide_status_bar), vm.str(R.string.palette_status_bar_desc), null, Icons.Outlined.Visibility) { vm.toggleHideStatusBar() })
         }
@@ -264,6 +286,9 @@ fun CommandPalette(vm: BrowserViewModel, s: AppState) {
         s.active.path,
         s.active.entries,
         s.active.selection,
+        s.active.viewMode,
+        s.active.sortKey,
+        s.active.sortAsc,
         s.dualPane,
         s.pins,
         s.oneDriveAccounts,
@@ -271,8 +296,13 @@ fun CommandPalette(vm: BrowserViewModel, s: AppState) {
         s.showHidden,
         s.theme,
         s.zoom,
+        s.modifiedColumn,
+        s.typeColumn,
+        s.sizeColumn,
         s.tagsColumn,
         s.permsColumn,
+        s.columnOrder,
+        s.columnWidths,
         s.statusBarVisible,
         s.hideStatusBar,
         hasDesktopCaption,

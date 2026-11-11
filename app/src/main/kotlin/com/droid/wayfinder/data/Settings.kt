@@ -70,6 +70,18 @@ class Settings(context: Context) {
         get() = p.getString("marks", null)
         set(v) = p.edit().putString("marks", v).apply()
 
+    var modifiedColumn: Boolean
+        get() = p.getBoolean("modifiedColumn", true)
+        set(v) = p.edit().putBoolean("modifiedColumn", v).apply()
+
+    var typeColumn: Boolean
+        get() = p.getBoolean("typeColumn", true)
+        set(v) = p.edit().putBoolean("typeColumn", v).apply()
+
+    var sizeColumn: Boolean
+        get() = p.getBoolean("sizeColumn", true)
+        set(v) = p.edit().putBoolean("sizeColumn", v).apply()
+
     var tagsColumn: Boolean
         get() = p.getBoolean("tagsColumn", false)
         set(v) = p.edit().putBoolean("tagsColumn", v).apply()
@@ -87,6 +99,62 @@ class Settings(context: Context) {
     var hideStatusBar: Boolean
         get() = p.getBoolean("hideStatusBar", false)
         set(v) = p.edit().putBoolean("hideStatusBar", v).apply()
+
+    var columnOrder: List<SortKey>
+        get() = parseColumnOrder(p.getString("columnOrder", null))
+        set(v) = p.edit().putString("columnOrder", normalizeColumnOrder(v).joinToString(",") { it.name }).apply()
+
+    var columnWidths: Map<SortKey, Float>
+        get() = parseColumnWidths(p.getString("columnWidths", null))
+        set(v) {
+            val serialized = DEFAULT_METADATA_COLUMNS.joinToString(",") { k ->
+                val w = (v[k] ?: defaultColumnWidth(k)).coerceIn(MIN_COLUMN_WIDTH_DP, MAX_COLUMN_WIDTH_DP)
+                "${k.name}:$w"
+            }
+            p.edit().putString("columnWidths", serialized).apply()
+        }
+
+    fun columnWidth(key: SortKey): Float =
+        (columnWidths[key] ?: defaultColumnWidth(key)).coerceIn(MIN_COLUMN_WIDTH_DP, MAX_COLUMN_WIDTH_DP)
+
+    fun setColumnWidth(key: SortKey, widthDp: Float) {
+        if (key == SortKey.Name) return
+        val next = columnWidths.toMutableMap()
+        next[key] = widthDp.coerceIn(MIN_COLUMN_WIDTH_DP, MAX_COLUMN_WIDTH_DP)
+        columnWidths = next
+    }
+
+    fun isColumnVisible(key: SortKey): Boolean = when (key) {
+        SortKey.Name -> true
+        SortKey.Modified -> modifiedColumn
+        SortKey.Type -> typeColumn
+        SortKey.Size -> sizeColumn
+        SortKey.Tags -> tagsColumn
+        SortKey.Permissions -> permsColumn
+    }
+
+    fun setColumnVisible(key: SortKey, visible: Boolean) {
+        when (key) {
+            SortKey.Name -> Unit
+            SortKey.Modified -> modifiedColumn = visible
+            SortKey.Type -> typeColumn = visible
+            SortKey.Size -> sizeColumn = visible
+            SortKey.Tags -> tagsColumn = visible
+            SortKey.Permissions -> permsColumn = visible
+        }
+    }
+
+    fun resetColumns() {
+        p.edit()
+            .putBoolean("modifiedColumn", true)
+            .putBoolean("typeColumn", true)
+            .putBoolean("sizeColumn", true)
+            .putBoolean("tagsColumn", false)
+            .putBoolean("permsColumn", false)
+            .remove("columnOrder")
+            .remove("columnWidths")
+            .apply()
+    }
 
     /** Mounted document trees (cloud drives, USB, ...), see [SafMount.serialize]. */
     var safMounts: List<SafMount>
@@ -107,4 +175,34 @@ class Settings(context: Context) {
     var shownDefaultHandlerPrompt: Boolean
         get() = p.getBoolean("shownDefaultHandlerPrompt", false)
         set(v) = p.edit().putBoolean("shownDefaultHandlerPrompt", v).apply()
+}
+
+fun normalizeColumnOrder(order: List<SortKey>): List<SortKey> {
+    val valid = order.filter { it != SortKey.Name && it in DEFAULT_METADATA_COLUMNS }.distinct()
+    return valid + DEFAULT_METADATA_COLUMNS.filter { it !in valid }
+}
+
+fun parseColumnOrder(raw: String?): List<SortKey> {
+    if (raw.isNullOrBlank()) return DEFAULT_METADATA_COLUMNS
+    val parsed = raw.split(',', '\n').mapNotNull { token ->
+        val t = token.trim()
+        DEFAULT_METADATA_COLUMNS.firstOrNull { it.name.equals(t, ignoreCase = true) }
+    }
+    return normalizeColumnOrder(parsed)
+}
+
+fun parseColumnWidths(raw: String?): Map<SortKey, Float> {
+    val out = LinkedHashMap<SortKey, Float>(DEFAULT_COLUMN_WIDTHS)
+    if (raw.isNullOrBlank()) return out
+    raw.split(',', '\n').forEach { entry ->
+        val parts = entry.split(':', '=')
+        if (parts.size == 2) {
+            val key = DEFAULT_METADATA_COLUMNS.firstOrNull { it.name.equals(parts[0].trim(), ignoreCase = true) }
+            val value = parts[1].trim().toFloatOrNull()
+            if (key != null && value != null && value.isFinite()) {
+                out[key] = value.coerceIn(MIN_COLUMN_WIDTH_DP, MAX_COLUMN_WIDTH_DP)
+            }
+        }
+    }
+    return out
 }

@@ -219,6 +219,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             start != null -> listOf(start)
             else -> savedTabs.ifEmpty { listOf(FsPath.RECENTS_ROOT) }
         }
+        if (!settings.isColumnVisible(settings.sortKey)) {
+            settings.sortKey = SortKey.Name
+            settings.sortAsc = true
+        }
         val tabs = startPaths.map { newTabState(it) }
         val initialDrive = GoogleDriveManager.discoverAccounts(app, safMounts)
         val initialPhone = detectPhone(emptyList(), safMounts)
@@ -234,7 +238,13 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             sidebarVisible = settings.sidebarVisible, previewVisible = settings.previewVisible,
             sidebarWidth = settings.sidebarWidth, gridSize = settings.gridSize,
             marks = SharedUi.marks.value, zoom = settings.zoom.coerceIn(0.7f, 1.6f), theme = SharedUi.theme.value,
-            tagsColumn = settings.tagsColumn, permsColumn = settings.permsColumn,
+            modifiedColumn = settings.modifiedColumn,
+            typeColumn = settings.typeColumn,
+            sizeColumn = settings.sizeColumn,
+            tagsColumn = settings.tagsColumn,
+            permsColumn = settings.permsColumn,
+            columnOrder = settings.columnOrder,
+            columnWidths = settings.columnWidths,
             statusBarVisible = settings.statusBarVisible,
             hideStatusBar = SharedUi.hideStatusBar.value,
             secondaryWindow = secondaryWindow,
@@ -1428,8 +1438,109 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         toast(str(com.droid.wayfinder.R.string.toast_theme_changed, next.label))
     }
 
-    fun toggleTagsColumn() { val v = !_state.value.tagsColumn; settings.tagsColumn = v; _state.update { it.copy(tagsColumn = v) } }
-    fun togglePermsColumn() { val v = !_state.value.permsColumn; settings.permsColumn = v; _state.update { it.copy(permsColumn = v) } }
+    private fun AppState.resetSortForHiddenColumns(): AppState = copy(
+        tabs = tabs.map { t -> if (!isColumnVisible(t.sortKey)) t.copy(sortKey = SortKey.Name, sortAsc = true) else t },
+        secondary = secondary?.let { t -> if (!isColumnVisible(t.sortKey)) t.copy(sortKey = SortKey.Name, sortAsc = true) else t },
+    )
+
+    fun setColumnVisible(key: SortKey, visible: Boolean) {
+        if (key == SortKey.Name) return
+        settings.setColumnVisible(key, visible)
+        if (!visible && settings.sortKey == key) {
+            settings.sortKey = SortKey.Name
+            settings.sortAsc = true
+        }
+        _state.update { s ->
+            val updated = when (key) {
+                SortKey.Name -> s
+                SortKey.Modified -> s.copy(modifiedColumn = visible)
+                SortKey.Type -> s.copy(typeColumn = visible)
+                SortKey.Size -> s.copy(sizeColumn = visible)
+                SortKey.Tags -> s.copy(tagsColumn = visible)
+                SortKey.Permissions -> s.copy(permsColumn = visible)
+            }
+            if (visible) updated else updated.resetSortForHiddenColumns()
+        }
+    }
+
+    fun toggleColumn(key: SortKey) {
+        if (key == SortKey.Name) return
+        setColumnVisible(key, !_state.value.isColumnVisible(key))
+    }
+
+    fun toggleModifiedColumn() = toggleColumn(SortKey.Modified)
+    fun toggleTypeColumn() = toggleColumn(SortKey.Type)
+    fun toggleSizeColumn() = toggleColumn(SortKey.Size)
+    fun toggleTagsColumn() = toggleColumn(SortKey.Tags)
+    fun togglePermsColumn() = toggleColumn(SortKey.Permissions)
+
+    fun setColumnWidth(key: SortKey, widthDp: Float) {
+        if (key == SortKey.Name) return
+        setColumnWidths(mapOf(key to widthDp))
+    }
+
+    fun setColumnWidths(updates: Map<SortKey, Float>) {
+        val clamped = updates.filterKeys { it != SortKey.Name }.mapValues { (_, w) ->
+            w.coerceIn(com.droid.wayfinder.data.MIN_COLUMN_WIDTH_DP, com.droid.wayfinder.data.MAX_COLUMN_WIDTH_DP)
+        }
+        if (clamped.isEmpty()) return
+        val next = _state.value.columnWidths + clamped
+        settings.columnWidths = next
+        _state.update { s -> s.copy(columnWidths = s.columnWidths + clamped) }
+    }
+
+    fun resetColumnWidth(key: SortKey) {
+        if (key == SortKey.Name) return
+        setColumnWidth(key, com.droid.wayfinder.data.defaultColumnWidth(key))
+    }
+
+    fun moveColumn(key: SortKey, delta: Int) {
+        if (key == SortKey.Name || delta == 0) return
+        val s = _state.value
+        val order = com.droid.wayfinder.data.normalizeColumnOrder(s.columnOrder).toMutableList()
+        val visible = order.filter { s.isColumnVisible(it) }
+        val visIdx = visible.indexOf(key)
+        val fromIdx = order.indexOf(key)
+        if (fromIdx < 0) return
+        val targetIdx = if (visIdx >= 0) {
+            val targetVisIdx = visIdx + delta
+            if (targetVisIdx !in visible.indices) return
+            order.indexOf(visible[targetVisIdx])
+        } else {
+            val t = fromIdx + delta
+            if (t !in order.indices) return
+            t
+        }
+        if (targetIdx < 0 || targetIdx == fromIdx) return
+        order.add(targetIdx, order.removeAt(fromIdx))
+        settings.columnOrder = order
+        _state.update { it.copy(columnOrder = order) }
+    }
+
+    fun setColumnOrder(order: List<SortKey>) {
+        val normalized = com.droid.wayfinder.data.normalizeColumnOrder(order)
+        settings.columnOrder = normalized
+        _state.update { it.copy(columnOrder = normalized) }
+    }
+
+    fun resetColumns() {
+        settings.resetColumns()
+        if (!settings.isColumnVisible(settings.sortKey)) {
+            settings.sortKey = SortKey.Name
+            settings.sortAsc = true
+        }
+        _state.update { s ->
+            s.copy(
+                modifiedColumn = true,
+                typeColumn = true,
+                sizeColumn = true,
+                tagsColumn = false,
+                permsColumn = false,
+                columnOrder = com.droid.wayfinder.data.DEFAULT_METADATA_COLUMNS,
+                columnWidths = com.droid.wayfinder.data.DEFAULT_COLUMN_WIDTHS,
+            ).resetSortForHiddenColumns()
+        }
+    }
 
     fun toggleStatusBar() {
         val next = !_state.value.statusBarVisible

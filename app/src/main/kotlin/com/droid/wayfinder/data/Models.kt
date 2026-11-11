@@ -7,6 +7,43 @@ enum class ViewMode { Details, List, Grid, Columns }
 
 enum class SortKey { Name, Modified, Type, Size, Tags, Permissions }
 
+const val MIN_NAME_COLUMN_WIDTH_DP = 140f
+const val MIN_COLUMN_WIDTH_DP = 64f
+const val MAX_COLUMN_WIDTH_DP = 360f
+
+val DEFAULT_METADATA_COLUMNS: List<SortKey> = listOf(
+    SortKey.Modified,
+    SortKey.Type,
+    SortKey.Size,
+    SortKey.Tags,
+    SortKey.Permissions,
+)
+
+val DEFAULT_COLUMN_WIDTHS: Map<SortKey, Float> = mapOf(
+    SortKey.Modified to 168f,
+    SortKey.Type to 132f,
+    SortKey.Size to 88f,
+    SortKey.Tags to 84f,
+    SortKey.Permissions to 100f,
+)
+
+fun defaultColumnWidth(key: SortKey): Float = DEFAULT_COLUMN_WIDTHS[key] ?: 100f
+
+fun defaultColumnVisible(key: SortKey): Boolean = when (key) {
+    SortKey.Name, SortKey.Modified, SortKey.Type, SortKey.Size -> true
+    SortKey.Tags, SortKey.Permissions -> false
+}
+
+val SortKey.headerLabel: String
+    get() = when (this) {
+        SortKey.Name -> "Name"
+        SortKey.Modified -> "Date modified"
+        SortKey.Type -> "Type"
+        SortKey.Size -> "Size"
+        SortKey.Tags -> "Tags"
+        SortKey.Permissions -> "Permissions"
+    }
+
 enum class ThemeMode(val label: String) { System("System"), Light("Light"), Dark("Dark") }
 
 /** Google Drive account discovered on the device. */

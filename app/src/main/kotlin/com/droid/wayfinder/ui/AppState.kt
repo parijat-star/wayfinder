@@ -148,8 +148,13 @@ data class AppState(
     val zoom: Float = 1f,
     val theme: ThemeMode = ThemeMode.System,
     /** Optional Details-view columns. */
+    val modifiedColumn: Boolean = true,
+    val typeColumn: Boolean = true,
+    val sizeColumn: Boolean = true,
     val tagsColumn: Boolean = false,
     val permsColumn: Boolean = false,
+    val columnOrder: List<com.droid.wayfinder.data.SortKey> = com.droid.wayfinder.data.DEFAULT_METADATA_COLUMNS,
+    val columnWidths: Map<com.droid.wayfinder.data.SortKey, Float> = com.droid.wayfinder.data.DEFAULT_COLUMN_WIDTHS,
     /** Whether Wayfinder's bottom item-count bar is visible inside the file pane. */
     val statusBarVisible: Boolean = true,
     /** True when the Android system status bar is hidden by user preference. */
@@ -224,6 +229,22 @@ data class AppState(
     /** Human-readable path for headers, details, and the editable address bar (e.g. `Pixel 8a/Documents`). */
     fun displayPath(path: String, separator: String = "/"): String =
         com.droid.wayfinder.data.FsPath.friendlyPath(path, rootLabels, separator)
+
+    fun isColumnVisible(key: com.droid.wayfinder.data.SortKey): Boolean = when (key) {
+        com.droid.wayfinder.data.SortKey.Name -> true
+        com.droid.wayfinder.data.SortKey.Modified -> modifiedColumn
+        com.droid.wayfinder.data.SortKey.Type -> typeColumn
+        com.droid.wayfinder.data.SortKey.Size -> sizeColumn
+        com.droid.wayfinder.data.SortKey.Tags -> tagsColumn
+        com.droid.wayfinder.data.SortKey.Permissions -> permsColumn
+    }
+
+    fun columnWidth(key: com.droid.wayfinder.data.SortKey): Float =
+        (columnWidths[key] ?: com.droid.wayfinder.data.defaultColumnWidth(key))
+            .coerceIn(com.droid.wayfinder.data.MIN_COLUMN_WIDTH_DP, com.droid.wayfinder.data.MAX_COLUMN_WIDTH_DP)
+
+    val visibleMetadataColumns: List<com.droid.wayfinder.data.SortKey>
+        get() = com.droid.wayfinder.data.normalizeColumnOrder(columnOrder).filter { isColumnVisible(it) }
 }
 
 val Conflict.label: String

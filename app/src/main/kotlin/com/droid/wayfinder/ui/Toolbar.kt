@@ -518,7 +518,7 @@ private fun SortButton(vm: BrowserViewModel, s: AppState) {
             listOf(
                 SortKey.Name to "Name", SortKey.Modified to "Date modified", SortKey.Type to "Type", SortKey.Size to "Size",
                 SortKey.Tags to "Tags", SortKey.Permissions to "Permissions",
-            ).forEach { (k, label) ->
+            ).filter { (k, _) -> s.isColumnVisible(k) }.forEach { (k, label) ->
                 DropdownMenuItem(
                     { Text(label) },
                     { vm.setSort(k, if (tab.sortKey == k) tab.sortAsc else true); open = false },
@@ -600,8 +600,13 @@ private fun OverflowMenu(
             )
             DropdownMenuItem({ Text(stringResource(R.string.menu_status_bar)) }, { open = false; vm.toggleStatusBar() }, leadingIcon = check(s.statusBarVisible))
             DropdownMenuItem({ Text("Dual pane") }, { open = false; vm.toggleDualPane() }, leadingIcon = check(s.dualPane), trailingIcon = { Hint("Ctrl+4") })
-            DropdownMenuItem({ Text("Tags column") }, { open = false; vm.toggleTagsColumn() }, leadingIcon = check(s.tagsColumn))
-            DropdownMenuItem({ Text("Permissions column") }, { open = false; vm.togglePermsColumn() }, leadingIcon = check(s.permsColumn))
+            if (s.active.viewMode == ViewMode.Details) {
+                DropdownMenuItem({ Text(stringResource(R.string.menu_modified_column)) }, { open = false; vm.toggleModifiedColumn() }, leadingIcon = check(s.modifiedColumn))
+                DropdownMenuItem({ Text(stringResource(R.string.menu_type_column)) }, { open = false; vm.toggleTypeColumn() }, leadingIcon = check(s.typeColumn))
+                DropdownMenuItem({ Text(stringResource(R.string.menu_size_column)) }, { open = false; vm.toggleSizeColumn() }, leadingIcon = check(s.sizeColumn))
+                DropdownMenuItem({ Text(stringResource(R.string.menu_tags_column)) }, { open = false; vm.toggleTagsColumn() }, leadingIcon = check(s.tagsColumn))
+                DropdownMenuItem({ Text(stringResource(R.string.menu_perms_column)) }, { open = false; vm.togglePermsColumn() }, leadingIcon = check(s.permsColumn))
+            }
             if (!hasDesktopCaption) {
                 DropdownMenuItem({ Text(stringResource(R.string.menu_hide_status_bar)) }, { open = false; vm.toggleHideStatusBar() }, leadingIcon = check(s.hideStatusBar))
             }
@@ -627,7 +632,9 @@ private fun OverflowMenu(
                     SortKey.Modified to "Sort by Date modified",
                     SortKey.Type to "Sort by Type",
                     SortKey.Size to "Sort by Size",
-                ).forEach { (k, label) ->
+                    SortKey.Tags to "Sort by Tags",
+                    SortKey.Permissions to "Sort by Permissions",
+                ).filter { (k, _) -> s.isColumnVisible(k) }.forEach { (k, label) ->
                     DropdownMenuItem(
                         { Text(label) },
                         { open = false; vm.setSort(k, if (s.active.sortKey == k) s.active.sortAsc else true) },

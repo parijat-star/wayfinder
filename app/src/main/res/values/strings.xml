@@ -193,11 +193,28 @@
     <string name="palette_work_profile_desc" description="Command palette subtitle for switching to a managed profile. %1$s is the profile label (e.g. Work profile). [CHAR_LIMIT=60]">Switch to managed profile (%1$s)</string>
     <string name="palette_toggle_star" description="Command palette command title to star or unstar the current selection. [CHAR_LIMIT=40]">Add to / remove from Starred</string>
     <string name="palette_toggle_star_desc" description="Command palette subtitle describing Add to / remove from Starred. [CHAR_LIMIT=60]">Star the selection (or the current folder)</string>
+    <string name="palette_show_modified_column" description="Command palette command title to show the Date modified column in Details view. [CHAR_LIMIT=35]">Show Date modified column</string>
+    <string name="palette_hide_modified_column" description="Command palette command title to hide the Date modified column in Details view. [CHAR_LIMIT=35]">Hide Date modified column</string>
+    <string name="palette_show_type_column" description="Command palette command title to show the Type column in Details view. [CHAR_LIMIT=30]">Show Type column</string>
+    <string name="palette_hide_type_column" description="Command palette command title to hide the Type column in Details view. [CHAR_LIMIT=30]">Hide Type column</string>
+    <string name="palette_show_size_column" description="Command palette command title to show the Size column in Details view. [CHAR_LIMIT=30]">Show Size column</string>
+    <string name="palette_hide_size_column" description="Command palette command title to hide the Size column in Details view. [CHAR_LIMIT=30]">Hide Size column</string>
     <string name="palette_show_tags_column" description="Command palette command title to show the Tags column in Details view. [CHAR_LIMIT=30]">Show Tags column</string>
     <string name="palette_hide_tags_column" description="Command palette command title to hide the Tags column in Details view. [CHAR_LIMIT=30]">Hide Tags column</string>
     <string name="palette_show_perms_column" description="Command palette command title to show the Permissions column in Details view. [CHAR_LIMIT=35]">Show Permissions column</string>
     <string name="palette_hide_perms_column" description="Command palette command title to hide the Permissions column in Details view. [CHAR_LIMIT=35]">Hide Permissions column</string>
     <string name="palette_details_column_desc" description="Command palette subtitle for Details view column visibility toggles. [CHAR_LIMIT=35]">Details view column</string>
+    <string name="palette_move_column_left" description="Command palette command title to move a Details view column one position to the left. %1$s is the column name (e.g. Size). [CHAR_LIMIT=40]">Move %1$s left</string>
+    <string name="palette_move_column_right" description="Command palette command title to move a Details view column one position to the right. %1$s is the column name (e.g. Date modified). [CHAR_LIMIT=40]">Move %1$s right</string>
+    <string name="palette_move_column_desc" description="Command palette subtitle for moving a Details view metadata column left or right. %1$s is the column name (e.g. Type). [CHAR_LIMIT=50]">Reorder %1$s column in Details view</string>
+    <string name="action_reset_columns" description="Context menu and command palette action to reset Details view columns to their default visibility, widths, and order. [CHAR_LIMIT=30]">Reset columns</string>
+    <string name="palette_reset_columns_desc" description="Command palette subtitle describing Reset columns. [CHAR_LIMIT=60]">Restore default Details view columns, widths, and order</string>
+    <string name="menu_modified_column" description="Menu item toggle for the Date modified column in Details view. [CHAR_LIMIT=30]">Date modified column</string>
+    <string name="menu_type_column" description="Menu item toggle for the Type column in Details view. [CHAR_LIMIT=25]">Type column</string>
+    <string name="menu_size_column" description="Menu item toggle for the Size column in Details view. [CHAR_LIMIT=25]">Size column</string>
+    <string name="menu_tags_column" description="Menu item toggle for the Tags column in Details view. [CHAR_LIMIT=25]">Tags column</string>
+    <string name="menu_perms_column" description="Menu item toggle for the Permissions column in Details view. [CHAR_LIMIT=30]">Permissions column</string>
+    <string name="column_resize_handle_desc" description="Accessibility label for a draggable column divider in the Details view header. %1$s is the column name (e.g. Date modified). [CHAR_LIMIT=45]">Resize %1$s column</string>
     <string name="palette_open_with_desc" description="Command palette subtitle for Open with. %1$s is the selected file name (e.g. notes.pdf). [CHAR_LIMIT=50]">Choose an app for %1$s</string>
     <string name="palette_browse_archive_desc" description="Command palette subtitle for Browse archive. %1$s is the archive file name (e.g. backup.zip). [CHAR_LIMIT=50]">Open %1$s as a folder</string>
     <string name="palette_extract_one_desc" description="Command palette subtitle for Extract archive here on one archive. %1$s is the archive file name (e.g. archive.zip). [CHAR_LIMIT=55]">Unpack %1$s into this folder</string>
