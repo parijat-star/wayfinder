@@ -3,17 +3,28 @@
 
 package com.droid.wayfinder.qa
 
+import android.content.ContentProvider
+import android.content.ContentValues
 import android.content.Intent
+import android.database.Cursor
+import android.database.MatrixCursor
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.droid.wayfinder.MainActivity
 import com.droid.wayfinder.data.CacheJanitor
 import com.droid.wayfinder.data.FileEntry
+import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.SystemDocumentsBridge
+import com.droid.wayfinder.data.ZipFileSystem
 import com.droid.wayfinder.ui.BrowserViewModel
 import kotlinx.coroutines.runBlocking
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,7 +33,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.annotation.Config
+import java.io.ByteArrayOutputStream
 import java.io.File
 
 /**
@@ -146,11 +159,140 @@ class OpenPathApkAndThumbnailTest {
         assertNull(SystemDocumentsBridge.localPathForRelativeDocId("a/../../etc", h.root.path))
     }
 
-    @Test fun manifestOffersWayfinderForApkViewIntents() {
+    @Test fun mainActivityDoesNotInterceptApkViewIntents() {
         val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse("content://x/app.apk"), MainActivity.APK_MIME)
-        val resolved = ctx.packageManager.queryIntentActivities(intent, 0)
-        assertTrue(resolved.any { it.activityInfo?.packageName == ctx.packageName })
+        for (uri in listOf(Uri.parse("content://x/app.apk"), Uri.parse("file:///storage/emulated/0/Download/app.apk"))) {
+            val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, MainActivity.APK_MIME)
+            val resolved = ctx.packageManager.queryIntentActivities(intent, 0)
+            assertFalse(
+                "Wayfinder must not intercept ACTION_VIEW for APK installs ($uri)",
+                resolved.any { it.activityInfo?.packageName == ctx.packageName },
+            )
+        }
+    }
+
+    class OpaqueArchiveProvider : ContentProvider() {
+        private val items = LinkedHashMap<String, Pair<String?, ByteArray>>()
+
+        fun put(id: String, displayName: String?, bytes: ByteArray) {
+            items[id] = displayName to bytes
+        }
+
+        override fun onCreate(): Boolean = true
+
+        override fun query(
+            uri: Uri,
+            projection: Array<out String>?,
+            selection: String?,
+            selectionArgs: Array<out String>?,
+            sortOrder: String?,
+        ): Cursor? {
+            val id = uri.lastPathSegment ?: return null
+            val (displayName, bytes) = items[id] ?: return null
+            if (displayName == null) return null
+            return MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)).apply {
+                addRow(arrayOf<Any?>(displayName, bytes.size.toLong()))
+            }
+        }
+
+        override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
+            val id = uri.lastPathSegment ?: return null
+            val (_, bytes) = items[id] ?: return null
+            val tmp = File.createTempFile("wf-opaque-archive-", ".bin")
+            tmp.deleteOnExit()
+            tmp.writeBytes(bytes)
+            return ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY)
+        }
+
+        override fun getType(uri: Uri): String? = null
+        override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+        override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
+        override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
+    }
+
+    private fun buildSampleTarGzBytes(entryName: String, content: String): ByteArray {
+        val out = ByteArrayOutputStream()
+        GzipCompressorOutputStream(out).use { gz ->
+            TarArchiveOutputStream(gz).use { tar ->
+                val data = content.toByteArray(Charsets.UTF_8)
+                val entry = TarArchiveEntry(entryName).apply { size = data.size.toLong() }
+                tar.putArchiveEntry(entry)
+                tar.write(data)
+                tar.closeArchiveEntry()
+            }
+        }
+        return out.toByteArray()
+    }
+
+    private fun buildPlainGzipBytes(content: String): ByteArray {
+        val out = ByteArrayOutputStream()
+        GzipCompressorOutputStream(out).use { gz -> gz.write(content.toByteArray(Charsets.UTF_8)) }
+        return out.toByteArray()
+    }
+
+    @Test fun opaqueContentUriStagesTgzArchiveAndSkipsPlainGzipFile() {
+        val h = harness()
+        val auth = "com.example.opaque.archive"
+        val provider = Robolectric.setupContentProvider(OpaqueArchiveProvider::class.java, auth)
+        val tgzBytes = buildSampleTarGzBytes("README.txt", "hello from tgz")
+        val plainGzBytes = buildPlainGzipBytes("2026-11-11 INFO started\n")
+
+        val stagedDir = File(h.app.cacheDir, "view-archive")
+        stagedDir.deleteRecursively()
+
+        // 1. Opaque URI with MIME application/x-gtar-compressed + DISPLAY_NAME = "release.tgz" stages as release.tgz!
+        provider.put("1", "release.tgz", tgzBytes)
+        val stagedNamedTgz = MainActivity.resolveViewTargetPath(
+            h.app,
+            Uri.parse("content://$auth/blob/1"),
+            "application/x-gtar-compressed",
+            h.root.path,
+        )
+        assertEquals(FsPath.zipRoot(File(stagedDir, "release.tgz").path), stagedNamedTgz)
+        assertEquals(listOf("README.txt"), ZipFileSystem().list(stagedNamedTgz!!).map { it.name })
+
+        // 2. Opaque URI with MIME application/x-gtar-compressed and no DISPLAY_NAME falls back to archive.tgz!
+        provider.put("2", null, tgzBytes)
+        val stagedAnonTgz = MainActivity.resolveViewTargetPath(
+            h.app,
+            Uri.parse("content://$auth/blob/2"),
+            "application/x-gtar-compressed",
+            h.root.path,
+        )
+        assertEquals(FsPath.zipRoot(File(stagedDir, "archive.tgz").path), stagedAnonTgz)
+        assertEquals(listOf("README.txt"), ZipFileSystem().list(stagedAnonTgz!!).map { it.name })
+
+        // 3. Opaque URI with MIME application/gzip + DISPLAY_NAME = "source.tar.gz" stages as source.tar.gz!
+        provider.put("3", "source.tar.gz", tgzBytes)
+        val stagedTarGz = MainActivity.resolveViewTargetPath(
+            h.app,
+            Uri.parse("content://$auth/blob/3"),
+            "application/gzip",
+            h.root.path,
+        )
+        assertEquals(FsPath.zipRoot(File(stagedDir, "source.tar.gz").path), stagedTarGz)
+
+        // 4. Plain non-tar .gz files (e.g. server.log.gz) must return null rather than fabricating archive.tar.gz
+        provider.put("4", "server.log.gz", plainGzBytes)
+        assertNull(
+            MainActivity.resolveViewTargetPath(
+                h.app,
+                Uri.parse("content://$auth/blob/4"),
+                "application/gzip",
+                h.root.path,
+            ),
+        )
+        assertFalse(File(stagedDir, "archive.tar.gz").exists())
+
+        provider.put("5", "ACCESS.LOG.GZ", plainGzBytes)
+        assertNull(
+            MainActivity.resolveViewTargetPath(
+                h.app,
+                Uri.parse("content://$auth/blob/5"),
+                "application/x-gzip",
+                h.root.path,
+            ),
+        )
     }
 
     @Test fun remoteImagesAreThumbnailEligibleAndLocalOnesUseTheFileItself() {

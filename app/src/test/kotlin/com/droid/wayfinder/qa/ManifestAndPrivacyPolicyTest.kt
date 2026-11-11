@@ -5,9 +5,10 @@ package com.droid.wayfinder.qa
 
 import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
+import com.droid.wayfinder.MainActivity
 import com.droid.wayfinder.R
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -79,6 +80,56 @@ class ManifestAndPrivacyPolicyTest {
             "Standalone 3P app without DocumentsProvider should not intercept ACTION_OPEN_DOCUMENT_TREE",
             resolved.any { it.activityInfo?.packageName == context.packageName },
         )
+    }
+
+    @Test
+    fun mainActivityDoesNotInterceptApkViewIntents_butKeepsQueriesVisibility() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        for (uri in listOf(Uri.parse("content://downloads/app.apk"), Uri.parse("file:///storage/emulated/0/Download/app.apk"))) {
+            val resolved = context.packageManager.queryIntentActivities(
+                Intent(Intent.ACTION_VIEW).setDataAndType(uri, MainActivity.APK_MIME),
+                0,
+            )
+            assertFalse(
+                "MainActivity must not register ACTION_VIEW for application/vnd.android.package-archive ($uri)",
+                resolved.any { it.activityInfo?.packageName == context.packageName },
+            )
+        }
+
+        val manifestFile = sequenceOf(
+            File("src/main/AndroidManifest.xml"),
+            File("app/src/main/AndroidManifest.xml"),
+        ).first { it.isFile }
+        val manifestText = manifestFile.readText()
+        assertTrue(
+            "Manifest <queries> must retain application/vnd.android.package-archive visibility for launching external installers",
+            Regex(
+                """<queries>.*?application/vnd\.android\.package-archive.*?</queries>""",
+                RegexOption.DOT_MATCHES_ALL,
+            ).containsMatchIn(manifestText),
+        )
+    }
+
+    @Test
+    fun mainActivityResolvesTgzAndGzipArchiveViewIntents() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val mainActivityName = MainActivity::class.java.name
+        val archiveIntents = listOf(
+            Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse("content://downloads/release.tgz"), "application/x-gtar-compressed"),
+            Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse("file:///storage/emulated/0/Download/release.tgz"), "application/x-gtar-compressed"),
+            Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse("content://downloads/source.tar.gz"), "application/gzip"),
+            Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse("file:///storage/emulated/0/Download/source.tar.gz"), "application/gzip"),
+        )
+        for (intent in archiveIntents) {
+            val resolved = context.packageManager.queryIntentActivities(intent, 0)
+            assertTrue(
+                "MainActivity must resolve ACTION_VIEW for ${intent.type} (${intent.data})",
+                resolved.any {
+                    it.activityInfo?.packageName == context.packageName &&
+                        it.activityInfo?.name == mainActivityName
+                },
+            )
+        }
     }
 
     @Test

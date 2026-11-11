@@ -207,6 +207,7 @@ class MainActivity : ComponentActivity() {
             "application/x-gzip",
             "application/x-tar",
             "application/x-gtar",
+            "application/x-gtar-compressed",
         )
 
         internal fun isSupportedArchiveName(name: String): Boolean {
@@ -336,6 +337,28 @@ class MainActivity : ComponentActivity() {
                 com.droid.wayfinder.data.FsPath.isWithin(rawData, path)
         }
 
+        private fun isPlainGzipName(name: String): Boolean {
+            val lower = name.trim().lowercase()
+            return lower.endsWith(".gz") && !lower.endsWith(".tar.gz")
+        }
+
+        private fun queryDisplayName(context: android.content.Context, uri: Uri): String? = runCatching {
+            context.contentResolver.query(
+                uri,
+                arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { c ->
+                if (c.moveToFirst()) {
+                    val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0 && !c.isNull(idx)) c.getString(idx)?.trim()?.takeIf { it.isNotEmpty() } else null
+                } else {
+                    null
+                }
+            }
+        }.getOrNull()
+
         private fun stageExternalArchiveToCache(
             context: android.content.Context,
             uri: Uri,
@@ -343,12 +366,26 @@ class MainActivity : ComponentActivity() {
             mimeType: String?,
         ): String? = runCatching {
             val defaultExt = when (mimeType?.lowercase()) {
+                "application/x-gtar-compressed" -> ".tgz"
                 "application/gzip", "application/x-gzip", "application/x-gtar" -> ".tar.gz"
                 "application/x-tar" -> ".tar"
                 else -> ".zip"
             }
-            val rawName = fallbackSeg.takeIf { isSupportedArchiveName(it) } ?: "archive$defaultExt"
-            val safeName = com.droid.wayfinder.data.FileInfo.sanitizeFileName(rawName, "archive$defaultExt")
+            val fallbackArchiveName = "archive$defaultExt"
+            val rawName = if (isSupportedArchiveName(fallbackSeg)) {
+                fallbackSeg
+            } else {
+                val displayName = queryDisplayName(context, uri)
+                if (displayName != null) {
+                    if (isPlainGzipName(displayName)) return null
+                    displayName.takeIf { isSupportedArchiveName(it) } ?: fallbackArchiveName
+                } else {
+                    if (isPlainGzipName(fallbackSeg)) return null
+                    fallbackArchiveName
+                }
+            }
+            val safeName = com.droid.wayfinder.data.FileInfo.sanitizeFileName(rawName, fallbackArchiveName)
+                .let { if (isSupportedArchiveName(it)) it else fallbackArchiveName }
             val dir = java.io.File(context.cacheDir, "view-archive").apply { mkdirs() }
             val dstFile = java.io.File(dir, safeName)
             val maxBytes = 512L * 1024 * 1024 // 512 MB cap for synchronous staging
