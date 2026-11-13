@@ -18,7 +18,10 @@ import com.droid.wayfinder.data.RenamePlan
 import com.droid.wayfinder.data.RenameRule
 import com.droid.wayfinder.data.planBatchRename
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -37,6 +40,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
@@ -568,7 +573,8 @@ private fun DefaultHandlerDialog(onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier.widthIn(max = 600.dp).fillMaxWidth(),
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp).widthIn(max = 600.dp).fillMaxWidth(),
         title = { Text(stringResource(R.string.default_handler_title)) },
         text = {
             Column(
@@ -621,18 +627,49 @@ private fun DefaultHandlerDialog(onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                androidx.compose.material3.OutlinedButton(onClick = { onDismiss(); triggerOpenWithPrompt() }) {
-                    Text(stringResource(R.string.default_handler_test_prompt))
+            @OptIn(ExperimentalLayoutApi::class)
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                if (maxWidth < 475.dp) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(
+                            onClick = { onDismiss(); openAppDefaultSettings() },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.default_handler_app_settings), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        OutlinedButton(
+                            onClick = { onDismiss(); triggerOpenWithPrompt() },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.default_handler_test_prompt), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        TextButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.default_handler_not_now), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                } else {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        TextButton(onClick = onDismiss) {
+                            Text(stringResource(R.string.default_handler_not_now), maxLines = 1)
+                        }
+                        OutlinedButton(onClick = { onDismiss(); triggerOpenWithPrompt() }) {
+                            Text(stringResource(R.string.default_handler_test_prompt), maxLines = 1)
+                        }
+                        Button(onClick = { onDismiss(); openAppDefaultSettings() }) {
+                            Text(stringResource(R.string.default_handler_app_settings), maxLines = 1)
+                        }
+                    }
                 }
-                Button(onClick = { onDismiss(); openAppDefaultSettings() }) {
-                    Text(stringResource(R.string.default_handler_app_settings))
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.default_handler_not_now))
             }
         },
     )
