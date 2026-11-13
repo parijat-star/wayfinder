@@ -569,14 +569,14 @@ private fun DefaultHandlerDialog(onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.widthIn(max = 600.dp).fillMaxWidth(),
-        title = { Text("Make Wayfinder your default file handler?") },
+        title = { Text(stringResource(R.string.default_handler_title)) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    "Wayfinder is registered to handle supported file and folder actions across Android:",
+                    stringResource(R.string.default_handler_intro),
                     style = MaterialTheme.typography.bodyMedium,
                     color = cs.onSurface,
                 )
@@ -586,13 +586,18 @@ private fun DefaultHandlerDialog(onDismiss: () -> Unit) {
                     border = BorderStroke(1.dp, cs.outlineVariant),
                 ) {
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Supported file types & actions", style = MaterialTheme.typography.titleSmall, color = cs.primary)
+                        Text(stringResource(R.string.default_handler_supported_title), style = MaterialTheme.typography.titleSmall, color = cs.primary)
                         Text(
-                            "• Folders & Downloads — Open folders and system \"View Downloads\" shortcuts directly in Wayfinder.\n" +
-                                "• Archives (.zip, .tar.gz, .tgz, .tar) — Browse and extract archives inline as virtual folders.\n" +
-                                "• File Picker (Open / Save As) — Attach or save files when prompted by browsers, email, and other apps.",
+                            stringResource(R.string.default_handler_supported_body),
                             style = MaterialTheme.typography.bodySmall,
                             color = cs.onSurface,
+                        )
+                        androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 4.dp), color = cs.outlineVariant)
+                        Text(stringResource(R.string.default_handler_picker_note_title), style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                        Text(
+                            stringResource(R.string.default_handler_picker_note_body),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurfaceVariant,
                         )
                     }
                 }
@@ -604,12 +609,10 @@ private fun DefaultHandlerDialog(onDismiss: () -> Unit) {
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(Icons.Outlined.Info, null, Modifier.size(18.dp), tint = cs.primary)
-                            Text("How to set or change anytime", style = MaterialTheme.typography.titleSmall, color = cs.primary)
+                            Text(stringResource(R.string.default_handler_steps_title), style = MaterialTheme.typography.titleSmall, color = cs.primary)
                         }
                         Text(
-                            "1. To set Wayfinder as default: Tap \"Test Open-With Prompt\" below (or open any folder or archive), select Wayfinder in Android's prompt, and tap \"Always\".\n\n" +
-                                "2. If the system Files app opens automatically without asking: Go to Android Settings → Apps → See all apps → Files → Open by default → Clear default preferences.\n\n" +
-                                "3. Change or reset anytime: You can change or remove Wayfinder as your default handler at any time in Android Settings → Apps → Wayfinder → Open by default → Clear default preferences (or reopen this guide from ⋮ More → Default file handler…).",
+                            stringResource(R.string.default_handler_steps_body),
                             style = MaterialTheme.typography.bodySmall,
                             color = cs.onSurfaceVariant,
                         )
@@ -620,16 +623,16 @@ private fun DefaultHandlerDialog(onDismiss: () -> Unit) {
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 androidx.compose.material3.OutlinedButton(onClick = { onDismiss(); triggerOpenWithPrompt() }) {
-                    Text("Test Open-With Prompt")
+                    Text(stringResource(R.string.default_handler_test_prompt))
                 }
                 Button(onClick = { onDismiss(); openAppDefaultSettings() }) {
-                    Text("App Default Settings")
+                    Text(stringResource(R.string.default_handler_app_settings))
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Not now")
+                Text(stringResource(R.string.default_handler_not_now))
             }
         },
     )

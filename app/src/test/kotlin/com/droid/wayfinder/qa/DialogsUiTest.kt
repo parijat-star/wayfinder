@@ -3,6 +3,7 @@
 
 package com.droid.wayfinder.qa
 
+import android.app.DownloadManager
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
@@ -26,15 +27,18 @@ import com.droid.wayfinder.ui.AppRoot
 import com.droid.wayfinder.ui.BrowserViewModel
 import com.droid.wayfinder.ui.Dialog
 import com.droid.wayfinder.ui.UiEvent
+import com.droid.wayfinder.ui.paletteCommands
 import com.droid.wayfinder.ui.theme.WayfinderTheme
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.io.File
 
@@ -207,5 +211,45 @@ class DialogsUiTest {
         h.select("pk/a.txt"); idle()
         rule.onNodeWithText("Select File").assertIsEnabled().performClick(); idle()
         assertEquals(listOf(h.pathOf("pk/a.txt")), h.events.filterIsInstance<UiEvent.PickResult>().single().paths)
+    }
+
+    @Test fun defaultHandlerDialogClarifiesSystemPickerAndTriggersViewDownloads() {
+        launch { }
+        val shadowActivity = shadowOf(rule.activity)
+        while (shadowActivity.nextStartedActivity != null) { /* clear any launch intents */ }
+
+        // Open via Command Palette command to verify keyboard-accessible entry point as well.
+        val paletteCmd = paletteCommands(h.vm, h.s).single { it.name == "Default file handler…" }
+        assertFalse(paletteCmd.description.contains("file picking", ignoreCase = true))
+        paletteCmd.action()
+        idle()
+        assertEquals(Dialog.DefaultHandler, h.s.dialog)
+
+        // Renders default-eligible actions and clarified system File Picker note (no "Save As" takeover claim).
+        rule.onNodeWithText("Make Wayfinder your default file handler?").assertIsDisplayed()
+        rule.onNodeWithText("Actions Wayfinder can handle by default").assertIsDisplayed()
+        rule.onNodeWithText("Folders & Downloads", substring = true).assertExists()
+        rule.onNodeWithText("Archives (.zip, .tar.gz, .tgz, .tar)", substring = true).assertExists()
+        rule.onNodeWithText("Android reserves default Open and Save As file picker prompts for the system Files app", substring = true).assertExists()
+        rule.onNodeWithText("left sidebar", substring = true).assertExists()
+        rule.onNodeWithText("Attach or save files when prompted by browsers", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("separately for each action and format", substring = true).assertExists()
+        rule.onNodeWithText("first time you open one from another app", substring = true).assertExists()
+
+        // "Not now" dismisses cleanly without launching any external intent.
+        rule.onNodeWithText("Not now").performClick()
+        idle()
+        assertNull(h.s.dialog)
+        assertNull(shadowActivity.nextStartedActivity)
+
+        // "Test Open-With Prompt" fires DownloadManager.ACTION_VIEW_DOWNLOADS and dismisses the dialog.
+        h.vm.showDialog(Dialog.DefaultHandler)
+        idle()
+        rule.onNodeWithText("Test Open-With Prompt").performClick()
+        idle()
+        assertNull(h.s.dialog)
+        val started = shadowActivity.nextStartedActivity
+        assertNotNull(started)
+        assertEquals(DownloadManager.ACTION_VIEW_DOWNLOADS, started.action)
     }
 }
