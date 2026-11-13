@@ -137,7 +137,7 @@ class WebDavIntegrationTest {
         fs = WebDavFileSystem(CredentialProvider { SmbCred(user, password) })
     }
 
-    @After fun tearDown() { server.shutdown() }
+    @After fun tearDown() { runCatching { server.shutdown() } }
 
     @Test fun listReturnsChildrenWithoutSelfAndDecodesNames() {
         val list = fs.list(root).sortedBy { it.name }
@@ -237,8 +237,7 @@ class WebDavIntegrationTest {
     }
 
     @Test fun unreachableServerIsAClearError() {
-        val port = server.port
-        server.shutdown()
+        val port = java.net.ServerSocket(0).use { it.localPort }
         val e = assertThrows(IOException::class.java) { fs.list("dav://127.0.0.1:$port/base") }
         assertTrue(e.message, e.message!!.startsWith("Can't reach"))
     }
@@ -283,7 +282,7 @@ class WebDavIntegrationTest {
             assertTrue(e.message, e.message!!.contains("cross-origin redirect"))
             assertTrue("Cross-origin redirect target must never be contacted", otherRequests.isEmpty())
         } finally {
-            otherServer.shutdown()
+            runCatching { otherServer.shutdown() }
         }
     }
 }
