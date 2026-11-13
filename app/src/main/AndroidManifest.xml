@@ -112,15 +112,6 @@
                 <data android:mimeType="vnd.android.document/directory" />
                 <data android:mimeType="inode/directory" />
             </intent-filter>
-            <!-- APK files (.apk) open their enclosing folder in Wayfinder with the APK selected. -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="file" />
-                <data android:scheme="content" />
-                <data android:mimeType="application/vnd.android.package-archive" />
-            </intent-filter>
             <!-- Archive browsing (.zip, .tar.gz, .tgz, .tar) opened directly in Wayfinder. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -134,6 +125,7 @@
                 <data android:mimeType="application/x-gzip" />
                 <data android:mimeType="application/x-tar" />
                 <data android:mimeType="application/x-gtar" />
+                <data android:mimeType="application/x-gtar-compressed" />
             </intent-filter>
         </activity>
 
