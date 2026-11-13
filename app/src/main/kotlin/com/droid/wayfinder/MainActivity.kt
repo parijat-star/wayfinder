@@ -60,7 +60,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         persistIncomingTreeGrant(intent)
-        prepareIntentExtras()
+        if (!prepareIntentExtras(isInitialLaunch = savedInstanceState == null)) {
+            finish()
+            return
+        }
         // Video frame decoding for thumbnails and Quick Look.
         coil3.SingletonImageLoader.setSafe { ctx ->
             coil3.ImageLoader.Builder(ctx).components { add(coil3.video.VideoFrameDecoder.Factory()) }.build()
@@ -122,9 +125,9 @@ class MainActivity : ComponentActivity() {
      * The view model reads its options from the intent extras (SavedStateHandle), so picker requests
      * (GET_CONTENT / OPEN_DOCUMENT / PICK), VIEW_DOWNLOADS, and ACTION_VIEW are translated into those extras here.
      */
-    private fun prepareIntentExtras() {
+    private fun prepareIntentExtras(isInitialLaunch: Boolean = true): Boolean {
         // Exported activity: other apps may send anything. Internal extras need our token (see IntentGuard).
-        val i = IntentGuard.sanitize(this, intent ?: return).also { if (it !== intent) intent = it }
+        val i = IntentGuard.sanitize(this, intent ?: return true).also { if (it !== intent) intent = it }
         try {
             when (i.action) {
                 Intent.ACTION_GET_CONTENT, Intent.ACTION_OPEN_DOCUMENT, Intent.ACTION_PICK -> {
@@ -157,6 +160,9 @@ class MainActivity : ComponentActivity() {
                     if (targetPath != null) {
                         i.putExtra(BrowserViewModel.EXTRA_NEW_WINDOW, true)
                         i.putExtra(BrowserViewModel.EXTRA_PATH, targetPath)
+                    } else if (isInitialLaunch && isUnsupportedPlainGzipViewIntent(this, i)) {
+                        showUnsupportedPlainGzipToast(this)
+                        return false
                     }
                 }
                 Intent.ACTION_MAIN -> {
@@ -168,6 +174,7 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {
             intent = Intent(i.action)
         }
+        return true
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -264,10 +271,37 @@ class MainActivity : ComponentActivity() {
 
         internal fun routeNewIntent(context: android.content.Context, intent: Intent, vm: BrowserViewModel?): Boolean {
             val i = runCatching { IntentGuard.sanitize(context, intent) }.getOrNull() ?: return false
-            val target = runCatching { externalTargetPath(context, i) }.getOrNull() ?: return false
+            val target = runCatching { externalTargetPath(context, i) }.getOrNull()
+            if (target == null) {
+                if (isUnsupportedPlainGzipViewIntent(context, i)) {
+                    showUnsupportedPlainGzipToast(context)
+                    return true
+                }
+                return false
+            }
             if (vm == null) return false
             vm.openExternalPath(target)
             return true
+        }
+
+        internal fun isUnsupportedPlainGzipViewIntent(context: android.content.Context, intent: Intent): Boolean {
+            if (intent.action != Intent.ACTION_VIEW) return false
+            val uri = intent.data ?: return false
+            if (!uri.scheme.equals("content", ignoreCase = true) || uri.authority == "${context.packageName}.fileprovider") {
+                return false
+            }
+            val segName = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':').orEmpty()
+            if (isSupportedArchiveName(segName)) return false
+            val candidateName = queryDisplayName(context, uri) ?: segName
+            return isPlainGzipName(candidateName)
+        }
+
+        private fun showUnsupportedPlainGzipToast(context: android.content.Context) {
+            android.widget.Toast.makeText(
+                context,
+                context.getString(R.string.toast_plain_gzip_unsupported),
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
         }
 
         private fun resolveTarget(context: android.content.Context, rawTarget: String?, uri: Uri, mimeType: String?): String? {

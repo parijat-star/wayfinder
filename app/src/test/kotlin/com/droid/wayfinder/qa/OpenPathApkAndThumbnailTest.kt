@@ -15,6 +15,7 @@ import android.provider.OpenableColumns
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.droid.wayfinder.MainActivity
+import com.droid.wayfinder.R
 import com.droid.wayfinder.data.CacheJanitor
 import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FsPath
@@ -35,6 +36,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowToast
 import java.io.ByteArrayOutputStream
 import java.io.File
 
@@ -292,6 +294,34 @@ class OpenPathApkAndThumbnailTest {
                 "application/x-gzip",
                 h.root.path,
             ),
+        )
+
+        // 5. Cold launch on opaque plain .gz shows a clear toast and finishes without opening a stray window
+        ShadowToast.reset()
+        val coldPlainGzIntent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(Uri.parse("content://$auth/blob/4"), "application/gzip")
+        Robolectric.buildActivity(MainActivity::class.java, coldPlainGzIntent).create().use { controller ->
+            assertTrue(
+                "MainActivity should finish immediately when launched solely for an unsupported plain .gz stream",
+                controller.get().isFinishing,
+            )
+            assertEquals(
+                h.app.getString(R.string.toast_plain_gzip_unsupported),
+                ShadowToast.getTextOfLatestToast(),
+            )
+        }
+
+        // 6. Running window (routeNewIntent) on opaque plain .gz (including fallback segment name) shows toast and keeps current tab
+        ShadowToast.reset()
+        provider.put("raw.log.gz", null, plainGzBytes)
+        val beforePath = h.s.active.path
+        val warmPlainGzIntent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(Uri.parse("content://$auth/attachments/raw.log.gz"), "application/gzip")
+        assertTrue(MainActivity.routeNewIntent(h.app, warmPlainGzIntent, h.vm))
+        assertEquals(beforePath, h.s.active.path)
+        assertEquals(
+            h.app.getString(R.string.toast_plain_gzip_unsupported),
+            ShadowToast.getTextOfLatestToast(),
         )
     }
 
