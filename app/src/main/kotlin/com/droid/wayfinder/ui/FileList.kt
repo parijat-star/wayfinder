@@ -71,9 +71,12 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Smartphone
+import androidx.compose.material.icons.outlined.ViewColumn
+import androidx.compose.material.icons.outlined.ViewHeadline
 import androidx.compose.material.icons.outlined.WifiFind
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -89,6 +92,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -98,10 +102,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -119,10 +126,17 @@ import coil3.request.ImageRequest
 import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FileKind
 import com.droid.wayfinder.data.FsPath
+import com.droid.wayfinder.data.MAX_COLUMN_WIDTH_DP
+import com.droid.wayfinder.data.MIN_COLUMN_WIDTH_DP
+import com.droid.wayfinder.data.MIN_NAME_COLUMN_WIDTH_DP
 import com.droid.wayfinder.data.SortKey
 import com.droid.wayfinder.data.ViewMode
 import com.droid.wayfinder.data.formatSize
+import com.droid.wayfinder.data.headerLabel
+import android.view.PointerIcon as AndroidPointerIcon
 import java.io.File
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Holds per-tab scroll state so switching tabs keeps your place. */
 class ScrollStates {
@@ -194,11 +208,18 @@ private fun Pane(vm: BrowserViewModel, s: AppState, tab: TabState, right: Boolea
 @Composable
 private fun FolderView(vm: BrowserViewModel, s: AppState, tab: TabState, active: Boolean) {
     val visible = remember(tab.entries, tab.searchResults, tab.sortKey, tab.sortAsc, s.showHidden, s.marks) { tab.visible(s.showHidden) }
+    val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.35f)
     Column(Modifier.fillMaxSize().externalDrop(vm, tab.path)) {
         if (tab.path == FsPath.PHONE_ROOT && (s.phoneConnected || s.quickAccessAvailable)) {
             PhoneQuickAccessBanner(vm, s.pairedPhone, s.quickAccessAvailable)
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val paneWidthDp = maxWidth.value
+            LaunchedEffect(active, tab.viewMode, paneWidthDp, fontScale) {
+                if (active) {
+                    vm.setActiveDetailsViewport(if (tab.viewMode == ViewMode.Details) paneWidthDp else null, fontScale)
+                }
+            }
             when {
                 tab.viewMode == ViewMode.Columns && tab.searchResults == null && tab.error == null -> MillerColumns(vm, s, tab, visible, active)
                 tab.error != null && visible.isEmpty() -> ErrorView(vm, tab)
@@ -542,27 +563,98 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
 // Spacer item that gives rubber-band/context-click room below the last row.
 private fun Modifier.fillParentMaxHeightCompat(): Modifier = this.height(160.dp)
 
-private const val DATE_W = 168
-private const val TYPE_W = 132
-private const val SIZE_W = 88
-private const val TAGS_W = 84
-private const val PERMS_W = 100
+private const val ROW_FIXED_OVERHEAD_DP = 82f // 48dp row horizontal padding + 34dp leading icon/gap
 
-private fun showTagsCol(s: AppState, effectiveWidth: Dp) = s.tagsColumn && effectiveWidth > 440.dp
-private fun showPermsCol(s: AppState, effectiveWidth: Dp) = s.permsColumn && effectiveWidth > 480.dp
+/** Returns the visible metadata columns in order that fit within [widthDp] while keeping `Name >= 140.dp`. */
+internal fun visibleColumnsForWidthDp(s: AppState, widthDp: Float, fontScale: Float = 1f): List<SortKey> {
+    val scale = fontScale.coerceIn(1f, 1.35f)
+    val availableForMetadataDp = (widthDp - ROW_FIXED_OVERHEAD_DP - MIN_NAME_COLUMN_WIDTH_DP).coerceAtLeast(0f)
+    val out = ArrayList<SortKey>(s.columnOrder.size)
+    var usedDp = 0f
+    for (col in s.columnOrder) {
+        if (col == SortKey.Name || !s.isColumnVisible(col)) continue
+        val colWidthDp = s.columnWidth(col) * scale
+        if (usedDp + colWidthDp <= availableForMetadataDp + 0.5f) {
+            out += col
+            usedDp += colWidthDp
+        } else {
+            break
+        }
+    }
+    return out
+}
 
-/** Right-click menu of the Details header: toggles the optional columns. */
+/** Returns the visible metadata columns in order that fit within [width] while keeping `Name >= 140.dp`. */
+internal fun visibleColumnsForWidth(s: AppState, width: Dp, fontScale: Float = 1f): List<SortKey> =
+    visibleColumnsForWidthDp(s, width.value, fontScale)
+
+/** Right-click menu of the Details header: toggles all metadata columns and offers Reset columns. */
 fun columnsMenu(vm: BrowserViewModel, s: AppState): List<MenuEntry> = listOf(
-    MenuEntry.Item("Tags column", Icons.AutoMirrored.Outlined.Label, checked = s.tagsColumn) { vm.toggleTagsColumn() },
-    MenuEntry.Item("Permissions column", Icons.Outlined.Lock, checked = s.permsColumn) { vm.togglePermsColumn() },
+    MenuEntry.Item(vm.str(R.string.menu_modified_column), Icons.Outlined.History, checked = s.modifiedColumn) { vm.toggleModifiedColumn() },
+    MenuEntry.Item(vm.str(R.string.menu_type_column), Icons.Outlined.ViewColumn, checked = s.typeColumn) { vm.toggleTypeColumn() },
+    MenuEntry.Item(vm.str(R.string.menu_size_column), Icons.Outlined.ViewHeadline, checked = s.sizeColumn) { vm.toggleSizeColumn() },
+    MenuEntry.Item(vm.str(R.string.menu_tags_column), Icons.AutoMirrored.Outlined.Label, checked = s.tagsColumn) { vm.toggleTagsColumn() },
+    MenuEntry.Item(vm.str(R.string.menu_perms_column), Icons.Outlined.Lock, checked = s.permsColumn) { vm.togglePermsColumn() },
+    MenuEntry.Divider,
+    MenuEntry.Item(vm.str(R.string.action_reset_columns), Icons.Outlined.Refresh) { vm.resetColumns() },
 )
+
+private val COLUMN_DIVIDER_GUTTER = 10.dp
+private val COLUMN_END_PAD = 4.dp
+
+/** Builds a crisp column-resize pointer icon (`←|→`: vertical line with left/right arrows). */
+private fun createColumnResizePointerIcon(ctx: android.content.Context): PointerIcon {
+    return try {
+        val d = ctx.resources.displayMetrics.density.coerceIn(1f, 4f)
+        val sizePx = (24f * d).roundToInt().coerceIn(24, 96)
+        val bmp = android.graphics.Bitmap.createBitmap(sizePx, sizePx, android.graphics.Bitmap.Config.ARGB_8888)
+        bmp.density = ctx.resources.displayMetrics.densityDpi
+        val canvas = android.graphics.Canvas(bmp)
+        fun u(dp: Float): Float = dp * (sizePx / 24f)
+        val path = android.graphics.Path().apply {
+            // Center vertical divider bar
+            moveTo(u(12f), u(4.5f))
+            lineTo(u(12f), u(19.5f))
+            // Left arrow (shaft + chevron)
+            moveTo(u(9.5f), u(12f))
+            lineTo(u(3.8f), u(12f))
+            moveTo(u(6.8f), u(8.8f))
+            lineTo(u(3.5f), u(12f))
+            lineTo(u(6.8f), u(15.2f))
+            // Right arrow (shaft + chevron)
+            moveTo(u(14.5f), u(12f))
+            lineTo(u(20.2f), u(12f))
+            moveTo(u(17.2f), u(8.8f))
+            lineTo(u(20.5f), u(12f))
+            lineTo(u(17.2f), u(15.2f))
+        }
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            strokeJoin = android.graphics.Paint.Join.ROUND
+        }
+        paint.color = android.graphics.Color.WHITE
+        paint.strokeWidth = u(3.4f)
+        canvas.drawPath(path, paint)
+        paint.color = android.graphics.Color.BLACK
+        paint.strokeWidth = u(1.6f)
+        canvas.drawPath(path, paint)
+        val center = sizePx / 2f
+        PointerIcon(AndroidPointerIcon.create(bmp, center, center))
+    } catch (_: Throwable) {
+        PointerIcon(AndroidPointerIcon.getSystemIcon(ctx, AndroidPointerIcon.TYPE_HORIZONTAL_DOUBLE_ARROW))
+    }
+}
 
 @Composable
 private fun DetailsHeader(vm: BrowserViewModel, s: AppState, tab: TabState, width: Dp) {
     val cs = MaterialTheme.colorScheme
+    val ctx = LocalContext.current
     val menu = LocalMenu.current
-    val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.35f)
-    val effectiveWidth = width / fontScale
+    val density = LocalDensity.current
+    val fontScale = density.fontScale.coerceIn(1f, 1.35f)
+    val resizeCursor = remember(ctx, density.density) { createColumnResizePointerIcon(ctx) }
+    val visibleCols = visibleColumnsForWidth(s, width, fontScale)
     var origin by remember { androidx.compose.runtime.mutableStateOf(Offset.Zero) }
     Column {
         Row(
@@ -580,11 +672,65 @@ private fun DetailsHeader(vm: BrowserViewModel, s: AppState, tab: TabState, widt
             verticalAlignment = Alignment.CenterVertically,
         ) {
             @Composable
-            fun cell(label: String, key: SortKey, mod: Modifier, end: Boolean = false) {
+            fun headerLabel(label: String, key: SortKey, mod: Modifier, reorderable: Boolean = false) {
+                val coordsHolder = remember { arrayOfNulls<LayoutCoordinates>(1) }
+                val dragMod = if (!reorderable) {
+                    Modifier
+                } else {
+                    Modifier
+                        .onGloballyPositioned { coordsHolder[0] = it }
+                        .pointerInput(key, fontScale, width) {
+                            val minTriggerPx = 40.dp.toPx()
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                if (currentEvent.buttons.isSecondaryPressed) return@awaitEachGesture
+                                val touchSlopPx = viewConfiguration.touchSlop
+                                val startRootX = (coordsHolder[0]?.positionInRoot()?.x ?: 0f) + down.position.x
+                                var anchorRootX = startRootX
+                                var dragged = false
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!change.pressed) {
+                                        if (dragged) change.consume()
+                                        break
+                                    }
+                                    val curRootX = (coordsHolder[0]?.positionInRoot()?.x ?: 0f) + change.position.x
+                                    if (!dragged && abs(curRootX - startRootX) > touchSlopPx) {
+                                        dragged = true
+                                    }
+                                    if (dragged) {
+                                        // Consume once horizontal movement passes touchSlop so aborted (< 40.dp)
+                                        // or edge-bound drags cancel .clickable instead of triggering sort on release.
+                                        change.consume()
+                                        val dxPx = curRootX - anchorRootX
+                                        val curState = vm.state.value
+                                        val curVisible = visibleColumnsForWidth(curState, width, fontScale)
+                                        val idx = curVisible.indexOf(key)
+                                        if (idx >= 0) {
+                                            if (dxPx >= minTriggerPx && idx < curVisible.lastIndex) {
+                                                val neighbor = curVisible[idx + 1]
+                                                val neighborWidthPx = (curState.columnWidth(neighbor) * fontScale).dp.toPx()
+                                                vm.moveColumn(key, 1, scope = curVisible)
+                                                anchorRootX += neighborWidthPx.coerceAtLeast(minTriggerPx)
+                                            } else if (dxPx <= -minTriggerPx && idx > 0) {
+                                                val neighbor = curVisible[idx - 1]
+                                                val neighborWidthPx = (curState.columnWidth(neighbor) * fontScale).dp.toPx()
+                                                vm.moveColumn(key, -1, scope = curVisible)
+                                                anchorRootX -= neighborWidthPx.coerceAtLeast(minTriggerPx)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                }
                 Row(
-                    mod.fillMaxHeightCompat().clickable(role = Role.Button, onClickLabel = "Sort by $label") { vm.setSort(key) },
+                    mod.fillMaxHeightCompat()
+                        .then(dragMod)
+                        .clickable(role = Role.Button, onClickLabel = "Sort by $label") { vm.setSort(key) },
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = if (end) Arrangement.End else Arrangement.Start,
+                    horizontalArrangement = Arrangement.Start,
                 ) {
                     Text(label, style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (tab.sortKey == key) Icon(
@@ -594,14 +740,134 @@ private fun DetailsHeader(vm: BrowserViewModel, s: AppState, tab: TabState, widt
                 }
             }
             Box(Modifier.width(34.dp))
-            cell("Name", SortKey.Name, Modifier.weight(1f))
-            if (showTagsCol(s, effectiveWidth)) cell("Tags", SortKey.Tags, Modifier.width((TAGS_W * fontScale).dp))
-            if (showPermsCol(s, effectiveWidth)) cell("Permissions", SortKey.Permissions, Modifier.width((PERMS_W * fontScale).dp))
-            if (effectiveWidth > 520.dp) cell("Date modified", SortKey.Modified, Modifier.width((DATE_W * fontScale).dp))
-            if (effectiveWidth > 760.dp) cell("Type", SortKey.Type, Modifier.width((TYPE_W * fontScale).dp))
-            cell("Size", SortKey.Size, Modifier.width((SIZE_W * fontScale).dp), end = true)
+            headerLabel("Name", SortKey.Name, Modifier.weight(1f).widthIn(min = MIN_NAME_COLUMN_WIDTH_DP.dp).padding(end = COLUMN_END_PAD))
+            for (col in visibleCols) {
+                key(col) {
+                    val colW = (s.columnWidth(col) * fontScale).dp
+                    val label = col.headerLabel
+                    Row(
+                        Modifier.width(colW).fillMaxHeightCompat(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ColumnDividerHandle(
+                            vm = vm,
+                            col = col,
+                            label = label,
+                            fontScale = fontScale,
+                            containerWidth = width,
+                            resizeCursor = resizeCursor,
+                        )
+                        headerLabel(label, col, Modifier.weight(1f).padding(end = COLUMN_END_PAD), reorderable = true)
+                    }
+                }
+            }
         }
         HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.6f))
+    }
+}
+
+@Composable
+private fun ColumnDividerHandle(
+    vm: BrowserViewModel,
+    col: SortKey,
+    label: String,
+    fontScale: Float,
+    containerWidth: Dp,
+    resizeCursor: PointerIcon,
+) {
+    val cs = MaterialTheme.colorScheme
+    val hover = remember { MutableInteractionSource() }
+    val hovered by hover.collectIsHoveredAsState()
+    val handleDesc = stringResource(R.string.column_resize_handle_desc, label)
+    val coordsHolder = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    Box(
+        Modifier.width(COLUMN_DIVIDER_GUTTER).fillMaxHeightCompat()
+            .hoverable(hover)
+            .pointerHoverIcon(resizeCursor)
+            .onGloballyPositioned { coordsHolder[0] = it }
+            .semantics { contentDescription = handleDesc }
+            .pointerInput(col, fontScale, containerWidth) {
+                var lastTapUpUptimeMs = -10_000L
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    if (currentEvent.buttons.isSecondaryPressed) return@awaitEachGesture
+                    val downTime = down.uptimeMillis
+                    val startRootX = (coordsHolder[0]?.positionInRoot()?.x ?: 0f) + down.position.x
+                    val initState = vm.state.value
+                    val curVisible = visibleColumnsForWidth(initState, containerWidth, fontScale)
+                    val colIdx = curVisible.indexOf(col)
+                    val leftCol = if (colIdx > 0) curVisible[colIdx - 1] else SortKey.Name
+                    val startRightW = initState.columnWidth(col)
+                    val startLeftW = if (leftCol != SortKey.Name) initState.columnWidth(leftCol) else 0f
+                    val maxFirstColW = if (leftCol == SortKey.Name) {
+                        val otherColsLogicalDp = curVisible.filter { it != col }
+                            .sumOf { initState.columnWidth(it).toDouble() }.toFloat()
+                        val availableLogicalDp = ((containerWidth.value - ROW_FIXED_OVERHEAD_DP - MIN_NAME_COLUMN_WIDTH_DP)
+                            .coerceAtLeast(0f)) / fontScale
+                        val maxFromAvailable = (availableLogicalDp - otherColsLogicalDp)
+                            .coerceIn(MIN_COLUMN_WIDTH_DP, MAX_COLUMN_WIDTH_DP)
+                        maxOf(startRightW, maxFromAvailable).coerceAtMost(MAX_COLUMN_WIDTH_DP)
+                    } else {
+                        MAX_COLUMN_WIDTH_DP
+                    }
+                    var dragged = false
+                    var upTime = downTime
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        upTime = change.uptimeMillis
+                        if (!change.pressed) {
+                            change.consume()
+                            break
+                        }
+                        val curRootX = (coordsHolder[0]?.positionInRoot()?.x ?: 0f) + change.position.x
+                        val dxPx = curRootX - startRootX
+                        if (!dragged && abs(dxPx) > 2f) {
+                            dragged = true
+                        }
+                        if (dragged) {
+                            change.consume()
+                            val deltaDp = (dxPx / density) / fontScale
+                            if (leftCol == SortKey.Name) {
+                                // Divider between Name (flex) and first metadata column: trades width with Name.
+                                val nextRightW = (startRightW - deltaDp).coerceIn(MIN_COLUMN_WIDTH_DP, maxFirstColW)
+                                vm.setColumnWidth(col, nextRightW)
+                            } else {
+                                // Interior divider between leftCol and col: trades width 1-for-1 between the two columns.
+                                val minDelta = maxOf(MIN_COLUMN_WIDTH_DP - startLeftW, startRightW - MAX_COLUMN_WIDTH_DP)
+                                val maxDelta = minOf(MAX_COLUMN_WIDTH_DP - startLeftW, startRightW - MIN_COLUMN_WIDTH_DP)
+                                val effectiveDelta = if (minDelta <= maxDelta) deltaDp.coerceIn(minDelta, maxDelta) else 0f
+                                vm.setColumnWidths(
+                                    mapOf(
+                                        leftCol to (startLeftW + effectiveDelta),
+                                        col to (startRightW - effectiveDelta),
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                    if (!dragged) {
+                        if (downTime - lastTapUpUptimeMs <= viewConfiguration.doubleTapTimeoutMillis) {
+                            if (leftCol == SortKey.Name) {
+                                vm.resetColumnWidth(col)
+                            } else {
+                                vm.resetColumnWidths(leftCol, col)
+                            }
+                            lastTapUpUptimeMs = -10_000L
+                        } else {
+                            lastTapUpUptimeMs = upTime
+                        }
+                    } else {
+                        lastTapUpUptimeMs = -10_000L
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier.width(if (hovered) 2.dp else 1.dp).height(16.dp)
+                .background(if (hovered) cs.primary else cs.outlineVariant.copy(alpha = 0.6f)),
+        )
     }
 }
 
@@ -670,25 +936,41 @@ private fun EntryRow(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEn
     ) {
         Icon(e.icon(), null, Modifier.size(22.dp), tint = e.tint())
         val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.35f)
-        val effectiveWidth = width / fontScale
-        val tagsCol = details && showTagsCol(s, effectiveWidth)
-        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+        val visibleCols = if (details) visibleColumnsForWidth(s, width, fontScale) else emptyList()
+        val tagsColVisible = details && SortKey.Tags in visibleCols
+        Column(Modifier.weight(1f).widthIn(min = MIN_NAME_COLUMN_WIDTH_DP.dp).padding(start = 12.dp, end = COLUMN_END_PAD)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(e.name, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (selected) cs.onSecondaryContainer else cs.onSurface)
-                MarkBadges(s, e.path, Modifier.padding(start = 8.dp), showTags = !tagsCol)
+                MarkBadges(s, e.path, Modifier.padding(start = 8.dp), showTags = !tagsColVisible)
             }
             val sub = e.subtitle ?: if (tab.searchResults != null || (FsPath.isCollection(tab.path) && tab.path != FsPath.RECENTS_ROOT)) FsPath.parent(e.path) else null
             if (sub != null) Text(sub, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (details) {
-            if (tagsCol) Box(Modifier.width((TAGS_W * fontScale).dp)) { MarkBadges(s, e.path, showStar = false) }
-            if (showPermsCol(s, effectiveWidth)) Text(
-                if (e.mode != 0) FileInfo.posixString(e.mode) else "—", Modifier.width((PERMS_W * fontScale).dp),
-                style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = cs.onSurfaceVariant, maxLines = 1,
-            )
-            if (effectiveWidth > 520.dp) Text(formatDate(e.modified), Modifier.width((DATE_W * fontScale).dp), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (effectiveWidth > 760.dp) Text(e.typeLabel, Modifier.width((TYPE_W * fontScale).dp), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(if (e.isDir) "—" else formatSize(e.size), Modifier.width((SIZE_W * fontScale).dp), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1, textAlign = TextAlign.End)
+            for (col in visibleCols) {
+                val colW = (s.columnWidth(col) * fontScale).dp
+                val cellMod = Modifier.width(colW).padding(start = COLUMN_DIVIDER_GUTTER, end = COLUMN_END_PAD)
+                when (col) {
+                    SortKey.Modified -> Text(
+                        formatDate(e.modified), cellMod,
+                        style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    SortKey.Type -> Text(
+                        e.typeLabel, cellMod,
+                        style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    SortKey.Size -> Text(
+                        if (e.isDir) "—" else formatSize(e.size), cellMod,
+                        style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    SortKey.Tags -> Box(cellMod) { MarkBadges(s, e.path, showStar = false) }
+                    SortKey.Permissions -> Text(
+                        if (e.mode != 0) FileInfo.posixString(e.mode) else "—", cellMod,
+                        style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    SortKey.Name -> Unit
+                }
+            }
         }
     }
 }
