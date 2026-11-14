@@ -236,6 +236,15 @@ class DialogsUiTest {
         rule.onNodeWithText("separately for each action and format", substring = true).assertExists()
         rule.onNodeWithText("first time you open one from another app", substring = true).assertExists()
 
+        // On wide viewports, all three buttons align on a single horizontal row from left to right.
+        val wideNotNow = rule.onNodeWithText("Not now").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val wideTestPrompt = rule.onNodeWithText("Test Open-With Prompt").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val wideAppSettings = rule.onNodeWithText("App Default Settings").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertEquals(wideNotNow.center.y, wideTestPrompt.center.y, 4f * rule.density.density)
+        assertEquals(wideTestPrompt.center.y, wideAppSettings.center.y, 4f * rule.density.density)
+        assertTrue(wideNotNow.right < wideTestPrompt.left)
+        assertTrue(wideTestPrompt.right < wideAppSettings.left)
+
         // "Not now" dismisses cleanly without launching any external intent.
         rule.onNodeWithText("Not now").performClick()
         idle()
@@ -251,5 +260,63 @@ class DialogsUiTest {
         val started = shadowActivity.nextStartedActivity
         assertNotNull(started)
         assertEquals(DownloadManager.ACTION_VIEW_DOWNLOADS, started.action)
+    }
+
+    @Test
+    @Config(sdk = [35], qualifiers = "w360dp-h800dp-port-xhdpi")
+    fun defaultHandlerDialogButtonsStackCleanlyWithoutVerticalWrappingInCompactPortrait() {
+        launch { }
+        val shadowActivity = shadowOf(rule.activity)
+        while (shadowActivity.nextStartedActivity != null) { /* clear any launch intents */ }
+
+        h.vm.showDialog(Dialog.DefaultHandler)
+        idle()
+
+        val densityPx = rule.density.density
+        val appSettingsBounds = rule.onNodeWithText("App Default Settings").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val testPromptBounds = rule.onNodeWithText("Test Open-With Prompt").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val notNowBounds = rule.onNodeWithText("Not now").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+
+        // None of the buttons may squish into a multi-line vertical strip or overlap each other.
+        for ((label, rect) in listOf(
+            "App Default Settings" to appSettingsBounds,
+            "Test Open-With Prompt" to testPromptBounds,
+            "Not now" to notNowBounds,
+        )) {
+            assertTrue("$label width (${rect.width / densityPx}dp) should stay wide enough for a single-line label", rect.width >= 80f * densityPx)
+            assertTrue("$label height (${rect.height / densityPx}dp) should stay single-line (<= 64dp)", rect.height <= 64f * densityPx)
+        }
+        assertFalse("App Default Settings and Test Open-With Prompt must not overlap", appSettingsBounds.overlaps(testPromptBounds))
+        assertFalse("Test Open-With Prompt and Not now must not overlap", testPromptBounds.overlaps(notNowBounds))
+        assertFalse("App Default Settings and Not now must not overlap", appSettingsBounds.overlaps(notNowBounds))
+        assertTrue("Primary button sits above secondary button in stacked compact layout", appSettingsBounds.top < testPromptBounds.top)
+        assertTrue("Secondary button sits above dismiss button in stacked compact layout", testPromptBounds.top < notNowBounds.top)
+
+        // Clicking "App Default Settings" opens application details settings and dismisses the dialog.
+        rule.onNodeWithText("App Default Settings").performClick()
+        idle()
+        assertNull(h.s.dialog)
+        val started = shadowActivity.nextStartedActivity
+        assertNotNull(started)
+        assertEquals(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, started.action)
+    }
+
+    @Test
+    @Config(sdk = [35], qualifiers = "w890dp-h412dp-land-xhdpi")
+    fun defaultHandlerDialogExpandsToSingleRowFooterInPhoneLandscape() {
+        launch { }
+        h.vm.showDialog(Dialog.DefaultHandler)
+        idle()
+
+        val densityPx = rule.density.density
+        rule.onNodeWithText("Actions Wayfinder can handle by default").assertIsDisplayed()
+        val notNowBounds = rule.onNodeWithText("Not now").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val testPromptBounds = rule.onNodeWithText("Test Open-With Prompt").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val appSettingsBounds = rule.onNodeWithText("App Default Settings").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+
+        assertEquals(notNowBounds.center.y, testPromptBounds.center.y, 4f * densityPx)
+        assertEquals(testPromptBounds.center.y, appSettingsBounds.center.y, 4f * densityPx)
+        assertTrue(notNowBounds.right < testPromptBounds.left)
+        assertTrue(testPromptBounds.right < appSettingsBounds.left)
     }
 }
