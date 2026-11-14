@@ -8,6 +8,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material3.VerticalDivider
@@ -231,8 +232,9 @@ private fun FolderView(vm: BrowserViewModel, s: AppState, tab: TabState, active:
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun PhoneQuickAccessBanner(
+internal fun PhoneQuickAccessBanner(
     vm: BrowserViewModel,
     phone: com.droid.wayfinder.data.PairedPhone?,
     quickAccessAvailable: Boolean,
@@ -246,38 +248,63 @@ private fun PhoneQuickAccessBanner(
         color = cs.surfaceContainerHigh,
         tonalElevation = 1.dp,
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f, fill = false)) {
-                Icon(Icons.Outlined.Smartphone, null, Modifier.size(24.dp), tint = cs.primary)
-                Column(Modifier.padding(start = 12.dp, end = 12.dp)) {
-                    Text("$phoneName · $subtitle", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
-                    Text("Paired with laptop via Cross-Device Services / Phone Hub", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                    Text(stringResource(R.string.phone_privilege_note), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val compact = maxWidth < 620.dp
+            val actions: @Composable () -> Unit = {
                 if (quickAccessAvailable) {
                     Button(onClick = { vm.openCrossDevicePhoneInSystemFiles() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                         Icon(Icons.Outlined.Smartphone, null, Modifier.size(16.dp))
-                        Text("Browse in Files", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium)
+                        Text("Browse in Files", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                     }
                     OutlinedButton(onClick = { vm.openQuickShareFolder() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                         Icon(Icons.Outlined.Folder, null, Modifier.size(16.dp))
-                        Text("Quick Share", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium)
+                        Text("Quick Share", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                     }
                 } else {
                     Button(onClick = { vm.openQuickShareFolder() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                         Icon(Icons.Outlined.Folder, null, Modifier.size(16.dp))
-                        Text("Quick Share", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium)
+                        Text("Quick Share", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                     }
                 }
                 OutlinedButton(onClick = { vm.openPhoneHubSettings() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                     Icon(Icons.Outlined.Settings, null, Modifier.size(16.dp))
-                    Text("Phone Hub", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium)
+                    Text("Phone Hub", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+                }
+            }
+            if (compact) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Smartphone, null, Modifier.size(24.dp), tint = cs.primary)
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text("$phoneName · $subtitle", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                            Text("Paired with laptop via Cross-Device Services / Phone Hub", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                            Text(stringResource(R.string.phone_privilege_note), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                        }
+                    }
+                    androidx.compose.foundation.layout.FlowRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) { actions() }
+                }
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Outlined.Smartphone, null, Modifier.size(24.dp), tint = cs.primary)
+                        Column(Modifier.padding(start = 12.dp, end = 12.dp)) {
+                            Text("$phoneName · $subtitle", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                            Text("Paired with laptop via Cross-Device Services / Phone Hub", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                            Text(stringResource(R.string.phone_privilege_note), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                        }
+                    }
+                    androidx.compose.foundation.layout.FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) { actions() }
                 }
             }
         }
@@ -343,7 +370,11 @@ fun MarkBadges(s: AppState, path: String, modifier: Modifier = Modifier, dot: Dp
 @Composable
 private fun CenterMessage(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String?, actions: @Composable () -> Unit = {}) {
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize().padding(32.dp), Arrangement.Center, Alignment.CenterHorizontally) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(32.dp),
+        Arrangement.Center,
+        Alignment.CenterHorizontally,
+    ) {
         Icon(icon, null, Modifier.size(56.dp), tint = cs.onSurfaceVariant.copy(alpha = 0.6f))
         Text(title, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         if (body != null) Text(body, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
@@ -1032,31 +1063,54 @@ private fun StatusBar(vm: BrowserViewModel, s: AppState) {
         if (tab.searching) append("  •  $searchingLabel")
     }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-    val roomForHint = maxWidth > 720.dp && LocalDensity.current.fontScale <= 1.3f
-    Row(Modifier.fillMaxWidth().heightIn(min = 36.dp).padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1)
+        val roomForHint = maxWidth > 720.dp && LocalDensity.current.fontScale <= 1.3f
+        val compactOp = maxWidth < 520.dp
         val op = s.ops.firstOrNull()
-        if (op == null && sel.isEmpty() && roomForHint) {
-            Text(
-                "Space: Quick Look • F3: Split view • Ctrl+K: Commands • F1: Shortcuts",
-                style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
+        Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 36.dp).padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (op == null && sel.isEmpty() && roomForHint) {
+                    Text(
+                        "Space: Quick Look • F3: Split view • Ctrl+K: Commands • F1: Shortcuts",
+                        style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (op != null && !compactOp) {
+                    val f = op.progress.fraction
+                    Text(
+                        buildString {
+                            append(op.progress.title)
+                            if (op.progress.current.isNotEmpty()) append(" ${op.progress.current}")
+                            if (s.ops.size > 1) append("  (+${s.ops.size - 1})")
+                        },
+                        Modifier.widthIn(max = 280.dp).padding(end = 10.dp), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    if (f != null) LinearProgressIndicator({ f }, Modifier.width(120.dp)) else LinearProgressIndicator(Modifier.width(120.dp))
+                    Text(if (f != null) "  ${(f * 100).toInt()}%" else "", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(44.dp))
+                    IconButton({ vm.cancelOp(op.id) }, Modifier.size(28.dp)) { Icon(Icons.Outlined.Close, "Cancel", Modifier.size(16.dp)) }
+                }
+            }
+            if (op != null && compactOp) {
+                val f = op.progress.fraction
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        buildString {
+                            append(op.progress.title)
+                            if (op.progress.current.isNotEmpty()) append(" ${op.progress.current}")
+                            if (s.ops.size > 1) append("  (+${s.ops.size - 1})")
+                        },
+                        Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    if (f != null) LinearProgressIndicator({ f }, Modifier.width(84.dp)) else LinearProgressIndicator(Modifier.width(84.dp))
+                    if (f != null) Text("${(f * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                    IconButton({ vm.cancelOp(op.id) }, Modifier.size(28.dp)) { Icon(Icons.Outlined.Close, "Cancel", Modifier.size(16.dp)) }
+                }
+            }
         }
-        if (op != null) {
-            val f = op.progress.fraction
-            Text(
-                buildString {
-                    append(op.progress.title)
-                    if (op.progress.current.isNotEmpty()) append(" ${op.progress.current}")
-                    if (s.ops.size > 1) append("  (+${s.ops.size - 1})")
-                },
-                Modifier.widthIn(max = 280.dp).padding(end = 10.dp), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            if (f != null) LinearProgressIndicator({ f }, Modifier.width(120.dp)) else LinearProgressIndicator(Modifier.width(120.dp))
-            Text(if (f != null) "  ${(f * 100).toInt()}%" else "", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(44.dp))
-            IconButton({ vm.cancelOp(op.id) }, Modifier.size(28.dp)) { Icon(Icons.Outlined.Close, "Cancel", Modifier.size(16.dp)) }
-        }
-    }
     }
 }
 

@@ -4,6 +4,7 @@
 package com.droid.wayfinder.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
@@ -92,19 +94,7 @@ fun Dialogs(vm: BrowserViewModel, s: AppState) {
             confirmButton = { TextButton({ vm.confirmDelete(d.paths) }) { Text(stringResource(R.string.action_delete)) } },
             dismissButton = { TextButton(vm::dismissDialog) { Text(stringResource(R.string.action_cancel)) } },
         )
-        is Dialog.ConflictPrompt -> AlertDialog(
-            onDismissRequest = vm::dismissDialog,
-            title = { Text(if (d.names.size == 1) stringResource(R.string.dialog_conflict_single_title, d.names[0]) else icuStringResource(R.string.dialog_conflict_many_plural, d.names.size)) },
-            text = { Text(stringResource(R.string.dialog_conflict_message)) },
-            confirmButton = {
-                Row {
-                    TextButton({ vm.resolveConflict(d, Conflict.Replace) }) { Text(stringResource(R.string.action_replace)) }
-                    TextButton({ vm.resolveConflict(d, Conflict.KeepBoth) }) { Text(stringResource(R.string.action_keep_both)) }
-                    TextButton({ vm.resolveConflict(d, Conflict.Skip) }) { Text(stringResource(R.string.action_skip)) }
-                }
-            },
-            dismissButton = { TextButton(vm::dismissDialog) { Text(stringResource(R.string.action_cancel)) } },
-        )
+        is Dialog.ConflictPrompt -> ConflictPromptDialog(d, vm)
         is Dialog.Properties -> PropertiesDialog(d, s, vm::dismissDialog) { text, what -> vm.copyValue(text, what) }
         is Dialog.Connect -> ConnectDialog(vm, d.initial, s.savedServers, vm::dismissDialog)
         is Dialog.ConnectOneDrive -> ConnectOneDriveDialog(vm, s, d.reauthAccountId)
@@ -120,6 +110,36 @@ fun Dialogs(vm: BrowserViewModel, s: AppState) {
         Dialog.About -> AboutDialog(vm::dismissDialog)
         Dialog.DefaultHandler -> DefaultHandlerDialog(vm::dismissDialog)
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ConflictPromptDialog(d: Dialog.ConflictPrompt, vm: BrowserViewModel) {
+    AlertDialog(
+        onDismissRequest = vm::dismissDialog,
+        title = {
+            Text(
+                if (d.names.size == 1) {
+                    stringResource(R.string.dialog_conflict_single_title, d.names[0])
+                } else {
+                    icuStringResource(R.string.dialog_conflict_many_plural, d.names.size)
+                },
+            )
+        },
+        text = { Text(stringResource(R.string.dialog_conflict_message)) },
+        confirmButton = {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                TextButton(vm::dismissDialog) { Text(stringResource(R.string.action_cancel), maxLines = 1, softWrap = false) }
+                TextButton({ vm.resolveConflict(d, Conflict.Skip) }) { Text(stringResource(R.string.action_skip), maxLines = 1, softWrap = false) }
+                TextButton({ vm.resolveConflict(d, Conflict.KeepBoth) }) { Text(stringResource(R.string.action_keep_both), maxLines = 1, softWrap = false) }
+                TextButton({ vm.resolveConflict(d, Conflict.Replace) }) { Text(stringResource(R.string.action_replace), maxLines = 1, softWrap = false) }
+            }
+        },
+    )
 }
 
 @Composable
@@ -153,7 +173,8 @@ private fun PropertiesDialog(d: Dialog.Properties, s: AppState, onDismiss: () ->
     val e = d.entries
     AlertDialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth(),
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 520.dp).fillMaxWidth(),
         title = { Text(if (e.size == 1) e[0].name else formatItemCount(e.size)) },
         text = {
             Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -200,8 +221,8 @@ private fun PropertiesDialog(d: Dialog.Properties, s: AppState, onDismiss: () ->
 
 @Composable
 private fun Row2(label: String, value: String, mono: Boolean = false, onCopy: (() -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.width(96.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(label, Modifier.widthIn(min = 76.dp, max = 92.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
         androidx.compose.foundation.text.selection.SelectionContainer(Modifier.weight(1f)) {
             Text(value, style = MaterialTheme.typography.bodyMedium, fontFamily = if (mono) FontFamily.Monospace else null)
         }
@@ -226,7 +247,7 @@ private fun SmbDialog(
     AlertDialog(
         onDismissRequest = onDismiss, title = { Text(title) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(hint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (askAddress) OutlinedTextField(
                     address, { address = it }, Modifier.fillMaxWidth().focusRequester(fr), singleLine = true, label = { Text(stringResource(R.string.dialog_server_address_label)) },
@@ -246,7 +267,7 @@ private fun SmbDialog(
                     domain, { domain = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.dialog_domain_optional_label)) },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { go() }),
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().clickable { rememberPw = !rememberPw }, verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(rememberPw, { rememberPw = it })
                     Text(stringResource(R.string.dialog_remember_password), style = MaterialTheme.typography.bodyMedium)
                 }
@@ -287,15 +308,16 @@ private val shortcuts = listOf(
 private fun ShortcutsDialog(onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss, title = { Text("Keyboard & trackpad shortcuts") },
-        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 560.dp).fillMaxWidth(),
         text = {
             Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
                 shortcuts.forEach { (group, items) ->
                     Text(group, Modifier.padding(top = 10.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     items.forEach { (a, k) ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(a, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                            Text(k, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(k, Modifier.widthIn(max = 180.dp), style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
                         }
                     }
                 }
@@ -313,6 +335,7 @@ private enum class RenameMode(@param:androidx.annotation.StringRes val labelRes:
     Numbered(R.string.batch_rename_mode_numbered),
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BatchRenameDialog(d: Dialog.BatchRename, onDismiss: () -> Unit, onApply: (List<RenamePlan>) -> Unit) {
     val cs = MaterialTheme.colorScheme
@@ -334,63 +357,83 @@ private fun BatchRenameDialog(d: Dialog.BatchRename, onDismiss: () -> Unit, onAp
     val changes = plan.count { it.changed }
     AlertDialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 560.dp).fillMaxWidth(),
         title = { Text(if (d.items.size == 1) "Rename 1 item" else "Batch rename ${d.items.size} items") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    RenameMode.entries.forEach { m -> FilterChip(m == mode, { mode = m }, label = { Text(stringResource(m.labelRes)) }) }
-                }
-                when (mode) {
-                    RenameMode.FindReplace -> {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(find, { find = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_find_label)) })
-                            OutlinedTextField(replace, { replace = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_replace_label)) })
+            val stackFields = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 400
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        RenameMode.entries.forEach { m -> FilterChip(m == mode, { mode = m }, label = { Text(stringResource(m.labelRes), maxLines = 1, softWrap = false) }) }
+                    }
+                    when (mode) {
+                        RenameMode.FindReplace -> {
+                            if (stackFields) {
+                                OutlinedTextField(find, { find = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.batch_rename_find_label)) })
+                                OutlinedTextField(replace, { replace = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.batch_rename_replace_label)) })
+                            } else {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(find, { find = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_find_label)) })
+                                    OutlinedTextField(replace, { replace = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_replace_label)) })
+                                }
+                            }
+                            Row(Modifier.fillMaxWidth().clickable { matchCase = !matchCase }, verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(matchCase, { matchCase = it })
+                                Text(stringResource(R.string.batch_rename_match_case), style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(matchCase, { matchCase = it })
-                            Text(stringResource(R.string.batch_rename_match_case), style = MaterialTheme.typography.bodyMedium)
+                        RenameMode.Affix -> if (stackFields) {
+                            OutlinedTextField(prefix, { prefix = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.batch_rename_prefix_label)) })
+                            OutlinedTextField(suffix, { suffix = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.batch_rename_suffix_label)) })
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(prefix, { prefix = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_prefix_label)) })
+                                OutlinedTextField(suffix, { suffix = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_suffix_label)) })
+                            }
                         }
-                    }
-                    RenameMode.Affix -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(prefix, { prefix = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_prefix_label)) })
-                        OutlinedTextField(suffix, { suffix = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_suffix_label)) })
-                    }
-                    RenameMode.Numbered -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(base, { base = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_base_name_label)) })
-                        OutlinedTextField(
-                            start, { v -> start = v.filter { it.isDigit() }.take(6) }, Modifier.width(120.dp), singleLine = true,
-                            label = { Text(stringResource(R.string.batch_rename_start_num_label)) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        )
-                    }
-                }
-                Text(
-                    when {
-                        conflicts > 0 -> icuStringResource(R.string.batch_rename_conflicts_plural, conflicts)
-                        changes == 0 -> stringResource(R.string.batch_rename_no_changes)
-                        else -> icuStringResource(R.string.batch_rename_changes_plural, changes)
-                    },
-                    style = MaterialTheme.typography.labelLarge, color = if (conflicts > 0) cs.error else cs.onSurfaceVariant,
-                )
-                Surface(shape = RoundedCornerShape(12.dp), color = cs.surfaceContainerLow) {
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp).padding(vertical = 4.dp)) {
-                        items(plan) { p ->
-                            val bad = p.conflict != null
-                            Row(
-                                Modifier.fillMaxWidth().background(if (bad) cs.errorContainer else Color.Transparent).padding(horizontal = 12.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(p.old, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (bad) cs.onErrorContainer else cs.onSurfaceVariant)
-                                Text("→", Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                                Text(
-                                    p.new + (p.conflict?.let { "  ($it)" } ?: ""), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis, color = if (bad) cs.onErrorContainer else if (p.changed) cs.onSurface else cs.onSurfaceVariant,
+                        RenameMode.Numbered -> if (stackFields) {
+                            OutlinedTextField(base, { base = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.batch_rename_base_name_label)) })
+                            OutlinedTextField(
+                                start, { v -> start = v.filter { it.isDigit() }.take(6) }, Modifier.fillMaxWidth(), singleLine = true,
+                                label = { Text(stringResource(R.string.batch_rename_start_num_label)) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            )
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(base, { base = it }, Modifier.weight(1f), singleLine = true, label = { Text(stringResource(R.string.batch_rename_base_name_label)) })
+                                OutlinedTextField(
+                                    start, { v -> start = v.filter { it.isDigit() }.take(6) }, Modifier.width(120.dp), singleLine = true,
+                                    label = { Text(stringResource(R.string.batch_rename_start_num_label)) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 )
                             }
                         }
                     }
+                    Text(
+                        when {
+                            conflicts > 0 -> icuStringResource(R.string.batch_rename_conflicts_plural, conflicts)
+                            changes == 0 -> stringResource(R.string.batch_rename_no_changes)
+                            else -> icuStringResource(R.string.batch_rename_changes_plural, changes)
+                        },
+                        style = MaterialTheme.typography.labelLarge, color = if (conflicts > 0) cs.error else cs.onSurfaceVariant,
+                    )
+                    Surface(shape = RoundedCornerShape(12.dp), color = cs.surfaceContainerLow) {
+                        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(vertical = 4.dp)) {
+                            items(plan) { p ->
+                                val bad = p.conflict != null
+                                Row(
+                                    Modifier.fillMaxWidth().background(if (bad) cs.errorContainer else Color.Transparent).padding(horizontal = 12.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(p.old, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (bad) cs.onErrorContainer else cs.onSurfaceVariant)
+                                    Text("→", Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                                    Text(
+                                        p.new + (p.conflict?.let { "  ($it)" } ?: ""), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis, color = if (bad) cs.onErrorContainer else if (p.changed) cs.onSurface else cs.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
-            }
         },
         confirmButton = { TextButton({ onApply(plan) }, enabled = conflicts == 0 && changes > 0) { Text(stringResource(R.string.action_apply)) } },
         dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.action_cancel)) } },
@@ -499,7 +542,8 @@ private fun AboutDialog(onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 560.dp).fillMaxWidth(),
         title = { Text(if (showLicenses) "Open-source licenses" else "About Wayfinder") },
         text = {
             if (!showLicenses) {
@@ -542,6 +586,7 @@ private fun AboutDialog(onDismiss: () -> Unit) {
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DefaultHandlerDialog(onDismiss: () -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current

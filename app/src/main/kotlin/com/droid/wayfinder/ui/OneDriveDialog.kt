@@ -85,7 +85,8 @@ fun ConnectOneDriveDialog(
 
     AlertDialog(
         onDismissRequest = vm::dismissOneDriveDialog,
-        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 560.dp).fillMaxWidth(),
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,

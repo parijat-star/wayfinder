@@ -127,23 +127,46 @@ fun QuickLook(vm: BrowserViewModel, s: AppState) {
 @Composable
 private fun Header(vm: BrowserViewModel, e: FileEntry) {
     val cs = MaterialTheme.colorScheme
-    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(e.icon(), null, Modifier.size(28.dp), tint = e.tint())
-        Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(e.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val facts = buildList {
-                add(e.typeLabel)
-                if (!e.isDir) add(formatSize(e.size))
-                if (e.modified > 0) add(formatDateFull(e.modified))
+    val facts = buildList {
+        add(e.typeLabel)
+        if (!e.isDir) add(formatSize(e.size))
+        if (e.modified > 0) add(formatDateFull(e.modified))
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val compact = maxWidth < 520.dp
+        if (compact) {
+            Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 8.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(e.icon(), null, Modifier.size(24.dp), tint = e.tint())
+                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text(e.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(facts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, "Close (Space)") }
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                    IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Previous (←)") }
+                    IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Next (→)") }
+                    FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(start = 4.dp, end = 4.dp)) {
+                        Text(if (e.isDir) "Open folder" else "Open", maxLines = 1, softWrap = false)
+                    }
+                }
             }
-            Text(facts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1)
+        } else {
+            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(e.icon(), null, Modifier.size(28.dp), tint = e.tint())
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(e.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(facts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Previous (←)") }
+                IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Next (→)") }
+                FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(horizontal = 8.dp)) {
+                    Text(if (e.isDir) "Open folder" else "Open", maxLines = 1, softWrap = false)
+                }
+                IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, "Close (Space)") }
+            }
         }
-        IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Previous (←)") }
-        IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Next (→)") }
-        FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(horizontal = 8.dp)) {
-            Text(if (e.isDir) "Open folder" else "Open")
-        }
-        IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, "Close (Space)") }
     }
 }
 

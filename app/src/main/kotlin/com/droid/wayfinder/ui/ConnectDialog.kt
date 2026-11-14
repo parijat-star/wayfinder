@@ -3,9 +3,13 @@
 
 package com.droid.wayfinder.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -110,94 +114,120 @@ fun ConnectDialog(vm: BrowserViewModel, initial: ConnectConfig?, saved: List<Sav
     val canGo = host.isNotBlank()
     AlertDialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(),
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 560.dp).fillMaxWidth(),
         title = { Text("Connect to Server") },
         text = {
+            @OptIn(ExperimentalLayoutApi::class)
+            val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 400
             Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Protocol.entries.forEach { p -> FilterChip(p == protocol, { setProtocol(p) }, label = { Text(p.label) }) }
-                }
-                if ((protocol == Protocol.FTP || protocol == Protocol.DAV) && !guest) {
-                    val secureAlt = if (protocol == Protocol.FTP) Protocol.FTPS.label else Protocol.DAVS.label
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Icon(Icons.Outlined.ErrorOutline, null, Modifier.size(16.dp), tint = cs.error)
-                        Text(
-                            "Warning: Credentials and files are sent unencrypted over ${protocol.label}. Prefer $secureAlt.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = cs.error,
-                        )
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Protocol.entries.forEach { p -> FilterChip(p == protocol, { setProtocol(p) }, label = { Text(p.label) }) }
                     }
-                }
-                OutlinedTextField(
-                    address, ::onAddress, Modifier.fillMaxWidth().focusRequester(fr), singleLine = true,
-                    label = { Text("Server address or UNC path") },
-                    placeholder = { Text("smb://nas/media  •  \\\\nas\\media  •  davs://cloud/dav  •  ftp://user@host:21/pub") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(host, { host = it.trim(); result = null }, Modifier.weight(1f), singleLine = true, label = { Text("Host") })
-                    OutlinedTextField(
-                        port, { v -> port = v.filter { it.isDigit() }.take(5); result = null }, Modifier.width(110.dp), singleLine = true,
-                        label = { Text("Port") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    )
-                }
-                OutlinedTextField(
-                    path, { path = it; result = null }, Modifier.fillMaxWidth(), singleLine = true,
-                    label = { Text(if (protocol == Protocol.SMB) "Share / folder (optional)" else "Base path (optional)") },
-                    placeholder = { Text(if (protocol == Protocol.SMB) "media" else if (protocol.isWebDav) "remote.php/dav/files/me" else "pub") },
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(guest, { guest = it; result = null })
-                    Text(if (protocol == Protocol.SMB) "  Guest" else "  Anonymous", style = MaterialTheme.typography.bodyMedium)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        user, { user = it; result = null }, Modifier.weight(1f), enabled = !guest, singleLine = true, label = { Text("User name") },
-                    )
-                    OutlinedTextField(
-                        pass, { pass = it; result = null }, Modifier.weight(1f), enabled = !guest, singleLine = true,
-                        label = { Text(if (initial?.user?.isNotEmpty() == true && initial?.remember == true) "Password (saved)" else "Password") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    )
-                }
-                if (protocol == Protocol.SMB) OutlinedTextField(
-                    domain, { domain = it }, Modifier.fillMaxWidth(), enabled = !guest, singleLine = true, label = { Text("Domain / workgroup (optional)") },
-                )
-                OutlinedTextField(
-                    alias, { alias = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Sidebar name (optional)") },
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(rememberPw, { rememberPw = it }, enabled = !guest)
-                    Text("Remember credentials (stored encrypted)", style = MaterialTheme.typography.bodyMedium)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(
-                        {
-                            testJob?.cancel()
-                            testJob = scope.launch {
-                                testing = true
-                                result = null
-                                val r = vm.testConnection(config())
-                                result = r.fold({ "Connected ($it ms)" to true }, { (it.message ?: "Connection failed") to false })
-                                testing = false
-                            }
-                        },
-                        enabled = canGo && !testing,
-                    ) { Text("Test connection") }
-                    when {
-                        testing -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        result != null -> Row(verticalAlignment = Alignment.CenterVertically) {
-                            val (msg, ok) = result!!
-                            val okColor = com.droid.wayfinder.data.FileKind.Image.tint()
-                            Icon(
-                                if (ok) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline, null, Modifier.size(18.dp),
-                                tint = if (ok) okColor else cs.error,
+                    if ((protocol == Protocol.FTP || protocol == Protocol.DAV) && !guest) {
+                        val secureAlt = if (protocol == Protocol.FTP) Protocol.FTPS.label else Protocol.DAVS.label
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Outlined.ErrorOutline, null, Modifier.size(16.dp), tint = cs.error)
+                            Text(
+                                "Warning: Credentials and files are sent unencrypted over ${protocol.label}. Prefer $secureAlt.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = cs.error,
                             )
-                            Text(msg, Modifier.padding(start = 6.dp), style = MaterialTheme.typography.bodyMedium, color = if (ok) cs.onSurface else cs.error)
                         }
                     }
-                }
+                    OutlinedTextField(
+                        address, ::onAddress, Modifier.fillMaxWidth().focusRequester(fr), singleLine = true,
+                        label = { Text("Server address or UNC path") },
+                        placeholder = { Text("smb://nas/media  •  \\\\nas\\media  •  davs://cloud/dav  •  ftp://user@host:21/pub") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(host, { host = it.trim(); result = null }, Modifier.weight(1f), singleLine = true, label = { Text("Host") })
+                        OutlinedTextField(
+                            port, { v -> port = v.filter { it.isDigit() }.take(5); result = null }, Modifier.width(92.dp), singleLine = true,
+                            label = { Text("Port") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        )
+                    }
+                    OutlinedTextField(
+                        path, { path = it; result = null }, Modifier.fillMaxWidth(), singleLine = true,
+                        label = { Text(if (protocol == Protocol.SMB) "Share / folder (optional)" else "Base path (optional)") },
+                        placeholder = { Text(if (protocol == Protocol.SMB) "media" else if (protocol.isWebDav) "remote.php/dav/files/me" else "pub") },
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().clickable { guest = !guest; result = null }.padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Switch(guest, { guest = it; result = null })
+                        Text(if (protocol == Protocol.SMB) "  Guest" else "  Anonymous", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (narrow) {
+                        OutlinedTextField(
+                            user, { user = it; result = null }, Modifier.fillMaxWidth(), enabled = !guest, singleLine = true, label = { Text("User name") },
+                        )
+                        OutlinedTextField(
+                            pass, { pass = it; result = null }, Modifier.fillMaxWidth(), enabled = !guest, singleLine = true,
+                            label = { Text(if (initial?.user?.isNotEmpty() == true && initial?.remember == true) "Password (saved)" else "Password") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        )
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                user, { user = it; result = null }, Modifier.weight(1f), enabled = !guest, singleLine = true, label = { Text("User name") },
+                            )
+                            OutlinedTextField(
+                                pass, { pass = it; result = null }, Modifier.weight(1f), enabled = !guest, singleLine = true,
+                                label = { Text(if (initial?.user?.isNotEmpty() == true && initial?.remember == true) "Password (saved)" else "Password") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            )
+                        }
+                    }
+                    if (protocol == Protocol.SMB) OutlinedTextField(
+                        domain, { domain = it }, Modifier.fillMaxWidth(), enabled = !guest, singleLine = true, label = { Text("Domain / workgroup (optional)") },
+                    )
+                    OutlinedTextField(
+                        alias, { alias = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Sidebar name (optional)") },
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().clickable(enabled = !guest) { rememberPw = !rememberPw }.padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(rememberPw, { rememberPw = it }, enabled = !guest)
+                        Text("Remember credentials (stored encrypted)", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    FlowRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedButton(
+                            {
+                                testJob?.cancel()
+                                testJob = scope.launch {
+                                    testing = true
+                                    result = null
+                                    val r = vm.testConnection(config())
+                                    result = r.fold({ "Connected ($it ms)" to true }, { (it.message ?: "Connection failed") to false })
+                                    testing = false
+                                }
+                            },
+                            enabled = canGo && !testing,
+                        ) { Text("Test connection", maxLines = 1, softWrap = false) }
+                        when {
+                            testing -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            result != null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                                val (msg, ok) = result!!
+                                val okColor = com.droid.wayfinder.data.FileKind.Image.tint()
+                                Icon(
+                                    if (ok) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline, null, Modifier.size(18.dp),
+                                    tint = if (ok) okColor else cs.error,
+                                )
+                                Text(msg, Modifier.padding(start = 6.dp), style = MaterialTheme.typography.bodyMedium, color = if (ok) cs.onSurface else cs.error)
+                            }
+                        }
+                    }
                 if (saved.isNotEmpty()) {
                     Text("Saved servers", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelLarge, color = cs.primary)
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -205,8 +235,8 @@ fun ConnectDialog(vm: BrowserViewModel, initial: ConnectConfig?, saved: List<Sav
                             AssistChip({ fill(vm.connectConfigFor(sv)) }, label = { Text("${sv.label} (${sv.protocol.label})") })
                         }
                     }
+                    }
                 }
-            }
         },
         confirmButton = { TextButton({ vm.connectMount(config()) }, enabled = canGo) { Text("Connect & Mount") } },
         dismissButton = { TextButton(onDismiss) { Text("Cancel") } },

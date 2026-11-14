@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -521,6 +523,7 @@ private fun DragGhost(drag: DragController) {
 }
 
 /** Picker mode banner: supports OpenFile, OpenTree (ACTION_OPEN_DOCUMENT_TREE), and CreateDocument (ACTION_CREATE_DOCUMENT). */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PickerBanner(vm: BrowserViewModel, s: AppState) {
     val cs = MaterialTheme.colorScheme
@@ -529,36 +532,49 @@ private fun PickerBanner(vm: BrowserViewModel, s: AppState) {
         Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), shape = RoundedCornerShape(16.dp),
         color = cs.primaryContainer, contentColor = cs.onPrimaryContainer,
     ) {
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(Icons.Outlined.FileOpen, null, Modifier.size(20.dp))
-            when (req.mode) {
-                com.droid.wayfinder.data.PickerMode.OpenFile -> {
-                    val pickable = remember(s.active.selection, s.active.entries) { vm.pickableSelection() }
-                    Column(Modifier.weight(1f)) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val compact = maxWidth < 560.dp
+            val buttons: @Composable () -> Unit = {
+                when (req.mode) {
+                    com.droid.wayfinder.data.PickerMode.OpenFile -> {
+                        val pickable = remember(s.active.selection, s.active.entries) { vm.pickableSelection() }
+                        OutlinedButton({ vm.cancelPick() }) { Text("Cancel", maxLines = 1, softWrap = false) }
+                        Button({ vm.pickSelection() }, enabled = pickable.isNotEmpty()) {
+                            Text(if (pickable.size > 1) "Select ${pickable.size} Files" else "Select File", maxLines = 1, softWrap = false)
+                        }
+                    }
+                    com.droid.wayfinder.data.PickerMode.OpenTree -> {
+                        val folderTarget = remember(s.active.path, s.active.selection, s.active.entries) { vm.targetTreeFolder() }
+                        val canGrant = remember(folderTarget) { vm.canPickFolder(folderTarget) }
+                        OutlinedButton({ vm.cancelPick() }) { Text("Cancel", maxLines = 1, softWrap = false) }
+                        Button({ vm.pickCurrentFolder() }, enabled = canGrant) {
+                            Text("Use this folder", maxLines = 1, softWrap = false)
+                        }
+                    }
+                    com.droid.wayfinder.data.PickerMode.CreateDocument -> {
+                        val validName = remember(s.createFileName) { FsPath.nameError(s.createFileName.trim()) == null }
+                        OutlinedButton({ vm.cancelPick() }) { Text("Cancel", maxLines = 1, softWrap = false) }
+                        Button({ vm.confirmCreateDocument() }, enabled = validName) {
+                            Text("Save", maxLines = 1, softWrap = false)
+                        }
+                    }
+                }
+            }
+            val body: @Composable (Modifier) -> Unit = { mod ->
+                when (req.mode) {
+                    com.droid.wayfinder.data.PickerMode.OpenFile -> Column(mod) {
                         Text(if (req.allowMultiple) "Select files to open in the requesting app" else "Select a file to open in the requesting app", style = MaterialTheme.typography.titleSmall)
                         val hint = listOfNotNull(req.description?.let { "Accepts $it" }, if (req.allowMultiple) "Ctrl+click to select several" else null, "Double-click a file to choose it")
                         Text(hint.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall)
                     }
-                    OutlinedButton({ vm.cancelPick() }) { Text("Cancel") }
-                    Button({ vm.pickSelection() }, enabled = pickable.isNotEmpty()) {
-                        Text(if (pickable.size > 1) "Select ${pickable.size} Files" else "Select File")
+                    com.droid.wayfinder.data.PickerMode.OpenTree -> {
+                        val folderTarget = remember(s.active.path, s.active.selection, s.active.entries) { vm.targetTreeFolder() }
+                        Column(mod) {
+                            Text("Grant access to folder", style = MaterialTheme.typography.titleSmall)
+                            Text("Allow the requesting app to access ${FsPath.name(folderTarget)}", style = MaterialTheme.typography.bodySmall)
+                        }
                     }
-                }
-                com.droid.wayfinder.data.PickerMode.OpenTree -> {
-                    val folderTarget = remember(s.active.path, s.active.selection, s.active.entries) { vm.targetTreeFolder() }
-                    val canGrant = remember(folderTarget) { vm.canPickFolder(folderTarget) }
-                    Column(Modifier.weight(1f)) {
-                        Text("Grant access to folder", style = MaterialTheme.typography.titleSmall)
-                        Text("Allow the requesting app to access ${FsPath.name(folderTarget)}", style = MaterialTheme.typography.bodySmall)
-                    }
-                    OutlinedButton({ vm.cancelPick() }) { Text("Cancel") }
-                    Button({ vm.pickCurrentFolder() }, enabled = canGrant) {
-                        Text("Use this folder")
-                    }
-                }
-                com.droid.wayfinder.data.PickerMode.CreateDocument -> {
-                    val validName = remember(s.createFileName) { FsPath.nameError(s.createFileName.trim()) == null }
-                    Column(Modifier.weight(1f)) {
+                    com.droid.wayfinder.data.PickerMode.CreateDocument -> Column(mod) {
                         Text("Save file in ${FsPath.name(s.active.path)}", style = MaterialTheme.typography.titleSmall)
                         OutlinedTextField(
                             value = s.createFileName,
@@ -568,10 +584,25 @@ private fun PickerBanner(vm: BrowserViewModel, s: AppState) {
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         )
                     }
-                    OutlinedButton({ vm.cancelPick() }) { Text("Cancel") }
-                    Button({ vm.confirmCreateDocument() }, enabled = validName) {
-                        Text("Save")
+                }
+            }
+            if (compact) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(Icons.Outlined.FileOpen, null, Modifier.size(20.dp))
+                        body(Modifier.weight(1f))
                     }
+                    FlowRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) { buttons() }
+                }
+            } else {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(Icons.Outlined.FileOpen, null, Modifier.size(20.dp))
+                    body(Modifier.weight(1f))
+                    buttons()
                 }
             }
         }
