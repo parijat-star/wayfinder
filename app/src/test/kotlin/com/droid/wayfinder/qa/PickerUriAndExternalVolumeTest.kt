@@ -140,11 +140,12 @@ class PickerUriAndExternalVolumeTest {
         h.navigate(usbRoot.canonicalPath)
         h.vm.setSelection(setOf(usbFile.canonicalPath))
 
+        // Staged paths are compared canonically: on macOS the temp dir is /var/..., canonically /private/var/...
         // 1. Open with... stages into cacheDir/remote-open so FileProvider can serve a URI
         h.vm.openWith()
         h.until(what = "OpenFile staged") { h.events.any { it is UiEvent.OpenFile } }
         val openedPath = h.events.filterIsInstance<UiEvent.OpenFile>().last().path
-        assertTrue(openedPath.startsWith(ctx.cacheDir.canonicalPath))
+        assertTrue(File(openedPath).canonicalPath.startsWith(ctx.cacheDir.canonicalPath))
         assertEquals("jpeg-bytes", File(openedPath).readText())
         assertNotNull(FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", File(openedPath)))
 
@@ -152,7 +153,7 @@ class PickerUriAndExternalVolumeTest {
         h.vm.share()
         h.until(what = "Share staged") { h.events.any { it is UiEvent.Share } }
         val sharedPath = h.events.filterIsInstance<UiEvent.Share>().last().paths.single()
-        assertTrue(sharedPath.startsWith(ctx.cacheDir.canonicalPath))
+        assertTrue(File(sharedPath).canonicalPath.startsWith(ctx.cacheDir.canonicalPath))
         assertEquals("jpeg-bytes", File(sharedPath).readText())
         assertNotNull(FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", File(sharedPath)))
 
@@ -160,7 +161,7 @@ class PickerUriAndExternalVolumeTest {
         h.vm.pickSelection()
         h.until(what = "PickResult staged") { h.events.any { it is UiEvent.PickResult } }
         val pickedPath = h.events.filterIsInstance<UiEvent.PickResult>().last().paths.single()
-        assertTrue(pickedPath.startsWith(ctx.cacheDir.canonicalPath))
+        assertTrue(File(pickedPath).canonicalPath.startsWith(ctx.cacheDir.canonicalPath))
         assertEquals("jpeg-bytes", File(pickedPath).readText())
         assertNotNull(FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", File(pickedPath)))
     }

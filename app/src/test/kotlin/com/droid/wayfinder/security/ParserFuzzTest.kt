@@ -119,6 +119,21 @@ class ParserFuzzTest {
         FsPath.parseServerInput(p)
     }
 
+    /**
+     * Resolves `.` and `..` the way canonicalPath does for paths that don't exist, without the host file system
+     * (macOS throws "File name too long" past 255-byte names and 1,024-byte paths) or java.nio (which rejects
+     * lone surrogates that java.io.File accepts).
+     */
+    private fun lexicalNormalize(path: String): String {
+        val out = ArrayDeque<String>()
+        for (seg in path.split('/')) when (seg) {
+            "", "." -> Unit
+            ".." -> out.removeLastOrNull()
+            else -> out.addLast(seg)
+        }
+        return out.joinToString("/", prefix = "/")
+    }
+
     @Test
     fun childOfSafeNameStaysInside() = k.run("FsPath.child", 30_000, { r -> k.input(r, 30) }, k.corpus) { name ->
         val dir = "/storage/emulated/0/Download"
@@ -126,7 +141,7 @@ class ParserFuzzTest {
             val c = FsPath.child(dir, name)
             assertEquals(dir, FsPath.parent(c))
             assertTrue(FsPath.isWithin(dir, c))
-            assertEquals(File(dir).canonicalFile, File(c).canonicalFile.parentFile)
+            assertEquals(File(dir), File(lexicalNormalize(c)).parentFile)
         }
         val err = FsPath.nameError(name)
         if (err == null) {
@@ -146,7 +161,7 @@ class ParserFuzzTest {
             val segs = rel.split('/')
             assertTrue(segs.isNotEmpty() && segs.size <= FsPath.MAX_DEPTH)
             assertTrue("segments: ${k.escape(rel)}", segs.all { FsPath.isSafeName(it) && !it.contains('\\') })
-            val target = File(base, rel).canonicalPath
+            val target = lexicalNormalize(File(base, rel).path)
             assertTrue("escapes: ${k.escape(rel)}", target.startsWith(base.path + "/"))
         }
     }
