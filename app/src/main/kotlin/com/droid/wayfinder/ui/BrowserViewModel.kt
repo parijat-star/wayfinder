@@ -1208,10 +1208,30 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         setCompactSidebarOpen(false)
         if (FsPath.isLocalFile(path)) {
             if (isUnsafeToExpose(path)) { toast("This file can't be opened"); return }
-            if (isDirectlyServableByFileProvider(path)) {
-                emit(UiEvent.OpenFile(path, chooser))
+            if (!com.droid.wayfinder.data.LocalUriResolver.anyMayResolveExternalLocalUri(app, listOf(path))) {
+                if (isDirectlyServableByFileProvider(path)) {
+                    emit(UiEvent.OpenFile(path, chooser))
+                } else {
+                    stageAndOpenFile(path, chooser)
+                }
                 return
             }
+            viewModelScope.launch {
+                val directUri = withContext(Dispatchers.IO) {
+                    com.droid.wayfinder.data.LocalUriResolver.resolvePreferredLocalUri(
+                        ctx = app,
+                        path = path,
+                        primaryStorageRoot = primary,
+                        allowScan = true,
+                    )
+                }
+                when {
+                    directUri != null -> emit(UiEvent.OpenFile(path, chooser, uri = directUri))
+                    isDirectlyServableByFileProvider(path) -> emit(UiEvent.OpenFile(path, chooser))
+                    else -> stageAndOpenFile(path, chooser)
+                }
+            }
+            return
         }
         if (FsPath.isSaf(path) || FsPath.isDoc(path)) {
             viewModelScope.launch {
@@ -2121,17 +2141,50 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val files = tab.selectedEntries(hidden).filter { !it.isDir && FsPath.isLocalFile(it.path) }.map { it.path }
         if (files.isEmpty()) { toast("Select local files to share"); return }
         if (files.any { isUnsafeToExpose(it) }) { toast("This file can't be shared"); return }
-        val (direct, needsStaging) = files.partition { isDirectlyServableByFileProvider(it) }
-        if (needsStaging.isEmpty()) {
-            emit(UiEvent.Share(direct))
+        if (!com.droid.wayfinder.data.LocalUriResolver.anyMayResolveExternalLocalUri(app, files)) {
+            val (direct, needsStaging) = files.partition { isDirectlyServableByFileProvider(it) }
+            if (needsStaging.isEmpty()) {
+                emit(UiEvent.Share(direct))
+                return
+            }
+            stageAndShareFiles(direct, needsStaging, emptyMap())
             return
         }
+        viewModelScope.launch {
+            val preferred = withContext(Dispatchers.IO) {
+                val ioPerms = runCatching { app.contentResolver.persistedUriPermissions }.getOrDefault(emptyList())
+                files.mapNotNull { path ->
+                    com.droid.wayfinder.data.LocalUriResolver.resolvePreferredLocalUri(
+                        ctx = app,
+                        path = path,
+                        primaryStorageRoot = primary,
+                        allowScan = true,
+                        cachedPerms = ioPerms,
+                    )?.let { uri -> path to uri }
+                }.toMap()
+            }
+            val (direct, needsStaging) = files.partition {
+                it in preferred || isDirectlyServableByFileProvider(it)
+            }
+            if (needsStaging.isEmpty()) {
+                emit(UiEvent.Share(direct, preferred))
+            } else {
+                stageAndShareFiles(direct, needsStaging, preferred)
+            }
+        }
+    }
+
+    private fun stageAndShareFiles(
+        direct: List<String>,
+        needsStaging: List<String>,
+        preferredUris: Map<String, Uri>,
+    ) {
         val base = File(app.cacheDir, "remote-open")
         val now = System.currentTimeMillis()
         val dir = File(base, "share-$now").apply { mkdirs() }
         launchOp("Preparing share", { report ->
             ops.transfer(needsStaging, dir.path, move = false, conflict = Conflict.KeepBoth, onProgress = report).map { it.target }
-        }) { staged -> emit(UiEvent.Share(direct + staged)) }
+        }) { staged -> emit(UiEvent.Share(direct + staged, preferredUris)) }
     }
 
     /** Copies the selected items into the Googlebook Linux development environment (`Linux files`). */
@@ -2941,7 +2994,18 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (FsPath.isReadOnly(dir) || trash.isInTrash(dir)) {
             toast("Cannot save files in this location"); return
         }
-        if (FsPath.isLocalFile(dir) && (FileInfo.isSymlink(dir) || isPrivatePath(dir) || !isDirectlyServableByFileProvider(dir))) {
+        if (FsPath.isLocalFile(dir) && (
+                FileInfo.isSymlink(dir) ||
+                    isPrivatePath(dir) ||
+                    (!isDirectlyServableByFileProvider(dir) &&
+                        com.droid.wayfinder.data.LocalUriResolver.findPersistedTreeDocumentUri(
+                            ctx = app,
+                            path = dir,
+                            primaryStorageRoot = primary,
+                            requireWrite = true,
+                        ) == null)
+                )
+        ) {
             toast("Cannot save files in this location"); return
         }
         val name = _state.value.createFileName.trim()
@@ -2962,12 +3026,26 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                         repo.fs(dir).createFile(candidatePath)
                         candidatePath
                     }
-                    val uri = com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(
-                        path = createdPath,
-                        tree = false,
-                        safMounts = safMounts,
-                        primaryStorageRoot = primary,
-                    )
+                    val uri = if (FsPath.isLocalFile(createdPath)) {
+                        com.droid.wayfinder.data.LocalUriResolver.findPersistedTreeDocumentUri(
+                            ctx = app,
+                            path = createdPath,
+                            primaryStorageRoot = primary,
+                            requireWrite = true,
+                        ) ?: com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(
+                            path = createdPath,
+                            tree = false,
+                            safMounts = safMounts,
+                            primaryStorageRoot = primary,
+                        )
+                    } else {
+                        com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(
+                            path = createdPath,
+                            tree = false,
+                            safMounts = safMounts,
+                            primaryStorageRoot = primary,
+                        )
+                    }
                     createdPath to uri
                 }
             }
@@ -2975,6 +3053,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 load(tab.id, select = createdPath)
                 emit(UiEvent.CreateDocumentResult(createdPath, uri, requestedMime))
             }.onFailure { e ->
+                if (e is CancellationException) throw e
                 toast(e.message ?: "Couldn't create file")
             }
         }
@@ -2989,8 +3068,20 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (files.any { !acceptsForPick(it) }) { toast("The requesting app expects ${p.description ?: "a different kind of file"}"); return }
         // Never hand out symbolic links or the app's private files (settings, saved servers) to external apps.
         if (files.any { FsPath.isLocalFile(it.path) && isUnsafeToExpose(it.path) }) { toast("This file can't be shared"); return }
-        val directLocal = files.filter { FsPath.isLocalFile(it.path) && isDirectlyServableByFileProvider(it.path) }.map { it.path }
-        val toStage = files.filter { !FsPath.isLocalFile(it.path) || !isDirectlyServableByFileProvider(it.path) }.map { it.path }
+        val cachedPerms = runCatching { app.contentResolver.persistedUriPermissions }.getOrDefault(emptyList())
+        fun isServableForPick(path: String): Boolean =
+            FsPath.isLocalFile(path) && (
+                isDirectlyServableByFileProvider(path) ||
+                    com.droid.wayfinder.data.LocalUriResolver.findPersistedTreeDocumentUri(
+                        ctx = app,
+                        path = path,
+                        primaryStorageRoot = primary,
+                        requireWrite = false,
+                        cachedPerms = cachedPerms,
+                    ) != null
+                )
+        val directLocal = files.filter { isServableForPick(it.path) }.map { it.path }
+        val toStage = files.filter { !isServableForPick(it.path) }.map { it.path }
         if (toStage.isEmpty()) { emit(UiEvent.PickResult(directLocal)); return }
         val base = File(app.cacheDir, "picker")
         val now = System.currentTimeMillis()
