@@ -1106,6 +1106,7 @@ private fun StatusBar(vm: BrowserViewModel, s: AppState) {
         }
         if (tab.searching) append("  •  $searchingLabel")
     }
+    val cancelDesc = stringResource(R.string.action_cancel)
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val roomForHint = maxWidth > 720.dp && LocalDensity.current.fontScale <= 1.3f
         val compactOp = maxWidth < 520.dp
@@ -1131,8 +1132,8 @@ private fun StatusBar(vm: BrowserViewModel, s: AppState) {
                     )
                     if (f != null) LinearProgressIndicator({ f }, Modifier.width(120.dp)) else LinearProgressIndicator(Modifier.width(120.dp))
                     Text(if (f != null) "  ${(f * 100).toInt()}%" else "", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(44.dp))
-                    ActionTooltip("Cancel") {
-                        IconButton({ vm.cancelOp(op.id) }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "Cancel", Modifier.size(18.dp)) }
+                    ActionTooltip(cancelDesc) {
+                        IconButton({ vm.cancelOp(op.id) }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, cancelDesc, Modifier.size(18.dp)) }
                     }
                 }
             }
@@ -1153,8 +1154,8 @@ private fun StatusBar(vm: BrowserViewModel, s: AppState) {
                     )
                     if (f != null) LinearProgressIndicator({ f }, Modifier.width(84.dp)) else LinearProgressIndicator(Modifier.width(84.dp))
                     if (f != null) Text("${(f * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-                    ActionTooltip("Cancel") {
-                        IconButton({ vm.cancelOp(op.id) }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "Cancel", Modifier.size(18.dp)) }
+                    ActionTooltip(cancelDesc) {
+                        IconButton({ vm.cancelOp(op.id) }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, cancelDesc, Modifier.size(18.dp)) }
                     }
                 }
             }

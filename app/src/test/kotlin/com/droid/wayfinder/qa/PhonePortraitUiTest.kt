@@ -101,9 +101,9 @@ class PhonePortraitUiTest {
         val titleBounds = rule.onAllNodesWithText("document-with-long-name.txt").onLast().assertIsDisplayed().getUnclippedBoundsInRoot()
         assertTrue("QuickLook title width (${titleBounds.width}) should be >= 100.dp", titleBounds.width >= 100.dp)
         rule.onNodeWithText("Open").assertSingleLineHorizontal("Open")
-        rule.onNodeWithContentDescription("Close (Space)").assertIsDisplayed()
-        rule.onNodeWithContentDescription("Previous (←)").assertIsDisplayed()
-        rule.onNodeWithContentDescription("Next (→)").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Close").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Previous").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Next").assertIsDisplayed()
     }
 
     @Test fun pickerBannerButtonsDoNotWrapVerticallyOnPhone() {

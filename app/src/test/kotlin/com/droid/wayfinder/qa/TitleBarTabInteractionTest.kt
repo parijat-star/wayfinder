@@ -78,7 +78,7 @@ class TitleBarTabInteractionTest {
 
         // Mouse left-click on '+' creates and activates a second tab.
         val firstTabId = harness.s.activeId
-        rule.onNodeWithContentDescription("New tab (Ctrl+T)").performMouseInput { click() }
+        rule.onNodeWithContentDescription("New tab").performMouseInput { click() }
         harness.settle()
         rule.waitForIdle()
         assertEquals(2, harness.s.tabs.size)

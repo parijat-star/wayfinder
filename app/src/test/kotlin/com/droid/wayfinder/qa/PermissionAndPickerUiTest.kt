@@ -63,7 +63,7 @@ class PermissionAndPickerUiTest {
             sc.moveToState(Lifecycle.State.STARTED)
             sc.moveToState(Lifecycle.State.RESUMED)
             rule.waitForIdle()
-            rule.onNodeWithContentDescription("New tab (Ctrl+T)").assertIsDisplayed()
+            rule.onNodeWithContentDescription("New tab").assertIsDisplayed()
         }
     }
 

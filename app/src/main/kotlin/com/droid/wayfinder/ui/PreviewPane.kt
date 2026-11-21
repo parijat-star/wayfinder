@@ -81,8 +81,11 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.details_pane_title), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                    ActionTooltip("Close details (Alt+P)") {
-                        IconButton({ vm.togglePreview() }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "Close details (Alt+P)", Modifier.size(18.dp)) }
+                    val closeDetailsDesc = stringResource(R.string.action_close_details)
+                    ActionTooltip(stringResource(R.string.tooltip_close_details)) {
+                        IconButton({ vm.togglePreview() }, Modifier.size(48.dp)) {
+                            Icon(Icons.Outlined.Close, closeDetailsDesc, Modifier.size(18.dp))
+                        }
                     }
                 }
             when (sel.size) {

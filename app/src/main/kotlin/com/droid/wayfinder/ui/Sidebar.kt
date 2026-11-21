@@ -249,7 +249,7 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                 label = s.titleOf(p), icon = pinIcon(p, isKnownFile = isLocalFile), depth = 0,
                 selected = p == activePath || (isLocalFile && p in s.active.selection),
                 dropPath = p.takeIf { !isLocalFile },
-                trailing = { HeaderAction(Icons.Filled.PushPin, "Unpin ${s.titleOf(p)}") { vm.unpin(p) } },
+                trailing = { HeaderAction(Icons.Filled.PushPin, stringResource(R.string.action_unpin_item, s.titleOf(p))) { vm.unpin(p) } },
                 onClick = { vm.openPinned(p) }, onMiddle = { vm.openPinned(p, newTab = true) },
                 onSecondary = { menu.show(it, sidebarMenu(vm, s, p, true)) },
             )
@@ -259,8 +259,12 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         item {
             SectionTitle(stringResource(R.string.locations_section), trailing = {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    HeaderAction(Icons.Outlined.MyLocation, "Locate active folder (Alt+Shift+L)") { vm.locateInTree() }
-                    HeaderAction(Icons.Outlined.UnfoldLess, "Collapse folder tree") { vm.collapseTree() }
+                    HeaderAction(
+                        icon = Icons.Outlined.MyLocation,
+                        tooltip = stringResource(R.string.tooltip_locate_active_folder),
+                        contentDesc = stringResource(R.string.palette_locate_folder),
+                    ) { vm.locateInTree() }
+                    HeaderAction(Icons.Outlined.UnfoldLess, stringResource(R.string.palette_collapse_tree)) { vm.collapseTree() }
                 }
             })
         }; n++
@@ -306,7 +310,7 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         item { Divider() }
         item {
             SectionTitle(stringResource(R.string.google_drive_section), trailing = {
-                HeaderAction(Icons.Outlined.AddToDrive, "Mount Google Drive folder") {
+                HeaderAction(Icons.Outlined.AddToDrive, stringResource(R.string.action_mount_drive_folder)) {
                     if (s.driveAccounts.isEmpty()) vm.requestGoogleAccountSignIn() else vm.requestMountSaf(s.driveAccounts.first().email)
                 }
             })
@@ -361,7 +365,7 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         item {
             SectionTitle(stringResource(R.string.network_and_cloud_section), trailing = {
                 if (s.scanning) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                else HeaderAction(Icons.Outlined.Refresh, "Rescan") { vm.navigate(FsPath.SMB_ROOT); vm.refresh() }
+                else HeaderAction(Icons.Outlined.Refresh, stringResource(R.string.action_rescan_network)) { vm.navigate(FsPath.SMB_ROOT); vm.refresh() }
             })
         }
         items(mountRows, key = { "mnt${it.depth}${it.path}" }) { r ->
@@ -401,12 +405,17 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
 }
 
 @Composable
-private fun HeaderAction(icon: ImageVector, desc: String, onClick: () -> Unit) {
+private fun HeaderAction(
+    icon: ImageVector,
+    tooltip: String,
+    contentDesc: String = tooltip,
+    onClick: () -> Unit,
+) {
     val cs = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val focused by interaction.collectIsFocusedAsState()
-    ActionTooltip(desc) {
+    ActionTooltip(tooltip) {
         Box(
             Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                 .clip(RoundedCornerShape(24.dp))
@@ -419,9 +428,9 @@ private fun HeaderAction(icon: ImageVector, desc: String, onClick: () -> Unit) {
                         onClick(); true
                     } else false
                 }
-                .mouseGestures(desc, role = Role.Button, onClickLabel = desc, onClick = { _, _, _ -> onClick() }),
+                .mouseGestures(contentDesc, role = Role.Button, onClickLabel = contentDesc, onClick = { _, _, _ -> onClick() }),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, desc, Modifier.size(18.dp), tint = cs.onSurfaceVariant) }
+        ) { Icon(icon, contentDesc, Modifier.size(18.dp), tint = cs.onSurfaceVariant) }
     }
 }
 
@@ -453,16 +462,23 @@ private fun TreeItem(vm: BrowserViewModel, s: AppState, r: TreeRowData, activePa
         expandable = r.expandable, expanded = r.expanded, loading = r.loading, onToggle = { vm.toggleTree(r.path) },
         trailing = when {
             driveAcc != null && driveAcc.isMounted && mount != null -> ({
-                HeaderAction(Icons.Outlined.Eject, "Unmount ${driveAcc.email}") { vm.eject(mount) }
+                HeaderAction(Icons.Outlined.Eject, stringResource(R.string.action_unmount_item, driveAcc.email)) { vm.eject(mount) }
             })
             oneDriveAcc != null -> ({
-                HeaderAction(Icons.Outlined.Eject, "Sign out ${oneDriveAcc.email}") { vm.signOutOneDrive(oneDriveAcc.accountId) }
+                HeaderAction(Icons.Outlined.Eject, stringResource(R.string.action_sign_out_item, oneDriveAcc.email)) { vm.signOutOneDrive(oneDriveAcc.accountId) }
             })
             phone != null && phone.isMounted && mount != null -> ({
-                HeaderAction(Icons.Outlined.Eject, "Unmount ${phone.name}") { vm.eject(mount) }
+                HeaderAction(Icons.Outlined.Eject, stringResource(R.string.action_unmount_item, phone.name)) { vm.eject(mount) }
             })
-            mount != null -> ({ HeaderAction(Icons.Outlined.Eject, if (mount.saf) "Unmount ${mount.label}" else "Disconnect ${mount.label}") { vm.eject(mount) } })
-            r.path in s.pins -> ({ HeaderAction(Icons.Filled.PushPin, "Unpin ${r.label}") { vm.unpin(r.path) } })
+            mount != null -> ({
+                val ejectDesc = if (mount.saf) {
+                    stringResource(R.string.action_unmount_item, mount.label)
+                } else {
+                    stringResource(R.string.action_disconnect_item, mount.label)
+                }
+                HeaderAction(Icons.Outlined.Eject, ejectDesc) { vm.eject(mount) }
+            })
+            r.path in s.pins -> ({ HeaderAction(Icons.Filled.PushPin, stringResource(R.string.action_unpin_item, r.label)) { vm.unpin(r.path) } })
             else -> null
         },
         onClick = {

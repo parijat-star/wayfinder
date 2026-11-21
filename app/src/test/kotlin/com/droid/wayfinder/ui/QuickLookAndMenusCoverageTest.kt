@@ -150,9 +150,9 @@ class QuickLookAndMenusCoverageTest {
 
         // 9. Image and Video previews + Next/Previous/Close header buttons
         preview("ql/photo.png")
-        rule.onNodeWithContentDescription("Next (→)").performClick()
+        rule.onNodeWithContentDescription("Next").performClick()
         idle()
-        rule.onNodeWithContentDescription("Previous (←)").performClick()
+        rule.onNodeWithContentDescription("Previous").performClick()
         idle()
 
         preview("ql/clip.mp4")

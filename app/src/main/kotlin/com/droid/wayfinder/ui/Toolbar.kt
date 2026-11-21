@@ -184,29 +184,45 @@ fun Toolbar(
                         }
                     }
                 }
-                NavButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back (Alt+←)", tab.canGoBack) { vm.back() }
+                NavButton(
+                    icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                    tooltip = stringResource(R.string.tooltip_back),
+                    contentDesc = stringResource(R.string.action_back),
+                    enabled = tab.canGoBack,
+                ) { vm.back() }
                 if (!isNarrowCompact) {
-                    NavButton(Icons.AutoMirrored.Outlined.ArrowForward, "Forward (Alt+→)", tab.canGoForward) { vm.forward() }
+                    NavButton(
+                        icon = Icons.AutoMirrored.Outlined.ArrowForward,
+                        tooltip = stringResource(R.string.tooltip_forward),
+                        contentDesc = stringResource(R.string.palette_forward),
+                        enabled = tab.canGoForward,
+                    ) { vm.forward() }
                 }
-                NavButton(Icons.Outlined.ArrowUpward, "Up (Alt+↑)", FsPath.parent(tab.path) != null) { vm.up() }
+                NavButton(
+                    icon = Icons.Outlined.ArrowUpward,
+                    tooltip = stringResource(R.string.tooltip_up),
+                    contentDesc = stringResource(R.string.action_up),
+                    enabled = FsPath.parent(tab.path) != null,
+                ) { vm.up() }
                 PathBar(vm, s, Modifier.weight(1f))
                 if (!isNarrowCompact) {
-                    val refreshLabel = if (s.dualPane) "Refresh (Ctrl+R)" else "Refresh (F5)"
-                    ActionTooltip(refreshLabel) {
+                    val refreshTooltip = stringResource(if (s.dualPane) R.string.tooltip_refresh_ctrl_r else R.string.tooltip_refresh_f5)
+                    val refreshDesc = stringResource(R.string.action_refresh)
+                    ActionTooltip(refreshTooltip) {
                         IconButton({ vm.refresh() }, Modifier.size(48.dp), colors = iconBtnColors) {
-                            Icon(Icons.Outlined.Refresh, refreshLabel)
+                            Icon(Icons.Outlined.Refresh, refreshDesc)
                         }
                     }
                 }
                 if (wide > 560.dp) {
-                    ActionTooltip("Undo (Ctrl+Z)") {
+                    ActionTooltip(stringResource(R.string.tooltip_undo)) {
                         IconButton({ vm.undo() }, Modifier.size(48.dp), enabled = s.canUndo, colors = iconBtnColors) {
-                            Icon(Icons.AutoMirrored.Outlined.Undo, "Undo (Ctrl+Z)")
+                            Icon(Icons.AutoMirrored.Outlined.Undo, stringResource(R.string.action_undo))
                         }
                     }
-                    ActionTooltip("Redo (Ctrl+Y)") {
+                    ActionTooltip(stringResource(R.string.tooltip_redo)) {
                         IconButton({ vm.redo() }, Modifier.size(48.dp), enabled = s.canRedo, colors = iconBtnColors) {
-                            Icon(Icons.AutoMirrored.Outlined.Redo, "Redo (Ctrl+Y)")
+                            Icon(Icons.AutoMirrored.Outlined.Redo, stringResource(R.string.action_redo))
                         }
                     }
                 }
@@ -248,9 +264,9 @@ fun Toolbar(
 }
 
 @Composable
-private fun NavButton(icon: ImageVector, desc: String, enabled: Boolean, onClick: () -> Unit) {
-    ActionTooltip(desc) {
-        FilledTonalIconButton(onClick, Modifier.size(48.dp), enabled = enabled) { Icon(icon, desc, Modifier.size(20.dp)) }
+private fun NavButton(icon: ImageVector, tooltip: String, contentDesc: String, enabled: Boolean, onClick: () -> Unit) {
+    ActionTooltip(tooltip) {
+        FilledTonalIconButton(onClick, Modifier.size(48.dp), enabled = enabled) { Icon(icon, contentDesc, Modifier.size(20.dp)) }
     }
 }
 
@@ -478,18 +494,28 @@ private fun <T> ChipMenu(options: List<T>, selected: T, label: (T) -> String, ac
     }
 }
 
+private data class ViewToggleOption(
+    val mode: ViewMode,
+    val icon: ImageVector,
+    val tooltip: String,
+    val contentDesc: String,
+)
+
 @Composable
 private fun ViewToggle(vm: BrowserViewModel, mode: ViewMode, dual: Boolean) {
     val cs = MaterialTheme.colorScheme
+    val dualTooltip = stringResource(R.string.tooltip_dual_pane)
+    val dualDesc = stringResource(R.string.action_dual_pane)
+    val toggleDualDesc = stringResource(R.string.action_toggle_dual_pane)
     Row(Modifier.clip(RoundedCornerShape(20.dp)).background(cs.surfaceContainerHigh).padding(2.dp)) {
         listOf(
-            Triple(ViewMode.Details, Icons.AutoMirrored.Outlined.ViewList, "Details (Ctrl+1)"),
-            Triple(ViewMode.List, Icons.Outlined.ViewHeadline, "List"),
-            Triple(ViewMode.Grid, Icons.Outlined.GridView, "Grid (Ctrl+2)"),
-            Triple(ViewMode.Columns, Icons.Outlined.ViewColumn, "Columns (Ctrl+3)"),
-        ).forEach { (m, icon, desc) ->
-            val sel = m == mode
-            ActionTooltip(desc) {
+            ViewToggleOption(ViewMode.Details, Icons.AutoMirrored.Outlined.ViewList, stringResource(R.string.tooltip_details_view), stringResource(R.string.action_details_view)),
+            ViewToggleOption(ViewMode.List, Icons.Outlined.ViewHeadline, stringResource(R.string.action_list_view), stringResource(R.string.action_list_view)),
+            ViewToggleOption(ViewMode.Grid, Icons.Outlined.GridView, stringResource(R.string.tooltip_grid_view), stringResource(R.string.action_grid_view)),
+            ViewToggleOption(ViewMode.Columns, Icons.Outlined.ViewColumn, stringResource(R.string.tooltip_columns_view), stringResource(R.string.action_columns_view)),
+        ).forEach { opt ->
+            val sel = opt.mode == mode
+            ActionTooltip(opt.tooltip) {
                 Box(
                     Modifier.size(width = 48.dp, height = 48.dp)
                         .semantics {
@@ -498,12 +524,12 @@ private fun ViewToggle(vm: BrowserViewModel, mode: ViewMode, dual: Boolean) {
                         }
                         .clip(RoundedCornerShape(24.dp))
                         .background(if (sel) cs.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent)
-                        .clickable(role = Role.Tab, onClickLabel = desc) { vm.setViewMode(m) },
+                        .clickable(role = Role.Tab, onClickLabel = opt.contentDesc) { vm.setViewMode(opt.mode) },
                     contentAlignment = Alignment.Center,
-                ) { Icon(icon, desc, Modifier.size(20.dp), tint = if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant) }
+                ) { Icon(opt.icon, opt.contentDesc, Modifier.size(20.dp), tint = if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant) }
             }
         }
-        ActionTooltip("Dual pane (Ctrl+4 / F3)") {
+        ActionTooltip(dualTooltip) {
             Box(
                 Modifier.size(width = 48.dp, height = 48.dp)
                     .semantics {
@@ -512,9 +538,9 @@ private fun ViewToggle(vm: BrowserViewModel, mode: ViewMode, dual: Boolean) {
                     }
                     .clip(RoundedCornerShape(24.dp))
                     .background(if (dual) cs.tertiaryContainer else androidx.compose.ui.graphics.Color.Transparent)
-                    .clickable(role = Role.Checkbox, onClickLabel = "Toggle dual pane") { vm.toggleDualPane() },
+                    .clickable(role = Role.Checkbox, onClickLabel = toggleDualDesc) { vm.toggleDualPane() },
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Outlined.VerticalSplit, "Dual pane (Ctrl+4 / F3)", Modifier.size(20.dp), tint = if (dual) cs.onTertiaryContainer else cs.onSurfaceVariant) }
+            ) { Icon(Icons.Outlined.VerticalSplit, dualDesc, Modifier.size(20.dp), tint = if (dual) cs.onTertiaryContainer else cs.onSurfaceVariant) }
         }
     }
 }
@@ -572,14 +598,15 @@ private fun OverflowMenu(
     val cs = MaterialTheme.colorScheme
     var open by remember { mutableStateOf(false) }
     val virtual = FsPath.isReadOnly(s.active.path)
+    val moreDesc = stringResource(R.string.action_more_options)
     fun check(on: Boolean): @Composable () -> Unit = { if (on) Icon(Icons.Filled.Check, null, Modifier.size(18.dp)) else Box(Modifier.size(18.dp)) }
     Box {
-        ActionTooltip("More") {
+        ActionTooltip(moreDesc) {
             IconButton(
                 { open = true },
                 Modifier.size(48.dp),
                 colors = IconButtonDefaults.iconButtonColors(contentColor = cs.onSurfaceVariant),
-            ) { Icon(Icons.Outlined.MoreVert, "More") }
+            ) { Icon(Icons.Outlined.MoreVert, moreDesc) }
         }
         DropdownMenu(open, { open = false }) {
             if (showCompactNavItems) {

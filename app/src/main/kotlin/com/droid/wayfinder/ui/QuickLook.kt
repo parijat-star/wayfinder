@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -132,6 +133,12 @@ private fun Header(vm: BrowserViewModel, e: FileEntry) {
         if (!e.isDir) add(formatSize(e.size))
         if (e.modified > 0) add(formatDateFull(e.modified))
     }
+    val closeTooltip = stringResource(R.string.tooltip_quicklook_close)
+    val closeDesc = stringResource(R.string.action_close)
+    val prevTooltip = stringResource(R.string.tooltip_quicklook_previous)
+    val prevDesc = stringResource(R.string.action_previous)
+    val nextTooltip = stringResource(R.string.tooltip_quicklook_next)
+    val nextDesc = stringResource(R.string.action_next)
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val compact = maxWidth < 520.dp
         if (compact) {
@@ -142,11 +149,11 @@ private fun Header(vm: BrowserViewModel, e: FileEntry) {
                         Text(e.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(facts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    ActionTooltip("Close (Space)") { IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, "Close (Space)") } }
+                    ActionTooltip(closeTooltip) { IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, closeDesc) } }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    ActionTooltip("Previous (←)") { IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Previous (←)") } }
-                    ActionTooltip("Next (→)") { IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Next (→)") } }
+                    ActionTooltip(prevTooltip) { IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, prevDesc) } }
+                    ActionTooltip(nextTooltip) { IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, nextDesc) } }
                     FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(start = 4.dp, end = 4.dp)) {
                         Text(if (e.isDir) "Open folder" else "Open", maxLines = 1, softWrap = false)
                     }
@@ -159,12 +166,12 @@ private fun Header(vm: BrowserViewModel, e: FileEntry) {
                     Text(e.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(facts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                ActionTooltip("Previous (←)") { IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Previous (←)") } }
-                ActionTooltip("Next (→)") { IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Next (→)") } }
+                ActionTooltip(prevTooltip) { IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, prevDesc) } }
+                ActionTooltip(nextTooltip) { IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, nextDesc) } }
                 FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(horizontal = 8.dp)) {
                     Text(if (e.isDir) "Open folder" else "Open", maxLines = 1, softWrap = false)
                 }
-                ActionTooltip("Close (Space)") { IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, "Close (Space)") } }
+                ActionTooltip(closeTooltip) { IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, closeDesc) } }
             }
         }
     }

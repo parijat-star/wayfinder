@@ -59,6 +59,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
+import com.droid.wayfinder.R
 import com.droid.wayfinder.data.FsPath
 
 internal val DESKTOP_CAPTION_DRAG_RESERVE = 48.dp
@@ -228,11 +230,13 @@ fun TitleBar(
                 }
                 val addHover = remember { MutableInteractionSource() }
                 val addHovered by addHover.collectIsHoveredAsState()
-                ActionTooltip("New tab (Ctrl+T)") {
+                val newTabDesc = stringResource(R.string.palette_new_tab)
+                val newTabTooltip = stringResource(R.string.tooltip_new_tab)
+                ActionTooltip(newTabTooltip) {
                     Box(
                         Modifier.padding(start = 2.dp).size(width = 48.dp, height = 44.dp).clip(CircleShape)
                             .hoverable(addHover)
-                            .mouseGestures("add", role = Role.Button, onClickLabel = "New tab", onClick = { _, _, _ -> vm.newTab() }),
+                            .mouseGestures("add", role = Role.Button, onClickLabel = newTabDesc, onClick = { _, _, _ -> vm.newTab() }),
                         contentAlignment = Alignment.Center,
                     ) {
                         Box(
@@ -240,7 +244,7 @@ fun TitleBar(
                                 .background(if (addHovered) cs.onSurface.copy(alpha = 0.12f) else Color.Transparent),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Filled.Add, "New tab (Ctrl+T)", Modifier.size(20.dp), tint = cs.onSurfaceVariant)
+                            Icon(Icons.Filled.Add, newTabDesc, Modifier.size(20.dp), tint = cs.onSurfaceVariant)
                         }
                     }
                 }
@@ -270,6 +274,10 @@ private fun TabItem(
     var accum by remember { mutableFloatStateOf(0f) }
     val tabWidthPx = with(LocalDensity.current) { width.toPx() }
     val moveBy by rememberUpdatedState { delta: Int -> vm.moveTabBy(tab.id, delta) }
+    val tabTitle = s.titleOf(tab.path)
+    val selectTabLabel = stringResource(R.string.action_select_tab_named, tabTitle)
+    val closeTabDesc = stringResource(R.string.action_close_tab)
+    val closeTabNamedLabel = stringResource(R.string.action_close_tab_named, tabTitle)
     Box(
         Modifier.width(width).fillMaxHeight().padding(top = 6.dp, end = if (selected) 0.dp else 2.dp, bottom = if (selected) 0.dp else 4.dp)
             .clip(shape).background(bg).hoverable(hover)
@@ -290,7 +298,7 @@ private fun TabItem(
                 tab.id,
                 role = Role.Tab,
                 selected = selected,
-                onClickLabel = "Select tab ${s.titleOf(tab.path)}",
+                onClickLabel = selectTabLabel,
                 onClick = { _, _, _ -> vm.selectTab(tab.id) },
                 onMiddle = { vm.closeTab(tab.id) },
                 onSecondary = { onShowMenu(it, tabMenu(vm, tab.id)) },
@@ -317,21 +325,21 @@ private fun TabItem(
                 }
             }
             Text(
-                s.titleOf(tab.path), Modifier.weight(1f).padding(horizontal = if (width > 72.dp) 8.dp else 0.dp),
+                tabTitle, Modifier.weight(1f).padding(horizontal = if (width > 72.dp) 8.dp else 0.dp),
                 style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = if (selected) cs.onSurface else cs.onSurfaceVariant,
             )
             if (selected || hovered || width > 140.dp) {
                 val closeHover = remember { MutableInteractionSource() }
                 val closeHovered by closeHover.collectIsHoveredAsState()
-                ActionTooltip("Close tab") {
+                ActionTooltip(closeTabDesc) {
                     Box(
                         Modifier.size(width = if (width >= 110.dp) 36.dp else 28.dp, height = 42.dp).clip(CircleShape)
                             .hoverable(closeHover)
                             .mouseGestures(
                                 "close${tab.id}",
                                 role = Role.Button,
-                                onClickLabel = "Close tab ${s.titleOf(tab.path)}",
+                                onClickLabel = closeTabNamedLabel,
                                 onClick = { _, _, _ -> vm.closeTab(tab.id) },
                             ),
                         contentAlignment = Alignment.Center,
@@ -341,7 +349,7 @@ private fun TabItem(
                                 .background(if (closeHovered) cs.onSurface.copy(alpha = 0.14f) else Color.Transparent),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Filled.Close, "Close tab", Modifier.size(14.dp), tint = cs.onSurfaceVariant)
+                            Icon(Icons.Filled.Close, closeTabDesc, Modifier.size(14.dp), tint = cs.onSurfaceVariant)
                         }
                     }
                 }
