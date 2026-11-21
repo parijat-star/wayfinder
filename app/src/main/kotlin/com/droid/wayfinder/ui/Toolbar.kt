@@ -143,16 +143,18 @@ fun Toolbar(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (showExpandedCompactSearch) {
-                IconButton(
-                    {
-                        vm.setQuery("")
-                        focusManager.clearFocus()
-                        compactSearchOpen = false
-                    },
-                    Modifier.size(40.dp),
-                    colors = iconBtnColors,
-                ) {
-                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.action_close_search))
+                ActionTooltip(stringResource(R.string.action_close_search)) {
+                    IconButton(
+                        {
+                            vm.setQuery("")
+                            focusManager.clearFocus()
+                            compactSearchOpen = false
+                        },
+                        Modifier.size(48.dp),
+                        colors = iconBtnColors,
+                    ) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.action_close_search))
+                    }
                 }
                 SearchField(
                     vm = vm,
@@ -172,12 +174,14 @@ fun Toolbar(
                 )
             } else {
                 if (isCompact) {
-                    IconButton(
-                        { vm.toggleCompactSidebar() },
-                        Modifier.size(40.dp),
-                        colors = iconBtnColors,
-                    ) {
-                        Icon(Icons.Outlined.Menu, stringResource(R.string.nav_open_sidebar))
+                    ActionTooltip(stringResource(R.string.nav_open_sidebar)) {
+                        IconButton(
+                            { vm.toggleCompactSidebar() },
+                            Modifier.size(48.dp),
+                            colors = iconBtnColors,
+                        ) {
+                            Icon(Icons.Outlined.Menu, stringResource(R.string.nav_open_sidebar))
+                        }
                     }
                 }
                 NavButton(Icons.AutoMirrored.Outlined.ArrowBack, "Back (Alt+←)", tab.canGoBack) { vm.back() }
@@ -187,28 +191,37 @@ fun Toolbar(
                 NavButton(Icons.Outlined.ArrowUpward, "Up (Alt+↑)", FsPath.parent(tab.path) != null) { vm.up() }
                 PathBar(vm, s, Modifier.weight(1f))
                 if (!isNarrowCompact) {
-                    IconButton({ vm.refresh() }, Modifier.size(40.dp), colors = iconBtnColors) {
-                        Icon(Icons.Outlined.Refresh, if (s.dualPane) "Refresh (Ctrl+R)" else "Refresh (F5)")
+                    val refreshLabel = if (s.dualPane) "Refresh (Ctrl+R)" else "Refresh (F5)"
+                    ActionTooltip(refreshLabel) {
+                        IconButton({ vm.refresh() }, Modifier.size(48.dp), colors = iconBtnColors) {
+                            Icon(Icons.Outlined.Refresh, refreshLabel)
+                        }
                     }
                 }
                 if (wide > 560.dp) {
-                    IconButton({ vm.undo() }, Modifier.size(40.dp), enabled = s.canUndo, colors = iconBtnColors) {
-                        Icon(Icons.AutoMirrored.Outlined.Undo, "Undo (Ctrl+Z)")
+                    ActionTooltip("Undo (Ctrl+Z)") {
+                        IconButton({ vm.undo() }, Modifier.size(48.dp), enabled = s.canUndo, colors = iconBtnColors) {
+                            Icon(Icons.AutoMirrored.Outlined.Undo, "Undo (Ctrl+Z)")
+                        }
                     }
-                    IconButton({ vm.redo() }, Modifier.size(40.dp), enabled = s.canRedo, colors = iconBtnColors) {
-                        Icon(Icons.AutoMirrored.Outlined.Redo, "Redo (Ctrl+Y)")
+                    ActionTooltip("Redo (Ctrl+Y)") {
+                        IconButton({ vm.redo() }, Modifier.size(48.dp), enabled = s.canRedo, colors = iconBtnColors) {
+                            Icon(Icons.AutoMirrored.Outlined.Redo, "Redo (Ctrl+Y)")
+                        }
                     }
                 }
                 if (isCompact) {
-                    IconButton(
-                        {
-                            compactSearchOpen = true
-                            vm.requestSearchFocus()
-                        },
-                        Modifier.size(40.dp),
-                        colors = iconBtnColors,
-                    ) {
-                        Icon(Icons.Outlined.Search, stringResource(R.string.search_placeholder))
+                    ActionTooltip(stringResource(R.string.search_placeholder)) {
+                        IconButton(
+                            {
+                                compactSearchOpen = true
+                                vm.requestSearchFocus()
+                            },
+                            Modifier.size(48.dp),
+                            colors = iconBtnColors,
+                        ) {
+                            Icon(Icons.Outlined.Search, stringResource(R.string.search_placeholder))
+                        }
                     }
                 } else {
                     SearchField(vm, s, Modifier.width(if (wide > 960.dp) 260.dp else if (wide > 720.dp) 190.dp else 140.dp))
@@ -236,7 +249,9 @@ fun Toolbar(
 
 @Composable
 private fun NavButton(icon: ImageVector, desc: String, enabled: Boolean, onClick: () -> Unit) {
-    FilledTonalIconButton(onClick, Modifier.size(40.dp), enabled = enabled) { Icon(icon, desc, Modifier.size(20.dp)) }
+    ActionTooltip(desc) {
+        FilledTonalIconButton(onClick, Modifier.size(48.dp), enabled = enabled) { Icon(icon, desc, Modifier.size(20.dp)) }
+    }
 }
 
 internal fun resolveAddress(input: String, s: AppState? = null): String? {
@@ -474,29 +489,33 @@ private fun ViewToggle(vm: BrowserViewModel, mode: ViewMode, dual: Boolean) {
             Triple(ViewMode.Columns, Icons.Outlined.ViewColumn, "Columns (Ctrl+3)"),
         ).forEach { (m, icon, desc) ->
             val sel = m == mode
-            Box(
-                Modifier.size(width = 40.dp, height = 36.dp)
-                    .semantics {
-                        role = Role.Tab
-                        this.selected = sel
-                    }
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(if (sel) cs.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent)
-                    .clickable(role = Role.Tab, onClickLabel = desc) { vm.setViewMode(m) },
-                contentAlignment = Alignment.Center,
-            ) { Icon(icon, desc, Modifier.size(20.dp), tint = if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant) }
+            ActionTooltip(desc) {
+                Box(
+                    Modifier.size(width = 48.dp, height = 48.dp)
+                        .semantics {
+                            role = Role.Tab
+                            this.selected = sel
+                        }
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(if (sel) cs.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent)
+                        .clickable(role = Role.Tab, onClickLabel = desc) { vm.setViewMode(m) },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(icon, desc, Modifier.size(20.dp), tint = if (sel) cs.onSecondaryContainer else cs.onSurfaceVariant) }
+            }
         }
-        Box(
-            Modifier.size(width = 40.dp, height = 36.dp)
-                .semantics {
-                    role = Role.Checkbox
-                    this.selected = dual
-                }
-                .clip(RoundedCornerShape(18.dp))
-                .background(if (dual) cs.tertiaryContainer else androidx.compose.ui.graphics.Color.Transparent)
-                .clickable(role = Role.Checkbox, onClickLabel = "Toggle dual pane") { vm.toggleDualPane() },
-            contentAlignment = Alignment.Center,
-        ) { Icon(Icons.Outlined.VerticalSplit, "Dual pane (Ctrl+4 / F3)", Modifier.size(20.dp), tint = if (dual) cs.onTertiaryContainer else cs.onSurfaceVariant) }
+        ActionTooltip("Dual pane (Ctrl+4 / F3)") {
+            Box(
+                Modifier.size(width = 48.dp, height = 48.dp)
+                    .semantics {
+                        role = Role.Checkbox
+                        this.selected = dual
+                    }
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(if (dual) cs.tertiaryContainer else androidx.compose.ui.graphics.Color.Transparent)
+                    .clickable(role = Role.Checkbox, onClickLabel = "Toggle dual pane") { vm.toggleDualPane() },
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Outlined.VerticalSplit, "Dual pane (Ctrl+4 / F3)", Modifier.size(20.dp), tint = if (dual) cs.onTertiaryContainer else cs.onSurfaceVariant) }
+        }
     }
 }
 
@@ -506,13 +525,15 @@ private fun SortButton(vm: BrowserViewModel, s: AppState) {
     var open by remember { mutableStateOf(false) }
     val tab = s.active
     Box {
-        Row(
-            Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(20.dp)).background(cs.surfaceContainerHigh)
-                .clickable { open = true }.padding(horizontal = 14.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.SwapVert, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
-            Text(stringResource(R.string.sort_button_label), Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelLarge, color = cs.onSurface)
+        ActionTooltip(stringResource(R.string.sort_button_label)) {
+            Row(
+                Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).background(cs.surfaceContainerHigh)
+                    .clickable { open = true }.padding(horizontal = 14.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.SwapVert, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
+                Text(stringResource(R.string.sort_button_label), Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelLarge, color = cs.onSurface)
+            }
         }
         DropdownMenu(open, { open = false }) {
             listOf(
@@ -553,11 +574,13 @@ private fun OverflowMenu(
     val virtual = FsPath.isReadOnly(s.active.path)
     fun check(on: Boolean): @Composable () -> Unit = { if (on) Icon(Icons.Filled.Check, null, Modifier.size(18.dp)) else Box(Modifier.size(18.dp)) }
     Box {
-        IconButton(
-            { open = true },
-            Modifier.size(40.dp),
-            colors = IconButtonDefaults.iconButtonColors(contentColor = cs.onSurfaceVariant),
-        ) { Icon(Icons.Outlined.MoreVert, "More") }
+        ActionTooltip("More") {
+            IconButton(
+                { open = true },
+                Modifier.size(48.dp),
+                colors = IconButtonDefaults.iconButtonColors(contentColor = cs.onSurfaceVariant),
+            ) { Icon(Icons.Outlined.MoreVert, "More") }
+        }
         DropdownMenu(open, { open = false }) {
             if (showCompactNavItems) {
                 DropdownMenuItem(

@@ -43,8 +43,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -100,6 +102,43 @@ internal fun computeCaptionMetrics(
     )
 }
 
+internal fun resolveCaptionHorizontalInsets(
+    rects: List<android.graphics.Rect>,
+    widthPx: Int,
+    isRtl: Boolean,
+    density: Density,
+): Pair<Int, Int> {
+    var left = 0
+    var right = 0
+    val maxAppIconReserve = with(density) { 140.dp.roundToPx() }
+    val minControlsReserve = with(density) { 144.dp.roundToPx() }
+    if (widthPx > 0) {
+        for (r in rects) {
+            if (r.isEmpty) continue
+            // Ignore oversized rects (>45% of window) that Desktop Windowing may report during resize
+            // or for empty drag zones so tabs never get shoved to the center.
+            if (r.width() > widthPx * 0.45f) continue
+            if (r.centerX() < widthPx * 0.5f) {
+                left = maxOf(left, r.right)
+            } else {
+                right = maxOf(right, widthPx - r.left)
+            }
+        }
+        val maxLeft = minOf(maxAppIconReserve, (widthPx * 0.35f).toInt())
+        val maxRight = minOf(maxAppIconReserve, (widthPx * 0.35f).toInt())
+        if (isRtl) {
+            left = maxOf(left, minOf(minControlsReserve, (widthPx * 0.45f).toInt()))
+            right = right.coerceAtMost(maxRight)
+        } else {
+            right = maxOf(right, minOf(minControlsReserve, (widthPx * 0.45f).toInt()))
+            left = left.coerceAtMost(maxLeft)
+        }
+    } else {
+        if (isRtl) left = minControlsReserve else right = minControlsReserve
+    }
+    return (if (isRtl) right else left) to (if (isRtl) left else right)
+}
+
 /**
  * Measures the system caption (title) bar so that our tab strip can live inside it, leaving room for
  * the system window controls. Uses caption bounding rects on Android 15+.
@@ -113,36 +152,41 @@ fun rememberCaptionMetrics(): CaptionMetrics {
     val statusTop = WindowInsets.statusBars.getTop(density)
     val cutoutTop = WindowInsets.displayCutout.getTop(density)
     val widthPx = LocalWindowInfo.current.containerSize.width
-    return remember(capTop, statusTop, cutoutTop, widthPx, layoutDir) {
-        var left = 0
-        var right = 0
+    var layoutTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(view) {
+        val listener = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            layoutTick++
+        }
+        view.addOnLayoutChangeListener(listener)
+        onDispose { view.removeOnLayoutChangeListener(listener) }
+    }
+    return remember(capTop, statusTop, cutoutTop, widthPx, layoutDir, layoutTick) {
+        var startPx = 0
+        var endPx = 0
         if (capTop > 0) {
-            var found = false
-            if (Build.VERSION.SDK_INT >= 35) {
-                val rects = view.rootWindowInsets?.getBoundingRects(android.view.WindowInsets.Type.captionBar()).orEmpty()
-                for (r in rects) {
-                    if (r.isEmpty) continue
-                    if (r.left < widthPx * 0.25f) { left = maxOf(left, r.right); found = true }
-                    else if (r.right > widthPx * 0.75f) { right = maxOf(right, widthPx - r.left); found = true }
-                }
+            val rects = if (Build.VERSION.SDK_INT >= 35) {
+                view.rootWindowInsets?.getBoundingRects(android.view.WindowInsets.Type.captionBar()).orEmpty()
+            } else {
+                emptyList()
             }
-            if (!found) {
-                val fallbackPx = with(density) { 140.dp.roundToPx() }
-                if (layoutDir == LayoutDirection.Rtl) left = fallbackPx else right = fallbackPx
-            }
+            val (s, e) = resolveCaptionHorizontalInsets(rects, widthPx, layoutDir == LayoutDirection.Rtl, density)
+            startPx = s
+            endPx = e
         } else if (statusTop == 0 && widthPx > 0) {
+            var left = 0
+            var right = 0
             // When the system status bar is hidden in fullscreen mode, clear any corner camera cutout
             // horizontally so tabs on the top edge never overlap a left/right punch-hole.
-            val topBandPx = with(density) { 44.dp.roundToPx() }
+            val topBandPx = with(density) { 48.dp.roundToPx() }
             val cutoutRects = view.rootWindowInsets?.displayCutout?.boundingRects.orEmpty()
             for (r in cutoutRects) {
                 if (r.isEmpty || r.top >= topBandPx) continue
                 if (r.left < widthPx * 0.25f) left = maxOf(left, r.right)
                 else if (r.right > widthPx * 0.75f) right = maxOf(right, widthPx - r.left)
             }
+            startPx = if (layoutDir == LayoutDirection.Rtl) right else left
+            endPx = if (layoutDir == LayoutDirection.Rtl) left else right
         }
-        val startPx = if (layoutDir == LayoutDirection.Rtl) right else left
-        val endPx = if (layoutDir == LayoutDirection.Rtl) left else right
         computeCaptionMetrics(capTop, statusTop, cutoutTop, startPx, endPx, density)
     }
 }
@@ -174,7 +218,7 @@ fun TitleBar(
             // rather than pilfering primary mouse-down events for caption drag/maximize, while
             // leaving empty titlebar space to the right un-excluded for window drag-to-move.
             Row(
-                Modifier.widthIn(max = stripMaxWidth).systemGestureExclusion().fillMaxHeight().horizontalScroll(rememberScrollState()).padding(top = 6.dp),
+                Modifier.widthIn(max = stripMaxWidth).systemGestureExclusion().fillMaxHeight().horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 s.tabs.forEach { tab ->
@@ -182,11 +226,24 @@ fun TitleBar(
                         TabItem(vm, s, tab, tabW, onShowMenu)
                     }
                 }
-                Box(
-                    Modifier.padding(start = 4.dp, bottom = 4.dp).size(32.dp).clip(CircleShape)
-                        .mouseGestures("add", role = Role.Button, onClickLabel = "New tab", onClick = { _, _, _ -> vm.newTab() }),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Filled.Add, "New tab (Ctrl+T)", Modifier.size(20.dp), tint = cs.onSurfaceVariant) }
+                val addHover = remember { MutableInteractionSource() }
+                val addHovered by addHover.collectIsHoveredAsState()
+                ActionTooltip("New tab (Ctrl+T)") {
+                    Box(
+                        Modifier.padding(start = 2.dp).size(width = 48.dp, height = 44.dp).clip(CircleShape)
+                            .hoverable(addHover)
+                            .mouseGestures("add", role = Role.Button, onClickLabel = "New tab", onClick = { _, _, _ -> vm.newTab() }),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier.size(32.dp).clip(CircleShape)
+                                .background(if (addHovered) cs.onSurface.copy(alpha = 0.12f) else Color.Transparent),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Filled.Add, "New tab (Ctrl+T)", Modifier.size(20.dp), tint = cs.onSurfaceVariant)
+                        }
+                    }
+                }
             }
         }
     }
@@ -214,7 +271,7 @@ private fun TabItem(
     val tabWidthPx = with(LocalDensity.current) { width.toPx() }
     val moveBy by rememberUpdatedState { delta: Int -> vm.moveTabBy(tab.id, delta) }
     Box(
-        Modifier.width(width).fillMaxHeight().padding(end = if (selected) 0.dp else 2.dp, bottom = if (selected) 0.dp else 4.dp)
+        Modifier.width(width).fillMaxHeight().padding(top = 6.dp, end = if (selected) 0.dp else 2.dp, bottom = if (selected) 0.dp else 4.dp)
             .clip(shape).background(bg).hoverable(hover)
             .dropTarget(tab.path)
             .pointerInput(tab.id) {
@@ -265,15 +322,29 @@ private fun TabItem(
                 color = if (selected) cs.onSurface else cs.onSurfaceVariant,
             )
             if (selected || hovered || width > 140.dp) {
-                Box(
-                    Modifier.size(28.dp).clip(CircleShape).mouseGestures(
-                        "close${tab.id}",
-                        role = Role.Button,
-                        onClickLabel = "Close tab ${s.titleOf(tab.path)}",
-                        onClick = { _, _, _ -> vm.closeTab(tab.id) },
-                    ),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Filled.Close, "Close tab", Modifier.size(14.dp), tint = cs.onSurfaceVariant) }
+                val closeHover = remember { MutableInteractionSource() }
+                val closeHovered by closeHover.collectIsHoveredAsState()
+                ActionTooltip("Close tab") {
+                    Box(
+                        Modifier.size(width = if (width >= 110.dp) 36.dp else 28.dp, height = 42.dp).clip(CircleShape)
+                            .hoverable(closeHover)
+                            .mouseGestures(
+                                "close${tab.id}",
+                                role = Role.Button,
+                                onClickLabel = "Close tab ${s.titleOf(tab.path)}",
+                                onClick = { _, _, _ -> vm.closeTab(tab.id) },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier.size(24.dp).clip(CircleShape)
+                                .background(if (closeHovered) cs.onSurface.copy(alpha = 0.14f) else Color.Transparent),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Filled.Close, "Close tab", Modifier.size(14.dp), tint = cs.onSurfaceVariant)
+                        }
+                    }
+                }
             } else Box(Modifier.size(28.dp))
         }
     }

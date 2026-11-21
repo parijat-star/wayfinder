@@ -142,11 +142,11 @@ private fun Header(vm: BrowserViewModel, e: FileEntry) {
                         Text(e.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(facts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, "Close (Space)") }
+                    ActionTooltip("Close (Space)") { IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, "Close (Space)") } }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Previous (←)") }
-                    IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Next (→)") }
+                    ActionTooltip("Previous (←)") { IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Previous (←)") } }
+                    ActionTooltip("Next (→)") { IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Next (→)") } }
                     FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(start = 4.dp, end = 4.dp)) {
                         Text(if (e.isDir) "Open folder" else "Open", maxLines = 1, softWrap = false)
                     }
@@ -159,12 +159,12 @@ private fun Header(vm: BrowserViewModel, e: FileEntry) {
                     Text(e.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(facts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Previous (←)") }
-                IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Next (→)") }
+                ActionTooltip("Previous (←)") { IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Previous (←)") } }
+                ActionTooltip("Next (→)") { IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Next (→)") } }
                 FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(horizontal = 8.dp)) {
                     Text(if (e.isDir) "Open folder" else "Open", maxLines = 1, softWrap = false)
                 }
-                IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, "Close (Space)") }
+                ActionTooltip("Close (Space)") { IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, "Close (Space)") } }
             }
         }
     }

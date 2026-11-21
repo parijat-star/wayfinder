@@ -5,9 +5,12 @@ package com.droid.wayfinder.ui
 
 import android.view.PointerIcon as AndroidPointerIcon
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,6 +66,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -70,6 +79,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.droid.wayfinder.R
@@ -201,7 +211,8 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             delay(100)
         }
     }
-    LazyColumn(modifier.padding(horizontal = 8.dp), listState, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+    Box(modifier) {
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 8.dp), listState, verticalArrangement = Arrangement.spacedBy(1.dp)) {
         var n = 0
         item { SectionTitle(stringResource(R.string.quick_access_section)) }; n++
         item {
@@ -384,15 +395,34 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             )
         }
         item { Box(Modifier.height(12.dp)) }
+        }
+        LazyListScrollbar(listState, Modifier.align(Alignment.CenterEnd))
     }
 }
 
 @Composable
 private fun HeaderAction(icon: ImageVector, desc: String, onClick: () -> Unit) {
-    Box(
-        Modifier.sizeIn(minWidth = 28.dp, minHeight = 28.dp).clip(RoundedCornerShape(14.dp)).mouseGestures(desc, role = Role.Button, onClickLabel = desc, onClick = { _, _, _ -> onClick() }),
-        contentAlignment = Alignment.Center,
-    ) { Icon(icon, desc, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+    val cs = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val focused by interaction.collectIsFocusedAsState()
+    ActionTooltip(desc) {
+        Box(
+            Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(if (hovered) cs.onSurface.copy(alpha = 0.08f) else Color.Transparent)
+                .then(if (focused) Modifier.border(2.dp, cs.primary, RoundedCornerShape(24.dp)) else Modifier)
+                .hoverable(interaction)
+                .focusable(interactionSource = interaction)
+                .onPreviewKeyEvent { ev ->
+                    if (ev.type == KeyEventType.KeyDown && (ev.key == Key.Enter || ev.key == Key.NumPadEnter || ev.key == Key.Spacebar)) {
+                        onClick(); true
+                    } else false
+                }
+                .mouseGestures(desc, role = Role.Button, onClickLabel = desc, onClick = { _, _, _ -> onClick() }),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, desc, Modifier.size(18.dp), tint = cs.onSurfaceVariant) }
+    }
 }
 
 @Composable
@@ -497,19 +527,36 @@ private fun SidebarItem(
     onSecondary: (androidx.compose.ui.geometry.Offset) -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
-    val hover = remember { MutableInteractionSource() }
-    val hovered by hover.collectIsHoveredAsState()
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val focused by interaction.collectIsFocusedAsState()
     val drag = LocalDrag.current
     val dropHover = drag.active && dropPath != null && drag.hover == dropPath
     val bg = when {
         dropHover -> cs.primaryContainer
         selected -> cs.secondaryContainer
+        focused -> cs.primary.copy(alpha = 0.12f)
         hovered -> cs.onSurface.copy(alpha = 0.07f)
         else -> Color.Transparent
     }
-    val itemHeight = if (subtitle != null) 44.dp else 36.dp
+    val itemHeight = 48.dp
     Row(
-        Modifier.fillMaxWidth().heightIn(min = itemHeight).clip(RoundedCornerShape(18.dp)).background(bg).hoverable(hover)
+        Modifier.fillMaxWidth().heightIn(min = itemHeight).clip(RoundedCornerShape(18.dp)).background(bg)
+            .then(if (focused) Modifier.border(2.dp, cs.primary, RoundedCornerShape(18.dp)) else Modifier)
+            .hoverable(interaction)
+            .focusable(interactionSource = interaction)
+            .onPreviewKeyEvent { ev ->
+                if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when {
+                    ev.key == Key.Enter || ev.key == Key.NumPadEnter || ev.key == Key.Spacebar -> { onClick(); true }
+                    ev.key == Key.DirectionRight && expandable && !expanded -> { onToggle(); true }
+                    ev.key == Key.DirectionLeft && expandable && expanded -> { onToggle(); true }
+                    ev.key == Key.Menu || (ev.key == Key.F10 && ev.isShiftPressed) -> {
+                        onSecondary(androidx.compose.ui.geometry.Offset.Zero); true
+                    }
+                    else -> false
+                }
+            }
             .dropTarget(dropPath)
             .mouseGestures(
                 label + depth + dropPath + subtitle.orEmpty(),
@@ -519,29 +566,43 @@ private fun SidebarItem(
                 onClick = { _, _, _ -> onClick() }, onMiddle = onMiddle,
                 onSecondary = onSecondary, onLongPress = onSecondary,
             )
-            .padding(start = 6.dp + 14.dp * depth, end = 10.dp, top = 2.dp, bottom = 2.dp),
+            .padding(start = 4.dp + 14.dp * depth, end = 10.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier.sizeIn(minWidth = 28.dp, minHeight = 28.dp).clip(RoundedCornerShape(14.dp)).then(
-                if (expandable) {
-                    Modifier.mouseGestures(
-                        "toggle$label$depth",
-                        role = Role.Button,
-                        onClickLabel = if (expanded) "Collapse $label" else "Expand $label",
-                        onClick = { _, _, _ -> onToggle() },
+        if (expandable || loading) {
+            val toggleInteraction = remember { MutableInteractionSource() }
+            val toggleFocused by toggleInteraction.collectIsFocusedAsState()
+            Box(
+                Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(24.dp))
+                    .then(if (toggleFocused) Modifier.border(2.dp, cs.primary, RoundedCornerShape(24.dp)) else Modifier)
+                    .then(
+                        if (expandable) {
+                            Modifier.focusable(interactionSource = toggleInteraction)
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type == KeyEventType.KeyDown && (ev.key == Key.Enter || ev.key == Key.NumPadEnter || ev.key == Key.Spacebar)) {
+                                        onToggle(); true
+                                    } else false
+                                }
+                                .mouseGestures(
+                                    "toggle$label$depth",
+                                    role = Role.Button,
+                                    onClickLabel = if (expanded) "Collapse $label" else "Expand $label",
+                                    onClick = { _, _, _ -> onToggle() },
+                                )
+                        } else Modifier,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    loading -> CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                    expandable -> Icon(
+                        if (expanded) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight, if (expanded) "Collapse" else "Expand",
+                        Modifier.size(18.dp), tint = cs.onSurfaceVariant,
                     )
-                } else Modifier,
-            ),
-            contentAlignment = Alignment.Center,
-        ) {
-            when {
-                loading -> CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
-                expandable -> Icon(
-                    if (expanded) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight, if (expanded) "Collapse" else "Expand",
-                    Modifier.size(18.dp), tint = cs.onSurfaceVariant,
-                )
+                }
             }
+        } else {
+            Box(Modifier.size(20.dp))
         }
         if (iconComposable != null) {
             Box(Modifier.padding(horizontal = 6.dp).size(20.dp), contentAlignment = Alignment.Center) {

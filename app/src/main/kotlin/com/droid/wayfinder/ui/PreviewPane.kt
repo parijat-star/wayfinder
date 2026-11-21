@@ -76,11 +76,15 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
     val tab = s.active
     val sel = tab.selectedEntries(s.showHidden)
     Surface(modifier, shape = RoundedCornerShape(16.dp), color = cs.surfaceContainerLowest) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.details_pane_title), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                IconButton({ vm.togglePreview() }, Modifier.minimumInteractiveComponentSize().sizeIn(minWidth = 40.dp, minHeight = 40.dp)) { Icon(Icons.Outlined.Close, "Close details (Alt+P)", Modifier.size(18.dp)) }
-            }
+        val scroll = rememberScrollState()
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.details_pane_title), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    ActionTooltip("Close details (Alt+P)") {
+                        IconButton({ vm.togglePreview() }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "Close details (Alt+P)", Modifier.size(18.dp)) }
+                    }
+                }
             when (sel.size) {
                 0 -> {
                     Preview(null, FsPath.name(tab.path).ifEmpty { "/" }, "Folder")
@@ -127,6 +131,8 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                     Fact("Files", sel.count { !it.isDir }.toString())
                 }
             }
+            }
+            ColumnScrollbar(scroll, Modifier.align(Alignment.CenterEnd))
         }
     }
 }

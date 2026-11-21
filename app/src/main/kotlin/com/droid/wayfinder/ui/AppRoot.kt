@@ -86,6 +86,7 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.utf16CodePoint
@@ -392,6 +393,16 @@ fun AppRoot(vm: BrowserViewModel) {
         return true
     }
 
+    fun onPreviewGlobalKey(e: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (e.type != KeyEventType.KeyDown) return false
+        val k = e.key
+        val isFunctionKey = k == Key.F1 || k == Key.F2 || k == Key.F3 || k == Key.F5 || k == Key.F6
+        if (e.isCtrlPressed || e.isMetaPressed || e.isAltPressed || isFunctionKey) {
+            return onKey(e)
+        }
+        return false
+    }
+
     // Interface zoom (Ctrl+= / Ctrl+- / Ctrl+0) scales everything by overriding the density.
     val baseDensity = LocalDensity.current
     val zoomed = remember(baseDensity, s.zoom) { Density(baseDensity.density * s.zoom, baseDensity.fontScale) }
@@ -399,7 +410,8 @@ fun AppRoot(vm: BrowserViewModel) {
         Box(
             Modifier.fillMaxSize().background(cs.surfaceContainerLow)
                 .focusRequester(rootFocus).focusable()
-                .onPreviewKeyEvent(::onKey)
+                .onPreviewKeyEvent(::onPreviewGlobalKey)
+                .onKeyEvent(::onKey)
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
                         while (true) {

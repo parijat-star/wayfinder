@@ -5,6 +5,7 @@ package com.droid.wayfinder.ui
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -35,6 +36,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -200,10 +202,14 @@ fun Modifier.dropTarget(path: String?): Modifier {
     return if (path == null) this else this.onGloballyPositioned { drag.register(k, DropTarget(path, it.boundsInRoot())) }
 }
 
-/** Starts a mouse drag of [paths]; call-back [onStart] lets the caller fix up the selection first. */
+/**
+ * Starts an in-app or cross-app drag of [paths] via mouse/trackpad drag or touch horizontal drag;
+ * call-back [onStart] lets the caller fix up the selection first.
+ */
 @Composable
 fun Modifier.dragSource(key: Any?, paths: () -> List<String>, onStart: () -> Unit): Modifier {
     val drag = LocalDrag.current
+    val view = LocalView.current
     val holder = remember { arrayOfNulls<LayoutCoordinates>(1) }
     val currentPaths by rememberUpdatedState(paths)
     val start by rememberUpdatedState(onStart)
@@ -212,20 +218,53 @@ fun Modifier.dragSource(key: Any?, paths: () -> List<String>, onStart: () -> Uni
         .pointerInput(key) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
-                if (!down.isPrecise() || !currentEvent.buttons.isPrimaryPressed) return@awaitEachGesture
+                val mouse = down.isPrecise()
+                if (mouse && !currentEvent.buttons.isPrimaryPressed) return@awaitEachGesture
                 val origin = holder[0]?.positionInRoot() ?: Offset.Zero
-                val slop = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() } ?: return@awaitEachGesture
+                val slop = if (mouse) {
+                    awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                } else {
+                    awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                } ?: return@awaitEachGesture
                 start()
                 val p = currentPaths()
                 if (p.isEmpty()) return@awaitEachGesture
+                if (!mouse) {
+                    val clip = buildCrossAppClipData(view.context, p)
+                    if (clip != null) {
+                        val flags = android.view.View.DRAG_FLAG_GLOBAL or android.view.View.DRAG_FLAG_GLOBAL_URI_READ
+                        view.startDragAndDrop(clip, android.view.View.DragShadowBuilder(view), p, flags)
+                    }
+                    return@awaitEachGesture
+                }
                 drag.start(p, origin + slop.position)
                 var lastCtrl = false
+                var handedOffCrossApp = false
                 val completed = drag(slop.id) { change ->
                     lastCtrl = currentEvent.keyboardModifiers.isCtrlPressed
-                    drag.move(origin + change.position, lastCtrl)
+                    val rootPt = origin + change.position
+                    val nearEdge = view.width > 0 && view.height > 0 && (
+                        rootPt.x < 12f || rootPt.y < 12f ||
+                            rootPt.x > view.width - 12f || rootPt.y > view.height - 12f
+                        )
+                    if (nearEdge) {
+                        val clip = buildCrossAppClipData(view.context, p)
+                        if (clip != null) {
+                            drag.cancel()
+                            val flags = android.view.View.DRAG_FLAG_GLOBAL or android.view.View.DRAG_FLAG_GLOBAL_URI_READ
+                            handedOffCrossApp = view.startDragAndDrop(clip, android.view.View.DragShadowBuilder(view), p, flags)
+                            if (handedOffCrossApp) {
+                                change.consume()
+                                return@drag
+                            }
+                        }
+                    }
+                    drag.move(rootPt, lastCtrl)
                     change.consume()
                 }
-                if (completed) drag.finish() else drag.cancel()
+                if (!handedOffCrossApp) {
+                    if (completed) drag.finish() else drag.cancel()
+                }
             }
         }
 }

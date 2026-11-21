@@ -35,11 +35,19 @@ import com.droid.wayfinder.data.FileInfo
 import com.droid.wayfinder.data.SearchScope
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -325,6 +333,14 @@ private fun Modifier.externalDrop(vm: BrowserViewModel, dest: String): Modifier 
             override fun onDrop(event: DragAndDropEvent): Boolean {
                 hovering.value = false
                 val de = event.toAndroidDragEvent()
+                @Suppress("UNCHECKED_CAST")
+                val localPaths = de.localState as? List<String>
+                if (!localPaths.isNullOrEmpty()) {
+                    if (dest !in localPaths && localPaths.any { FsPath.parent(it) != dest }) {
+                        vm.dropOn(dest, localPaths, copy = false)
+                    }
+                    return true
+                }
                 val clip = de.clipData ?: return false
                 val uris = (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
                 if (uris.isEmpty()) return false
@@ -560,21 +576,27 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
                 val cell = s.gridSize.dp + 12.dp
                 val cols = (with(density) { constraints.maxWidth.toDp() } / cell).toInt().coerceAtLeast(1)
                 LaunchedEffect(cols, constraints.maxHeight, active) { if (active) vm.setGridColumns(cols, (constraints.maxHeight / density.density / 120f).toInt().coerceAtLeast(3)) }
-                LazyVerticalGrid(
-                    GridCells.Adaptive(cell), Modifier.fillMaxSize(), gridState,
-                    contentPadding = PaddingValues(12.dp),
-                ) {
-                    items(entries, key = { it.path }) { e -> GridCell(vm, s, tab, e, rb) }
+                Box(Modifier.fillMaxSize()) {
+                    LazyVerticalGrid(
+                        GridCells.Adaptive(cell), Modifier.fillMaxSize(), gridState,
+                        contentPadding = PaddingValues(12.dp),
+                    ) {
+                        items(entries, key = { it.path }) { e -> GridCell(vm, s, tab, e, rb) }
+                    }
+                    LazyGridScrollbar(gridState, Modifier.align(Alignment.CenterEnd))
                 }
             }
             else -> {
                 val details = tab.viewMode == ViewMode.Details
-                LaunchedEffect(active, details) { if (active) vm.setGridColumns(1, (constraints.maxHeight / density.density / (if (details) 40f else 32f)).toInt().coerceAtLeast(3)) }
+                LaunchedEffect(active, details) { if (active) vm.setGridColumns(1, (constraints.maxHeight / density.density / (if (details) 48f else 44f)).toInt().coerceAtLeast(3)) }
                 Column(Modifier.fillMaxSize()) {
                     if (details) DetailsHeader(vm, s, tab, width)
-                    LazyColumn(Modifier.weight(1f).fillMaxWidth(), listState, contentPadding = PaddingValues(vertical = 4.dp)) {
-                        items(entries, key = { it.path }) { e -> EntryRow(vm, s, tab, e, rb, details, width) }
-                        item("filler") { Box(Modifier.fillParentMaxHeightCompat().fillMaxWidth()) }
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        LazyColumn(Modifier.fillMaxSize(), listState, contentPadding = PaddingValues(vertical = 4.dp)) {
+                            items(entries, key = { it.path }) { e -> EntryRow(vm, s, tab, e, rb, details, width) }
+                            item("filler") { Box(Modifier.fillParentMaxHeightCompat().fillMaxWidth()) }
+                        }
+                        LazyListScrollbar(listState, Modifier.align(Alignment.CenterEnd))
                     }
                 }
             }
@@ -908,11 +930,30 @@ private fun Modifier.fillMaxHeightCompat(): Modifier = this.heightIn(min = 28.dp
 @Composable
 private fun Modifier.entryInteractions(vm: BrowserViewModel, tab: TabState, e: FileEntry, rb: RubberBandState): Modifier {
     val menu = LocalMenu.current
+    val cs = MaterialTheme.colorScheme
     val selected = e.path in tab.selection
+    val itemInteraction = remember { MutableInteractionSource() }
+    val keyFocused by itemInteraction.collectIsFocusedAsState()
     DisposableEffect(e.path) { onDispose { rb.itemBounds.remove(e.path) } }
     val dropPath = if (e.isDir && !selected && !e.isServer) e.path else null
     return this
         .onGloballyPositioned { rb.itemBounds[e.path] = it.boundsInRoot() }
+        .then(if (keyFocused) Modifier.border(2.dp, cs.primary, RoundedCornerShape(16.dp)) else Modifier)
+        .focusable(interactionSource = itemInteraction)
+        .onPreviewKeyEvent { ev ->
+            if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            when {
+                ev.key == Key.Enter || ev.key == Key.NumPadEnter || ev.key == Key.Spacebar -> {
+                    vm.open(e); true
+                }
+                ev.key == Key.Menu || (ev.key == Key.F10 && ev.isShiftPressed) -> {
+                    vm.setSelectionIfNotSelected(e.path)
+                    menu.show(Offset.Zero, fileMenu(vm, vm.state.value, e))
+                    true
+                }
+                else -> false
+            }
+        }
         .dropTarget(dropPath)
         .dragSource(
             e.path,
@@ -935,7 +976,10 @@ private fun Modifier.entryInteractions(vm: BrowserViewModel, tab: TabState, e: F
                 menu.show(off, fileMenu(vm, vm.state.value, e))
             },
             onMiddle = { if (e.isDir) vm.open(e, newTab = true) },
-            onLongPress = { vm.click(e.path, ctrl = true, shift = false) },
+            onLongPress = { off ->
+                vm.setSelectionIfNotSelected(e.path)
+                menu.show(off, fileMenu(vm, vm.state.value, e))
+            },
         )
 }
 
@@ -957,7 +1001,7 @@ private fun EntryRow(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEn
     }
     val shape = RoundedCornerShape(if (details) 20.dp else 16.dp)
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp).heightIn(min = if (details) 40.dp else 34.dp)
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp).heightIn(min = if (details) 48.dp else 44.dp)
             .alpha(if (cut) 0.5f else 1f)
             .clip(shape).background(bg)
             .then(if (focused) Modifier.border(2.dp, cs.primary.copy(alpha = 0.7f), shape) else Modifier)
@@ -1087,7 +1131,9 @@ private fun StatusBar(vm: BrowserViewModel, s: AppState) {
                     )
                     if (f != null) LinearProgressIndicator({ f }, Modifier.width(120.dp)) else LinearProgressIndicator(Modifier.width(120.dp))
                     Text(if (f != null) "  ${(f * 100).toInt()}%" else "", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(44.dp))
-                    IconButton({ vm.cancelOp(op.id) }, Modifier.size(28.dp)) { Icon(Icons.Outlined.Close, "Cancel", Modifier.size(16.dp)) }
+                    ActionTooltip("Cancel") {
+                        IconButton({ vm.cancelOp(op.id) }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "Cancel", Modifier.size(18.dp)) }
+                    }
                 }
             }
             if (op != null && compactOp) {
@@ -1107,7 +1153,9 @@ private fun StatusBar(vm: BrowserViewModel, s: AppState) {
                     )
                     if (f != null) LinearProgressIndicator({ f }, Modifier.width(84.dp)) else LinearProgressIndicator(Modifier.width(84.dp))
                     if (f != null) Text("${(f * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-                    IconButton({ vm.cancelOp(op.id) }, Modifier.size(28.dp)) { Icon(Icons.Outlined.Close, "Cancel", Modifier.size(16.dp)) }
+                    ActionTooltip("Cancel") {
+                        IconButton({ vm.cancelOp(op.id) }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "Cancel", Modifier.size(18.dp)) }
+                    }
                 }
             }
         }
@@ -1155,19 +1203,22 @@ private fun AncestorColumn(vm: BrowserViewModel, s: AppState, tab: TabState, dir
         val info = state.layoutInfo.visibleItemsInfo
         if (i >= 0 && (info.isEmpty() || i < info.first().index || i > info.last().index)) state.scrollToItem((i - 3).coerceAtLeast(0))
     }
-    LazyColumn(Modifier.width(MILLER_W).fillMaxHeight(), state, contentPadding = PaddingValues(vertical = 4.dp)) {
-        items(visible, key = { it.path }) { e ->
-            MillerRow(
-                s, e, highlighted = e.path == next, selected = false, focused = false,
-                Modifier.dropTarget(if (e.isDir && !e.isServer) e.path else null).mouseGestures(
-                    e.path,
-                    onClick = { _, _, _ -> vm.columnClick(e) },
-                    onDoubleClick = { if (!e.isDir) vm.open(e) },
-                    onSecondary = { off -> if (e.isDir) menu.show(off, sidebarMenu(vm, vm.state.value, e.path, e.path in vm.state.value.pins)) },
-                    onMiddle = { if (e.isDir) vm.open(e, newTab = true) },
-                ),
-            )
+    Box(Modifier.width(MILLER_W).fillMaxHeight()) {
+        LazyColumn(Modifier.fillMaxSize(), state, contentPadding = PaddingValues(vertical = 4.dp)) {
+            items(visible, key = { it.path }) { e ->
+                MillerRow(
+                    s, e, highlighted = e.path == next, selected = false, focused = false,
+                    Modifier.dropTarget(if (e.isDir && !e.isServer) e.path else null).mouseGestures(
+                        e.path,
+                        onClick = { _, _, _ -> vm.columnClick(e) },
+                        onDoubleClick = { if (!e.isDir) vm.open(e) },
+                        onSecondary = { off -> if (e.isDir) menu.show(off, sidebarMenu(vm, vm.state.value, e.path, e.path in vm.state.value.pins)) },
+                        onMiddle = { if (e.isDir) vm.open(e, newTab = true) },
+                    ),
+                )
+            }
         }
+        LazyListScrollbar(state, Modifier.align(Alignment.CenterEnd))
     }
 }
 
@@ -1198,37 +1249,40 @@ private fun CurrentColumn(vm: BrowserViewModel, s: AppState, tab: TabState, entr
         when {
             tab.loading && tab.entries.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center).size(28.dp))
             entries.isEmpty() -> Text("Empty folder", Modifier.align(Alignment.Center), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
-            else -> LazyColumn(Modifier.fillMaxSize(), state, contentPadding = PaddingValues(vertical = 4.dp)) {
-                items(entries, key = { it.path }) { e ->
-                    val selected = e.path in tab.selection
-                    DisposableEffect(e.path) { onDispose { rb.itemBounds.remove(e.path) } }
-                    MillerRow(
-                        s, e, highlighted = false, selected = selected, focused = e.path == tab.focused,
-                        Modifier.onGloballyPositioned { rb.itemBounds[e.path] = it.boundsInRoot() }
-                            .dropTarget(if (e.isDir && !selected && !e.isServer) e.path else null)
-                            .dragSource(
-                                e.path,
-                                paths = { vm.state.value.active.let { t -> if (e.path in t.selection) t.selection.toList() else listOf(e.path) }.filter { !FsPath.isVirtual(it) && vm.state.value.active.path != FsPath.SMB_ROOT } },
-                                onStart = { vm.setSelectionIfNotSelected(e.path) },
-                            )
-                            .mouseGestures(
-                                e.path,
-                                onClick = { ctrl, shift, touch ->
-                                    when {
-                                        touch && vm.state.value.active.selection.isNotEmpty() -> vm.click(e.path, ctrl = true, shift = false)
-                                        e.isDir && !ctrl && !shift -> vm.navigate(e.path)
-                                        touch -> vm.open(e)
-                                        else -> vm.click(e.path, ctrl, shift)
-                                    }
-                                },
-                                onDoubleClick = { if (!e.isDir) vm.open(e) },
-                                onSecondary = { off -> vm.setSelectionIfNotSelected(e.path); menu.show(off, fileMenu(vm, vm.state.value, e)) },
-                                onMiddle = { if (e.isDir) vm.open(e, newTab = true) },
-                                onLongPress = { vm.click(e.path, ctrl = true, shift = false) },
-                            ),
-                    )
+            else -> Box(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.fillMaxSize(), state, contentPadding = PaddingValues(vertical = 4.dp)) {
+                    items(entries, key = { it.path }) { e ->
+                        val selected = e.path in tab.selection
+                        DisposableEffect(e.path) { onDispose { rb.itemBounds.remove(e.path) } }
+                        MillerRow(
+                            s, e, highlighted = false, selected = selected, focused = e.path == tab.focused,
+                            Modifier.onGloballyPositioned { rb.itemBounds[e.path] = it.boundsInRoot() }
+                                .dropTarget(if (e.isDir && !selected && !e.isServer) e.path else null)
+                                .dragSource(
+                                    e.path,
+                                    paths = { vm.state.value.active.let { t -> if (e.path in t.selection) t.selection.toList() else listOf(e.path) }.filter { !FsPath.isVirtual(it) && vm.state.value.active.path != FsPath.SMB_ROOT } },
+                                    onStart = { vm.setSelectionIfNotSelected(e.path) },
+                                )
+                                .mouseGestures(
+                                    e.path,
+                                    onClick = { ctrl, shift, touch ->
+                                        when {
+                                            touch && vm.state.value.active.selection.isNotEmpty() -> vm.click(e.path, ctrl = true, shift = false)
+                                            e.isDir && !ctrl && !shift -> vm.navigate(e.path)
+                                            touch -> vm.open(e)
+                                            else -> vm.click(e.path, ctrl, shift)
+                                        }
+                                    },
+                                    onDoubleClick = { if (!e.isDir) vm.open(e) },
+                                    onSecondary = { off -> vm.setSelectionIfNotSelected(e.path); menu.show(off, fileMenu(vm, vm.state.value, e)) },
+                                    onMiddle = { if (e.isDir) vm.open(e, newTab = true) },
+                                    onLongPress = { off -> vm.setSelectionIfNotSelected(e.path); menu.show(off, fileMenu(vm, vm.state.value, e)) },
+                                ),
+                        )
+                    }
+                    item("filler") { Box(Modifier.fillParentMaxHeightCompat().fillMaxWidth()) }
                 }
-                item("filler") { Box(Modifier.fillParentMaxHeightCompat().fillMaxWidth()) }
+                LazyListScrollbar(state, Modifier.align(Alignment.CenterEnd))
             }
         }
         val r = rb.rect
