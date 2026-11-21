@@ -1,0 +1,138 @@
+name: Release APK
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v2.4). Leave blank to use v<versionName> from app/build.gradle.kts."
+        required: false
+        type: string
+      draft:
+        description: "Create as a draft release (ignored if the release already exists)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify signing secrets are configured
+        env:
+          WAYFINDER_KEYSTORE_BASE64: ${{ secrets.WAYFINDER_KEYSTORE_BASE64 }}
+          WAYFINDER_KEYSTORE_PASSWORD: ${{ secrets.WAYFINDER_KEYSTORE_PASSWORD }}
+          WAYFINDER_KEY_ALIAS: ${{ secrets.WAYFINDER_KEY_ALIAS }}
+          WAYFINDER_KEY_PASSWORD: ${{ secrets.WAYFINDER_KEY_PASSWORD }}
+        run: |
+          missing=()
+          [ -z "$WAYFINDER_KEYSTORE_BASE64" ] && missing+=(WAYFINDER_KEYSTORE_BASE64)
+          [ -z "$WAYFINDER_KEYSTORE_PASSWORD" ] && missing+=(WAYFINDER_KEYSTORE_PASSWORD)
+          [ -z "$WAYFINDER_KEY_ALIAS" ] && missing+=(WAYFINDER_KEY_ALIAS)
+          [ -z "$WAYFINDER_KEY_PASSWORD" ] && missing+=(WAYFINDER_KEY_PASSWORD)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing required GitHub Actions repository secret(s): ${missing[*]}. Configure them under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Resolve and validate release tag
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          version_name=$(sed -nE 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' app/build.gradle.kts | head -n1)
+          if [ -z "$version_name" ]; then
+            echo "::error::Could not parse versionName from app/build.gradle.kts"
+            exit 1
+          fi
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="${INPUT_TAG:-v${version_name}}"
+          fi
+
+          expected_tag="v${version_name}"
+          if [ "$tag" != "$expected_tag" ]; then
+            echo "::error::Tag '$tag' does not match versionName '$version_name' in app/build.gradle.kts (expected '$expected_tag')."
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Build signed release APK
+        env:
+          WAYFINDER_KEYSTORE_BASE64: ${{ secrets.WAYFINDER_KEYSTORE_BASE64 }}
+          WAYFINDER_KEYSTORE_PATH: ${{ runner.temp }}/wayfinder-release.keystore
+          WAYFINDER_KEYSTORE_PASSWORD: ${{ secrets.WAYFINDER_KEYSTORE_PASSWORD }}
+          WAYFINDER_KEY_ALIAS: ${{ secrets.WAYFINDER_KEY_ALIAS }}
+          WAYFINDER_KEY_PASSWORD: ${{ secrets.WAYFINDER_KEY_PASSWORD }}
+        run: |
+          printf '%s' "$WAYFINDER_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > "$WAYFINDER_KEYSTORE_PATH"
+          chmod 600 "$WAYFINDER_KEYSTORE_PATH"
+          ./gradlew assembleRelease --stacktrace
+
+      - name: Stage and verify Wayfinder.apk
+        run: |
+          apk_src="app/build/outputs/apk/release/Wayfinder-release.apk"
+          if [ ! -f "$apk_src" ]; then
+            echo "::error::Expected signed APK not found at $apk_src"
+            exit 1
+          fi
+          cp "$apk_src" "$RUNNER_TEMP/Wayfinder.apk"
+          apksigner=$(ls -1 "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)
+          "$apksigner" verify --print-certs "$RUNNER_TEMP/Wayfinder.apk"
+
+      - name: Publish Wayfinder.apk to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          IS_DRAFT: ${{ inputs.draft }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/Wayfinder.apk" --clobber
+          else
+            args=(
+              release create "$RELEASE_TAG" "$RUNNER_TEMP/Wayfinder.apk"
+              --title "Wayfinder (A Files app for Googlebooks) $RELEASE_TAG"
+              --generate-notes
+            )
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+              args+=(--target "$GITHUB_SHA")
+              if [ "$IS_DRAFT" = "true" ]; then
+                args+=(--draft)
+              fi
+            fi
+            gh "${args[@]}"
+          fi
+
+      - name: Clean up keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/wayfinder-release.keystore"
