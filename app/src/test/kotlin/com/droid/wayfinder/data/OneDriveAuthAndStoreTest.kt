@@ -322,4 +322,115 @@ class OneDriveAuthAndStoreTest {
             assertEquals("onedrive://alex@contoso.com", e.host)
         }
     }
+
+    @Test
+    fun loopbackListenersBindOnlyLoopbackAddressesKeepLocalhostRedirectAndAcceptIpv4AndIpv6() = runBlocking {
+        // 1. Direct listener group inspection: zero wildcard (0.0.0.0 / ::) sockets, all share one port
+        OneDriveAuthManager.bindLoopbackListeners().use { group ->
+            assertTrue("Expected at least 1 bound loopback socket", group.sockets.isNotEmpty())
+            for (srv in group.sockets) {
+                assertEquals(group.port, srv.localPort)
+                assertNotNull(srv.inetAddress)
+                assertTrue("Bound address ${srv.inetAddress} must be loopback", srv.inetAddress.isLoopbackAddress)
+                assertFalse("Bound address ${srv.inetAddress} must never be wildcard 0.0.0.0/::", srv.inetAddress.isAnyLocalAddress)
+            }
+        }
+
+        // 2. End-to-end OAuth callback over explicit IPv4 (127.0.0.1) AND IPv6 ([::1]) while redirect_uri remains http://localhost:<port>
+        val srv = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server = srv
+        srv.createContext("/common/oauth2/v2.0/token") { ex ->
+            val resp = """{"access_token":"AT_DUAL","refresh_token":"RT_DUAL","expires_in":3600}""".toByteArray()
+            ex.responseHeaders.add("Content-Type", "application/json")
+            ex.sendResponseHeaders(200, resp.size.toLong())
+            ex.responseBody.use { it.write(resp) }
+        }
+        srv.createContext("/v1.0/me") { ex ->
+            val resp = """{"displayName":"Dual Loopback","userPrincipalName":"dual@outlook.com"}""".toByteArray()
+            ex.responseHeaders.add("Content-Type", "application/json")
+            ex.sendResponseHeaders(200, resp.size.toLong())
+            ex.responseBody.use { it.write(resp) }
+        }
+        srv.createContext("/v1.0/me/drive") { ex ->
+            val resp = """{"id":"DRV_DUAL","driveType":"personal","quota":{"total":1000,"used":100}}""".toByteArray()
+            ex.responseHeaders.add("Content-Type", "application/json")
+            ex.sendResponseHeaders(200, resp.size.toLong())
+            ex.responseBody.use { it.write(resp) }
+        }
+        srv.start()
+        val base = "http://127.0.0.1:${srv.address.port}"
+
+        val store = OneDriveAccountStore(ctx, cipher = FakeXorCipher())
+        val auth = OneDriveAuthManager(
+            store = store,
+            authBaseUrl = "$base/common/oauth2/v2.0",
+            graphBaseUrl = "$base/v1.0",
+            clientOverride = OkHttpClient(),
+        )
+        val clientId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+        var boundSocketCount = 0
+        var hasIpv6Socket = false
+        val accIpv4 = auth.authorizeViaLoopbackInternal(
+            clientIdInput = clientId,
+            timeoutMillis = 10_000L,
+            clientReadTimeoutMs = 150,
+            onListenersBound = { group ->
+                boundSocketCount = group.sockets.size
+                hasIpv6Socket = group.sockets.any { it.inetAddress is java.net.Inet6Address }
+                assertTrue(group.sockets.all { it.inetAddress.isLoopbackAddress && !it.inetAddress.isAnyLocalAddress })
+            },
+            onLaunchBrowser = { authUrl ->
+                val query = URL(authUrl).query.split('&').associate {
+                    val idx = it.indexOf('=')
+                    URLDecoder.decode(it.substring(0, idx), "UTF-8") to URLDecoder.decode(it.substring(idx + 1), "UTF-8")
+                }
+                val redirectUri = query.getValue("redirect_uri")
+                assertTrue("redirect_uri must stay http://localhost:<port> for Entra compatibility, got $redirectUri", redirectUri.startsWith("http://localhost:"))
+                val port = URL(redirectUri).port
+                val state = query.getValue("state")
+                Thread {
+                    // 1. Idle preconnect that exceeds clientReadTimeoutMs (150ms) -> must NOT abort sign-in:
+                    val timedOutPreconnect = java.net.Socket("127.0.0.1", port)
+                    Thread.sleep(230L)
+                    // 2. Client TCP RST preconnect + concurrent held-open idle preconnect -> must NOT head-of-line block:
+                    val rstPreconnect = java.net.Socket("127.0.0.1", port)
+                    rstPreconnect.setSoLinger(true, 0)
+                    rstPreconnect.close()
+                    val heldOpenPreconnect = java.net.Socket("127.0.0.1", port)
+                    try {
+                        val cb = URL("http://127.0.0.1:$port/?code=CODE_V4&state=$state").openConnection() as HttpURLConnection
+                        assertEquals(200, cb.responseCode)
+                        cb.disconnect()
+                    } finally {
+                        runCatching { timedOutPreconnect.close() }
+                        runCatching { heldOpenPreconnect.close() }
+                    }
+                }.start()
+            },
+        )
+        assertEquals("dual@outlook.com", accIpv4.accountId)
+        assertTrue(boundSocketCount >= 1)
+
+        if (hasIpv6Socket) {
+            val accIpv6 = auth.authorizeViaLoopbackInternal(
+                clientIdInput = clientId,
+                timeoutMillis = 10_000L,
+                onLaunchBrowser = { authUrl ->
+                    val query = URL(authUrl).query.split('&').associate {
+                        val idx = it.indexOf('=')
+                        URLDecoder.decode(it.substring(0, idx), "UTF-8") to URLDecoder.decode(it.substring(idx + 1), "UTF-8")
+                    }
+                    val port = URL(query.getValue("redirect_uri")).port
+                    val state = query.getValue("state")
+                    Thread {
+                        val cb = URL("http://[::1]:$port/?code=CODE_V6&state=$state").openConnection() as HttpURLConnection
+                        assertEquals(200, cb.responseCode)
+                        cb.disconnect()
+                    }.start()
+                },
+            )
+            assertEquals("dual@outlook.com", accIpv6.accountId)
+        }
+    }
 }
