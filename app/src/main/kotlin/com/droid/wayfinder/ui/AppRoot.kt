@@ -849,8 +849,10 @@ internal fun buildOpenWithSystemIntent(
     ctx: Context,
     path: String,
     preferredUri: android.net.Uri? = null,
+    allowMediaStore: Boolean = true,
 ): Intent? {
-    if (preferredUri != null || FsPath.isSaf(path) || FsPath.isDoc(path)) {
+    val isMediaStorePreferred = preferredUri?.authority == android.provider.MediaStore.AUTHORITY
+    if ((!isMediaStorePreferred && preferredUri != null) || FsPath.isSaf(path) || FsPath.isDoc(path)) {
         val docUri = preferredUri
             ?: com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(path, tree = false)
             ?: return null
@@ -898,17 +900,43 @@ internal fun buildOpenWithSystemIntent(
     } catch (_: Exception) {
         return null
     }
+    val staged = isStagedCacheFile(ctx, target)
+    val extMime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(target.extension.lowercase()) ?: "*/*"
+
+    // Prefer the indexed MediaStore URI for local shared-storage media so external viewers
+    // (such as Viewer, Photos, and Gallery) can resolve the containing folder for arrow-key/swipe navigation.
+    if (allowMediaStore && !staged) {
+        val resolvedMedia = if (isMediaStorePreferred) {
+            com.droid.wayfinder.data.LocalMediaStoreUri.ResolvedMediaUri(preferredUri, null)
+        } else {
+            com.droid.wayfinder.data.LocalMediaStoreUri.resolve(ctx, target, extMime)
+        }
+        if (resolvedMedia != null) {
+            val mediaUri = resolvedMedia.uri
+            val mime = resolvedMedia.mimeType
+                ?: extMime.takeUnless { it == "*/*" }
+                ?: runCatching { ctx.contentResolver.getType(mediaUri) }.getOrNull()?.takeIf { it.isNotBlank() }
+                ?: extMime
+            val writable = target.canWrite() && hasSelfWriteUriGrant(ctx, mediaUri)
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                (if (writable) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+            return Intent(Intent.ACTION_VIEW)
+                .setDataAndType(mediaUri, mime)
+                .addFlags(flags)
+                .apply { clipData = ClipData.newRawUri("", mediaUri) }
+        }
+    }
+
     val uri = try {
         FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", target)
     } catch (_: Exception) {
         return null
     }
-    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(target.extension.lowercase()) ?: "*/*"
-    val writable = target.canWrite() && !isStagedCacheFile(ctx, target) && mime != "application/vnd.android.package-archive"
+    val writable = target.canWrite() && !staged && extMime != "application/vnd.android.package-archive"
     val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
         (if (writable) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
     return Intent(Intent.ACTION_VIEW)
-        .setDataAndType(uri, mime)
+        .setDataAndType(uri, extMime)
         .addFlags(flags)
         .apply { clipData = ClipData.newRawUri("", uri) }
 }
@@ -920,46 +948,63 @@ private fun openWithSystem(
     preferredUri: android.net.Uri? = null,
 ) {
     val displayName = FsPath.name(path).ifEmpty { File(path).name }
-    val i = buildOpenWithSystemIntent(ctx, path, preferredUri)
-    if (i == null) {
+    val primaryIntent = buildOpenWithSystemIntent(ctx, path, preferredUri)
+    if (primaryIntent == null) {
         android.widget.Toast.makeText(ctx, "$displayName can't be opened by other apps from this location", android.widget.Toast.LENGTH_SHORT).show()
         return
     }
-    val uri = i.data ?: return
     val selfComponent = android.content.ComponentName(ctx, MainActivity::class.java)
     fun chooserExcludingSelf(target: Intent): Intent = Intent.createChooser(target, "Open with").apply {
         if (android.os.Build.VERSION.SDK_INT >= 24) {
             putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(selfComponent))
         }
     }
-    try {
-        val launchIntent = if (chooser) {
-            chooserExcludingSelf(i)
-        } else {
-            val resolved = runCatching { ctx.packageManager.queryIntentActivities(i, 0) }.getOrDefault(emptyList())
-            val matchesSelf = resolved.any { it.activityInfo?.packageName == ctx.packageName }
-            if (!matchesSelf) {
-                i
+    fun launch(intent: Intent) {
+        val uri = intent.data ?: return
+        try {
+            val launchIntent = if (chooser) {
+                chooserExcludingSelf(intent)
             } else {
-                val external = resolved.mapNotNull { it.activityInfo }
-                    .filter { it.packageName != ctx.packageName && it.packageName.isNotBlank() && it.name.isNotBlank() }
-                if (external.size == 1) {
-                    Intent(i).setClassName(external[0].packageName, external[0].name)
+                val resolved = runCatching { ctx.packageManager.queryIntentActivities(intent, 0) }.getOrDefault(emptyList())
+                val matchesSelf = resolved.any { it.activityInfo?.packageName == ctx.packageName }
+                if (!matchesSelf) {
+                    intent
                 } else {
-                    chooserExcludingSelf(i)
+                    val external = resolved.mapNotNull { it.activityInfo }
+                        .filter { it.packageName != ctx.packageName && it.packageName.isNotBlank() && it.name.isNotBlank() }
+                    if (external.size == 1) {
+                        Intent(intent).setClassName(external[0].packageName, external[0].name)
+                    } else {
+                        chooserExcludingSelf(intent)
+                    }
                 }
             }
-        }
-        ctx.startActivity(launchIntent)
-    } catch (_: ActivityNotFoundException) {
-        try {
-            val fallback = Intent(i).setDataAndType(uri, "*/*").apply {
-                clipData = ClipData.newRawUri("", uri)
+            ctx.startActivity(launchIntent)
+        } catch (_: ActivityNotFoundException) {
+            try {
+                val fallback = Intent(intent).setDataAndType(uri, "*/*").apply {
+                    clipData = ClipData.newRawUri("", uri)
+                }
+                ctx.startActivity(chooserExcludingSelf(fallback))
+            } catch (_: Exception) {
+                android.widget.Toast.makeText(ctx, "No app can open $displayName", android.widget.Toast.LENGTH_SHORT).show()
             }
-            ctx.startActivity(chooserExcludingSelf(fallback))
-        } catch (_: Exception) {
-            android.widget.Toast.makeText(ctx, "No app can open $displayName", android.widget.Toast.LENGTH_SHORT).show()
         }
+    }
+    try {
+        launch(primaryIntent)
+    } catch (_: SecurityException) {
+        if (primaryIntent.data?.authority == android.provider.MediaStore.AUTHORITY) {
+            val fpIntent = buildOpenWithSystemIntent(ctx, path, preferredUri = null, allowMediaStore = false)
+            if (fpIntent != null) {
+                runCatching { launch(fpIntent) }
+                    .onFailure {
+                        android.widget.Toast.makeText(ctx, "No app can open $displayName", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                return
+            }
+        }
+        android.widget.Toast.makeText(ctx, "No app can open $displayName", android.widget.Toast.LENGTH_SHORT).show()
     }
 }
 

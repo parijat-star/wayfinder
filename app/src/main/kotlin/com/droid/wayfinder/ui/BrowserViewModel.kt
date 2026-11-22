@@ -41,6 +41,7 @@ import com.droid.wayfinder.data.OneDriveRestFileSystem
 import com.droid.wayfinder.data.Progress
 import com.droid.wayfinder.data.RecentFiles
 import com.droid.wayfinder.data.RenamePlan
+import com.droid.wayfinder.data.LocalMediaStoreUri
 import com.droid.wayfinder.data.SearchFilter
 import com.droid.wayfinder.data.SearchScope
 import com.droid.wayfinder.data.ServerStore
@@ -1209,7 +1210,16 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (FsPath.isLocalFile(path)) {
             if (isUnsafeToExpose(path)) { toast("This file can't be opened"); return }
             if (isDirectlyServableByFileProvider(path)) {
-                emit(UiEvent.OpenFile(path, chooser))
+                if (LocalMediaStoreUri.collectionFor(FsPath.name(path)) != null) {
+                    viewModelScope.launch {
+                        val mediaUri = withContext(Dispatchers.IO) {
+                            LocalMediaStoreUri.resolve(app, File(path))?.uri
+                        }
+                        emit(UiEvent.OpenFile(path, chooser, uri = mediaUri))
+                    }
+                } else {
+                    emit(UiEvent.OpenFile(path, chooser))
+                }
                 return
             }
         }

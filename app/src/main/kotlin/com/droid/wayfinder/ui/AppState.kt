@@ -74,7 +74,8 @@ sealed interface Dialog {
 sealed interface UiEvent {
     /**
      * [chooser] = always show the "Open with" app chooser.
-     * [uri] = optional pre-resolved [android.provider.DocumentsContract] URI when opening a granted `saf://` or `doc://` document in place.
+     * [uri] = optional pre-resolved content URI (a granted `DocumentsContract` URI for `saf://`/`doc://`
+     * documents, or an indexed `MediaStore` URI for local shared-storage media).
      */
     data class OpenFile(val path: String, val chooser: Boolean = false, val uri: android.net.Uri? = null) : UiEvent
     data class Share(val paths: List<String>) : UiEvent
