@@ -100,8 +100,10 @@ sealed interface MenuEntry {
 class MenuController {
     var offset by mutableStateOf<Offset?>(null)
     var items by mutableStateOf<List<MenuEntry>>(emptyList())
+    /** True while the touch long-press gesture that opened this menu is still held down so finger release does not dismiss it. */
+    var openingGestureActive by mutableStateOf(false)
     fun show(at: Offset, entries: List<MenuEntry>) { items = entries.trimDividers(); offset = at }
-    fun dismiss() { offset = null }
+    fun dismiss() { offset = null; openingGestureActive = false }
 }
 
 private fun List<MenuEntry>.trimDividers(): List<MenuEntry> {
@@ -117,7 +119,11 @@ val LocalMenu = staticCompositionLocalOf { MenuController() }
 fun MenuHost(menu: MenuController) {
     val at = menu.offset ?: return
     Box(Modifier.offset { IntOffset(at.x.toInt(), at.y.toInt()) }) {
-        DropdownMenu(expanded = true, onDismissRequest = menu::dismiss, offset = DpOffset(0.dp, 0.dp)) {
+        DropdownMenu(
+            expanded = true,
+            onDismissRequest = { if (!menu.openingGestureActive) menu.dismiss() },
+            offset = DpOffset(0.dp, 0.dp),
+        ) {
             menu.items.forEach { e ->
                 when (e) {
                     MenuEntry.Divider -> HorizontalDivider(Modifier.padding(vertical = 4.dp))

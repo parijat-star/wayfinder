@@ -247,6 +247,9 @@ fun AppRoot(vm: BrowserViewModel) {
         vm.onBluetoothPermissionResult(granted)
     }
     val drag = remember { DragController() }
+    val windowDragId = remember(drag) { System.identityHashCode(drag) }
+    CompositionLocalProvider(LocalWindowDragId provides windowDragId) {
+    Box(Modifier.fillMaxSize().sameWindowDragBridge(drag, windowDragId)) {
     val snackbar = remember { SnackbarHostState() }
     val accessibilityManager = LocalAccessibilityManager.current
     val rootFocus = remember { FocusRequester() }
@@ -909,6 +912,8 @@ fun AppRoot(vm: BrowserViewModel) {
             }
             if (drag.active) DragGhost(drag)
         }
+    }
+    }
     }
 }
 

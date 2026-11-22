@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -458,17 +459,23 @@ private fun PdfPreview(e: FileEntry) {
             }.getOrDefault(emptyList())
         }
     }
+    val listState = rememberLazyListState()
     when {
         pages == null -> CircularProgressIndicator()
         pages!!.isEmpty() -> Placeholder(e, "Couldn't render this PDF.")
-        else -> LazyColumn(
-            Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        ) {
-            items(pages!!) { img ->
-                Image(img, null, Modifier.fillMaxWidth(0.8f).clip(RoundedCornerShape(4.dp)), contentScale = ContentScale.FillWidth)
+        else -> Box(Modifier.fillMaxSize()) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                state = listState,
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            ) {
+                items(pages!!) { img ->
+                    Image(img, null, Modifier.fillMaxWidth(0.8f).clip(RoundedCornerShape(4.dp)), contentScale = ContentScale.FillWidth)
+                }
             }
+            LazyListScrollbar(listState, Modifier.align(Alignment.CenterEnd))
         }
     }
 }
@@ -503,12 +510,18 @@ private fun TextPreview(e: FileEntry) {
             }
         }
     }
-    SelectionContainer(Modifier.fillMaxSize()) {
-        Text(
-            numbered,
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()).padding(16.dp),
-            fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
-        )
+    val vScroll = rememberScrollState()
+    val hScroll = rememberScrollState()
+    Box(Modifier.fillMaxSize()) {
+        SelectionContainer(Modifier.fillMaxSize()) {
+            Text(
+                numbered,
+                Modifier.fillMaxSize().verticalScroll(vScroll).horizontalScroll(hScroll).padding(16.dp),
+                fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        ColumnScrollbar(vScroll, Modifier.align(Alignment.CenterEnd))
+        HorizontalScrollbar(hScroll, Modifier.align(Alignment.BottomCenter), tag = "quicklook_text_h")
     }
 }
 
