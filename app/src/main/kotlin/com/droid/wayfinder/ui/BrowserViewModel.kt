@@ -121,6 +121,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         internal const val THUMBS_DIR = "thumbs"
         internal const val REMOTE_THUMB_MAX_IMAGE_BYTES = 40L * 1024 * 1024
         internal const val REMOTE_THUMB_VIDEO_PREFIX_BYTES = 16L * 1024 * 1024
+        internal const val EPHEMERAL_TOAST_DURATION_MS = 1_500L
     }
 
     private val settings = Settings(app)
@@ -756,7 +757,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private val hidden: Boolean get() = _state.value.showHidden
 
     private fun emit(e: UiEvent) { _events.tryEmit(e) }
-    private fun toast(msg: String, undo: Boolean = false) = emit(UiEvent.Toast(msg, undo))
+    private fun toast(msg: String, undo: Boolean = false, key: String? = null, durationMs: Long? = null) =
+        emit(UiEvent.Toast(msg, undo, key, durationMs))
     internal fun str(@androidx.annotation.StringRes id: Int, vararg args: Any): String =
         if (args.isEmpty()) app.getString(id) else app.getString(id, *args)
     internal fun icuStr(@androidx.annotation.StringRes id: Int, vararg args: Any): String = app.icuString(id, *args)
@@ -1447,14 +1449,22 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val z = if (steps == 0) 1f else (((_state.value.zoom * 10).roundToInt() + steps).coerceIn(7, 16)) / 10f
         settings.zoom = z
         _state.update { it.copy(zoom = z) }
-        toast(str(com.droid.wayfinder.R.string.toast_zoom_percent, (z * 100).roundToInt()))
+        toast(
+            msg = str(com.droid.wayfinder.R.string.toast_zoom_percent, (z * 100).roundToInt()),
+            key = "zoom",
+            durationMs = EPHEMERAL_TOAST_DURATION_MS,
+        )
     }
 
     /** System → Light → Dark → System. */
     fun cycleTheme() {
         val next = ThemeMode.entries[(_state.value.theme.ordinal + 1) % ThemeMode.entries.size]
         SharedUi.setTheme(next)
-        toast(str(com.droid.wayfinder.R.string.toast_theme_changed, next.label))
+        toast(
+            msg = str(com.droid.wayfinder.R.string.toast_theme_changed, next.label),
+            key = "theme",
+            durationMs = EPHEMERAL_TOAST_DURATION_MS,
+        )
     }
 
     private fun AppState.resetSortForHiddenColumns(): AppState = copy(

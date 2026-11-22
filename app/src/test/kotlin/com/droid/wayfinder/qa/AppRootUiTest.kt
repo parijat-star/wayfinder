@@ -267,4 +267,36 @@ class AppRootUiTest {
         val betaNodes = rule.onAllNodesWithText("Beta", useUnmergedTree = true).fetchSemanticsNodes()
         assertEquals("Expected Beta badge on both Linux VM and Phone sidebar rows", 2, betaNodes.size)
     }
+
+    @Test fun repeatedZoomUpdatesToastInRealTimeAndDismissesQuickly() {
+        launch { file("z.txt"); navigate(root.path) }
+        rule.mainClock.autoAdvance = false
+        try {
+            h.vm.zoomBy(1)
+            rule.mainClock.advanceTimeBy(100)
+            rule.waitForIdle()
+            rule.onNodeWithText("Interface zoom: 110%").assertIsDisplayed()
+
+            // Rapidly zoom again: must update in place without queuing behind the first toast.
+            h.vm.zoomBy(1)
+            h.vm.zoomBy(1)
+            rule.mainClock.advanceTimeBy(100)
+            rule.waitForIdle()
+            rule.onNodeWithText("Interface zoom: 130%").assertIsDisplayed()
+            assertTrue(
+                "Stale zoom percentage should not remain queued or displayed",
+                rule.onAllNodesWithText("Interface zoom: 110%").fetchSemanticsNodes().isEmpty(),
+            )
+
+            // Advancing past the ephemeral timeout + fade-out dismisses the toast well before 4s.
+            rule.mainClock.advanceTimeBy(2_000)
+            rule.waitForIdle()
+            assertTrue(
+                "Zoom toast should dismiss promptly after zoom changes stop",
+                rule.onAllNodesWithText("Interface zoom: 130%").fetchSemanticsNodes().isEmpty(),
+            )
+        } finally {
+            rule.mainClock.autoAdvance = true
+        }
+    }
 }
