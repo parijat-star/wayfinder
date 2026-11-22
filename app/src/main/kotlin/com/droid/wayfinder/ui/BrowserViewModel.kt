@@ -926,7 +926,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun refresh() {
         val t = tab
-        if (t.path == FsPath.SMB_ROOT) discovery.scan()
+        if (t.path == FsPath.SMB_ROOT) discovery.scan(force = true)
         if (t.path == FsPath.RECENTS_ROOT) recentsCache = null
         refreshPhoneStatus()
         load(t.id, keepSelection = true)
