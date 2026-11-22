@@ -4,9 +4,13 @@
 package com.droid.wayfinder.data
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -16,8 +20,10 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
+import java.net.BindException
 import java.net.InetAddress
 import java.net.ServerSocket
+import java.net.Socket
 import java.net.SocketTimeoutException
 import java.net.URLDecoder
 import java.security.MessageDigest
@@ -25,8 +31,6 @@ import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 data class OneDriveDeviceCodeSession(
     val clientId: String,
@@ -37,6 +41,15 @@ data class OneDriveDeviceCodeSession(
     val intervalSeconds: Int,
     val message: String,
 )
+
+internal class LoopbackListenerGroup(
+    val port: Int,
+    val sockets: List<ServerSocket>,
+) : AutoCloseable {
+    override fun close() {
+        sockets.forEach { runCatching { it.close() } }
+    }
+}
 
 /**
  * Microsoft Identity Platform v2.0 OAuth manager supporting:
@@ -116,6 +129,59 @@ class OneDriveAuthManager(
             }
             return out
         }
+
+        /**
+         * Binds ephemeral loopback-only listener sockets (`127.0.0.1:<port>` and, when IPv6 loopback is
+         * available on the host, `[::1]:<port>`) on the same port without ever binding wildcard `0.0.0.0` / `::`.
+         * Keeping both IPv4 and IPv6 loopback bound on the same port keeps the socket strictly off LAN/Wi-Fi
+         * interfaces while preserving `http://localhost:<port>` compatibility with existing Entra registrations.
+         */
+        internal fun bindLoopbackListeners(backlog: Int = 8): LoopbackListenerGroup {
+            val ipv4 = runCatching { InetAddress.getByName("127.0.0.1") }.getOrNull()?.takeIf { it.isLoopbackAddress }
+            val ipv6 = runCatching { InetAddress.getByName("::1") }.getOrNull()?.takeIf { it.isLoopbackAddress }
+            val ipv6Available = ipv6 != null && runCatching {
+                ServerSocket(0, 1, ipv6).use { true }
+            }.getOrDefault(false)
+
+            var fallbackV4: ServerSocket? = null
+            repeat(8) { attempt ->
+                val v4 = if (ipv4 != null) {
+                    try {
+                        ServerSocket(0, backlog, ipv4)
+                    } catch (e: IOException) {
+                        if (ipv6 != null && ipv6Available) {
+                            val v6Only = ServerSocket(0, backlog, ipv6)
+                            return LoopbackListenerGroup(v6Only.localPort, listOf(v6Only))
+                        }
+                        throw e
+                    }
+                } else if (ipv6 != null && ipv6Available) {
+                    val v6Only = ServerSocket(0, backlog, ipv6)
+                    return LoopbackListenerGroup(v6Only.localPort, listOf(v6Only))
+                } else {
+                    throw IOException("Loopback interface unavailable on this device.")
+                }
+
+                val port = v4.localPort
+                if (ipv6 == null || !ipv6Available) {
+                    return LoopbackListenerGroup(port, listOf(v4))
+                }
+                try {
+                    val v6 = ServerSocket(port, backlog, ipv6)
+                    return LoopbackListenerGroup(port, listOf(v4, v6))
+                } catch (_: BindException) {
+                    if (attempt == 7) {
+                        fallbackV4 = v4
+                    } else {
+                        runCatching { v4.close() }
+                    }
+                } catch (_: IOException) {
+                    return LoopbackListenerGroup(port, listOf(v4))
+                }
+            }
+            val v4 = fallbackV4 ?: ServerSocket(0, backlog, ipv4!!)
+            return LoopbackListenerGroup(v4.localPort, listOf(v4))
+        }
     }
 
     fun effectiveClientId(explicit: String? = null): String =
@@ -125,14 +191,29 @@ class OneDriveAuthManager(
 
     /**
      * Runs a full loopback OAuth 2.0 Authorization Code + PKCE sign-in flow:
-     * binds an ephemeral loopback port, launches the user's browser via [onLaunchBrowser], validates the returned
-     * `state` token in constant time, exchanges the `code` + `code_verifier` for tokens, and fetches
-     * the account's Microsoft Graph profile and OneDrive quota.
+     * binds ephemeral loopback-only sockets (`127.0.0.1` + `::1`), launches the user's browser via
+     * [onLaunchBrowser], validates the returned `state` token in constant time, exchanges the
+     * `code` + `code_verifier` for tokens, and fetches the account's Microsoft Graph profile and OneDrive quota.
      */
     suspend fun authorizeViaLoopback(
         clientIdInput: String,
         aliasLabel: String = "",
         timeoutMillis: Long = 180_000L,
+        onLaunchBrowser: (String) -> Unit,
+    ): OneDriveAccount = authorizeViaLoopbackInternal(
+        clientIdInput = clientIdInput,
+        aliasLabel = aliasLabel,
+        timeoutMillis = timeoutMillis,
+        onListenersBound = null,
+        onLaunchBrowser = onLaunchBrowser,
+    )
+
+    internal suspend fun authorizeViaLoopbackInternal(
+        clientIdInput: String,
+        aliasLabel: String = "",
+        timeoutMillis: Long = 180_000L,
+        clientReadTimeoutMs: Int = 2_500,
+        onListenersBound: ((LoopbackListenerGroup) -> Unit)? = null,
         onLaunchBrowser: (String) -> Unit,
     ): OneDriveAccount {
         val clientId = effectiveClientId(clientIdInput)
@@ -144,32 +225,31 @@ class OneDriveAuthManager(
         val verifier = generateCodeVerifier()
         val challenge = computeCodeChallengeS256(verifier)
         val expectedState = generateStateToken()
+        val clampedTimeoutMs = timeoutMillis.coerceIn(5_000L, 300_000L)
 
-        val server = withContext(Dispatchers.IO) {
-            ServerSocket(0, 8).apply {
-                soTimeout = timeoutMillis.coerceIn(5_000L, 300_000L).toInt()
+        val listeners = withContext(Dispatchers.IO) {
+            bindLoopbackListeners(backlog = 8).also { group ->
+                val soTimeoutMs = clampedTimeoutMs.toInt()
+                group.sockets.forEach { it.soTimeout = soTimeoutMs }
             }
         }
-        val redirectUri = "http://localhost:${server.localPort}"
-        val authorizeUrl = "${authBaseUrl.trimEnd('/')}/authorize".toHttpUrl().newBuilder()
-            .addQueryParameter("client_id", clientId)
-            .addQueryParameter("response_type", "code")
-            .addQueryParameter("redirect_uri", redirectUri)
-            .addQueryParameter("response_mode", "query")
-            .addQueryParameter("scope", SCOPES)
-            .addQueryParameter("state", expectedState)
-            .addQueryParameter("code_challenge", challenge)
-            .addQueryParameter("code_challenge_method", "S256")
-            .addQueryParameter("prompt", "select_account")
-            .build()
-            .toString()
-
-        onLaunchBrowser(authorizeUrl)
-
-        val authCode = try {
-            awaitLoopbackCode(server, expectedState, timeoutMillis.coerceIn(5_000L, 300_000L))
-        } finally {
-            runCatching { server.close() }
+        val (redirectUri, authCode) = listeners.use { group ->
+            onListenersBound?.invoke(group)
+            val uri = "http://localhost:${group.port}"
+            val authorizeUrl = "${authBaseUrl.trimEnd('/')}/authorize".toHttpUrl().newBuilder()
+                .addQueryParameter("client_id", clientId)
+                .addQueryParameter("response_type", "code")
+                .addQueryParameter("redirect_uri", uri)
+                .addQueryParameter("response_mode", "query")
+                .addQueryParameter("scope", SCOPES)
+                .addQueryParameter("state", expectedState)
+                .addQueryParameter("code_challenge", challenge)
+                .addQueryParameter("code_challenge_method", "S256")
+                .addQueryParameter("prompt", "select_account")
+                .build()
+                .toString()
+            onLaunchBrowser(authorizeUrl)
+            uri to awaitLoopbackCode(group, expectedState, clampedTimeoutMs, clientReadTimeoutMs)
         }
 
         val tokens = withContext(Dispatchers.IO) {
@@ -180,110 +260,160 @@ class OneDriveAuthManager(
         }
     }
 
-    private suspend fun awaitLoopbackCode(server: ServerSocket, expectedState: String, timeoutMillis: Long): String =
-        withContext(Dispatchers.IO) {
-            suspendCancellableCoroutine { cont ->
-                cont.invokeOnCancellation { runCatching { server.close() } }
-                val deadline = System.currentTimeMillis() + timeoutMillis
+    private suspend fun awaitLoopbackCode(
+        listeners: LoopbackListenerGroup,
+        expectedState: String,
+        timeoutMillis: Long,
+        clientReadTimeoutMs: Int,
+    ): String = withContext(Dispatchers.IO) {
+        val outcome = CompletableDeferred<String>()
+        val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        val clientSem = Semaphore(4)
+        val activeClients = ConcurrentHashMap.newKeySet<Socket>()
+        val jobs = listeners.sockets.map { srv ->
+            launch {
                 try {
-                    while (cont.isActive) {
-                        val remaining = (deadline - System.currentTimeMillis()).coerceAtLeast(1_000L)
-                        server.soTimeout = remaining.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                        val outcome = server.accept().use { socket ->
-                            // Enforce loopback-only connections across both IPv4 (127.0.0.1) and IPv6 (::1).
-                            if (socket.inetAddress?.isLoopbackAddress != true) return@use null
-                            socket.soTimeout = 10_000
-                            val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.UTF_8))
-                            val requestLine = reader.readLine().orEmpty()
-                            if (requestLine.isBlank()) {
-                                // Ignore speculative browser TCP preconnects.
-                                return@use null
-                            }
-                            while (true) {
-                                val headerLine = reader.readLine() ?: break
-                                if (headerLine.isEmpty()) break
-                            }
-                            val reqTarget = requestLine.split(' ').getOrNull(1).orEmpty()
-                            if (reqTarget.startsWith("/favicon.ico")) {
-                                runCatching {
-                                    socket.getOutputStream().write(
-                                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                                            .toByteArray(Charsets.UTF_8),
-                                    )
-                                }
-                                return@use null
-                            }
-
-                            val params = parseCallbackQuery(requestLine)
-                            val returnedState = params["state"].orEmpty()
-                            val stateValid = MessageDigest.isEqual(
-                                expectedState.toByteArray(Charsets.UTF_8),
-                                returnedState.toByteArray(Charsets.UTF_8),
+                    while (isActive && !outcome.isCompleted) {
+                        val remainingMs = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime())
+                        if (remainingMs <= 0L) {
+                            outcome.completeExceptionally(
+                                IOException("Timed out waiting for Microsoft sign-in in browser."),
                             )
-                            val error = params["error"]
-                            val errorDesc = params["error_description"]
-                            val code = params["code"]
-
-                            val (statusLine, htmlBody, result) = when {
-                                !stateValid -> Triple(
-                                    "HTTP/1.1 400 Bad Request",
-                                    loopbackHtml(false, "Sign-in state mismatch", "Please return to Wayfinder and try signing in again."),
-                                    Result.failure<String>(IOException("OAuth state mismatch (possible CSRF or stale tab)")),
-                                )
-                                !error.isNullOrBlank() -> Triple(
-                                    "HTTP/1.1 400 Bad Request",
-                                    loopbackHtml(false, "Sign-in cancelled", errorDesc ?: error),
-                                    Result.failure<String>(IOException("Microsoft sign-in failed: ${errorDesc ?: error}")),
-                                )
-                                code.isNullOrBlank() -> Triple(
-                                    "HTTP/1.1 400 Bad Request",
-                                    loopbackHtml(false, "Missing authorization code", "No authorization code was returned."),
-                                    Result.failure<String>(IOException("No authorization code returned from Microsoft")),
-                                )
-                                else -> Triple(
-                                    "HTTP/1.1 200 OK",
-                                    loopbackHtml(true, "Signed in to Wayfinder", "Your OneDrive account is now connected. You can close this browser tab and return to Wayfinder."),
-                                    Result.success(code),
-                                )
-                            }
-
-                            val bodyBytes = htmlBody.toByteArray(Charsets.UTF_8)
-                            val responseHeader = buildString {
-                                append(statusLine).append("\r\n")
-                                append("Content-Type: text/html; charset=utf-8\r\n")
-                                append("Content-Length: ").append(bodyBytes.size).append("\r\n")
-                                append("Cache-Control: no-store\r\n")
-                                append("Connection: close\r\n\r\n")
-                            }.toByteArray(Charsets.UTF_8)
-                            runCatching {
-                                val out = socket.getOutputStream()
-                                out.write(responseHeader)
-                                out.write(bodyBytes)
-                                out.flush()
-                            }
-                            result
-                        }
-                        if (outcome != null) {
-                            outcome.fold(
-                                onSuccess = { cont.resume(it) },
-                                onFailure = { cont.resumeWithException(it) },
-                            )
+                            listeners.close()
                             break
+                        }
+                        srv.soTimeout = remainingMs.coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+                        val rawClient = srv.accept()
+                        activeClients += rawClient
+                        launch {
+                            try {
+                                clientSem.withPermit {
+                                    rawClient.use { socket ->
+                                        val step = handleLoopbackSocket(socket, expectedState, clientReadTimeoutMs)
+                                        if (step != null) {
+                                            step.fold(
+                                                onSuccess = { outcome.complete(it) },
+                                                onFailure = { outcome.completeExceptionally(it) },
+                                            )
+                                            listeners.close()
+                                        }
+                                    }
+                                }
+                            } finally {
+                                activeClients -= rawClient
+                                runCatching { rawClient.close() }
+                            }
                         }
                     }
                 } catch (e: SocketTimeoutException) {
-                    if (cont.isActive) {
-                        cont.resumeWithException(IOException("Timed out waiting for Microsoft sign-in in browser.", e))
-                    }
+                    outcome.completeExceptionally(
+                        IOException("Timed out waiting for Microsoft sign-in in browser.", e),
+                    )
+                    listeners.close()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Throwable) {
-                    if (cont.isActive) {
-                        cont.resumeWithException(
-                            if (e is CancellationException) e else IOException("Sign-in cancelled or interrupted: ${e.message}", e),
+                    if (!outcome.isCompleted && isActive) {
+                        outcome.completeExceptionally(
+                            IOException("Sign-in cancelled or interrupted: ${e.message}", e),
                         )
+                        listeners.close()
                     }
                 }
             }
         }
+        try {
+            outcome.await()
+        } finally {
+            listeners.close()
+            activeClients.forEach { runCatching { it.close() } }
+            jobs.forEach { it.cancel() }
+        }
+    }
+
+    private fun handleLoopbackSocket(
+        socket: Socket,
+        expectedState: String,
+        clientReadTimeoutMs: Int,
+    ): Result<String>? {
+        // Defense-in-depth: enforce loopback-only peer addresses across both IPv4 (127.0.0.1) and IPv6 (::1).
+        if (socket.inetAddress?.isLoopbackAddress != true) return null
+        val requestLine = try {
+            socket.soTimeout = clientReadTimeoutMs.coerceAtLeast(50)
+            val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.UTF_8))
+            val firstLine = reader.readLine().orEmpty()
+            if (firstLine.isBlank()) {
+                return null
+            }
+            while (true) {
+                val headerLine = reader.readLine() ?: break
+                if (headerLine.isEmpty()) break
+            }
+            firstLine
+        } catch (_: IOException) {
+            // Ignore idle browser TCP preconnect timeouts and client RST disconnects without aborting sign-in.
+            return null
+        }
+        val reqTarget = requestLine.split(' ').getOrNull(1).orEmpty()
+        if (reqTarget.startsWith("/favicon.ico")) {
+            runCatching {
+                socket.getOutputStream().write(
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        .toByteArray(Charsets.UTF_8),
+                )
+            }
+            return null
+        }
+
+        val params = parseCallbackQuery(requestLine)
+        val returnedState = params["state"].orEmpty()
+        val stateValid = MessageDigest.isEqual(
+            expectedState.toByteArray(Charsets.UTF_8),
+            returnedState.toByteArray(Charsets.UTF_8),
+        )
+        val error = params["error"]
+        val errorDesc = params["error_description"]
+        val code = params["code"]
+
+        val (statusLine, htmlBody, result) = when {
+            !stateValid -> Triple(
+                "HTTP/1.1 400 Bad Request",
+                loopbackHtml(false, "Sign-in state mismatch", "Please return to Wayfinder and try signing in again."),
+                Result.failure<String>(IOException("OAuth state mismatch (possible CSRF or stale tab)")),
+            )
+            !error.isNullOrBlank() -> Triple(
+                "HTTP/1.1 400 Bad Request",
+                loopbackHtml(false, "Sign-in cancelled", errorDesc ?: error),
+                Result.failure<String>(IOException("Microsoft sign-in failed: ${errorDesc ?: error}")),
+            )
+            code.isNullOrBlank() -> Triple(
+                "HTTP/1.1 400 Bad Request",
+                loopbackHtml(false, "Missing authorization code", "No authorization code was returned."),
+                Result.failure<String>(IOException("No authorization code returned from Microsoft")),
+            )
+            else -> Triple(
+                "HTTP/1.1 200 OK",
+                loopbackHtml(true, "Signed in to Wayfinder", "Your OneDrive account is now connected. You can close this browser tab and return to Wayfinder."),
+                Result.success(code),
+            )
+        }
+
+        val bodyBytes = htmlBody.toByteArray(Charsets.UTF_8)
+        val responseHeader = buildString {
+            append(statusLine).append("\r\n")
+            append("Content-Type: text/html; charset=utf-8\r\n")
+            append("Content-Length: ").append(bodyBytes.size).append("\r\n")
+            append("Cache-Control: no-store\r\n")
+            append("Connection: close\r\n\r\n")
+        }.toByteArray(Charsets.UTF_8)
+        runCatching {
+            val out = socket.getOutputStream()
+            out.write(responseHeader)
+            out.write(bodyBytes)
+            out.flush()
+        }
+        return result
+    }
 
     /** Starts an OAuth 2.0 Device Code session (`/devicecode`). */
     suspend fun startDeviceCode(clientIdInput: String): OneDriveDeviceCodeSession = withContext(Dispatchers.IO) {
