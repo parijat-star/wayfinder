@@ -72,6 +72,8 @@ import androidx.compose.material3.IconButton
 import com.droid.wayfinder.data.Conflict
 import com.droid.wayfinder.data.FileInfo
 import com.droid.wayfinder.data.FsPath
+import com.droid.wayfinder.data.MediaFormatters
+import com.droid.wayfinder.data.MediaInfo
 import com.droid.wayfinder.data.formatItemCount
 import com.droid.wayfinder.data.formatSize
 
@@ -205,6 +207,9 @@ private fun PropertiesDialog(d: Dialog.Properties, s: AppState, onDismiss: () ->
                 d.space?.let { sp ->
                     Row2(stringResource(R.string.properties_volume_label), stringResource(R.string.properties_volume_free_of_total, formatSize(sp.free), formatSize(sp.total)))
                 }
+                if (d.mediaLoading || d.mediaInfo != null || d.mediaError != null) {
+                    MediaPropertiesSection(d.mediaInfo, d.mediaLoading, d.mediaError, onCopy)
+                }
                 if (d.checksums != null || d.hashProgress != null) {
                     Text(stringResource(R.string.properties_checksums_section), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     d.hashProgress?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -217,6 +222,91 @@ private fun PropertiesDialog(d: Dialog.Properties, s: AppState, onDismiss: () ->
         },
         confirmButton = { TextButton(onDismiss) { Text(stringResource(R.string.action_close)) } },
     )
+}
+
+@Composable
+private fun MediaPropertiesSection(
+    info: MediaInfo?,
+    loading: Boolean,
+    error: String?,
+    onCopy: (text: String, what: String) -> Unit,
+) {
+    val sectionTitle = stringResource(R.string.properties_media_section)
+    Row(
+        Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(sectionTitle, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        if (info != null) {
+            IconButton(
+                onClick = { onCopy(MediaFormatters.formatSummary(info), sectionTitle) },
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(Icons.Outlined.ContentCopy, stringResource(R.string.properties_media_copy), Modifier.size(16.dp))
+            }
+        }
+    }
+    if (loading) {
+        Text(stringResource(R.string.properties_media_inspecting), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    if (error != null) {
+        Text(error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    if (info == null) return
+
+    info.container?.let { Row2(stringResource(R.string.properties_media_container_label), it) }
+    info.durationUs?.let { Row2(stringResource(R.string.properties_media_duration_label), MediaFormatters.formatDuration(it), mono = true) }
+    info.overallBitrateBps?.let { Row2(stringResource(R.string.properties_media_bitrate_label), MediaFormatters.formatBitrate(it), mono = true) }
+
+    val videoHeading = stringResource(R.string.properties_media_video_heading)
+    info.videoTracks.forEachIndexed { idx, v ->
+        val sub = if (info.videoTracks.size > 1) "$videoHeading #${idx + 1}" else videoHeading
+        Text(sub, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row2(stringResource(R.string.properties_media_codec_label), MediaFormatters.formatCodec(v.codec, v.codecProfile), mono = true)
+        if (v.width != null && v.height != null) {
+            Row2(
+                stringResource(R.string.properties_media_resolution_label),
+                MediaFormatters.formatResolution(v.width, v.height, v.rotationDegrees, v.pixelAspectRatio),
+                mono = true,
+            )
+        }
+        v.frameRate?.let { Row2(stringResource(R.string.properties_media_framerate_label), MediaFormatters.formatFrameRate(it), mono = true) }
+        v.bitrateBps?.let { Row2(stringResource(R.string.properties_media_bitrate_label), MediaFormatters.formatBitrate(it), mono = true) }
+        MediaFormatters.formatColorSummary(v)?.let { Row2(stringResource(R.string.properties_media_color_label), it) }
+    }
+
+    val audioHeading = stringResource(R.string.properties_media_audio_heading)
+    info.audioTracks.forEachIndexed { idx, a ->
+        val sub = if (info.audioTracks.size > 1) "$audioHeading #${idx + 1}" else audioHeading
+        Text(sub, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row2(stringResource(R.string.properties_media_codec_label), MediaFormatters.formatCodec(a.codec, a.codecProfile), mono = true)
+        a.channelCount?.let { Row2(stringResource(R.string.properties_media_channels_label), MediaFormatters.formatChannels(it)) }
+        a.sampleRateHz?.let { Row2(stringResource(R.string.properties_media_samplerate_label), MediaFormatters.formatSampleRate(it), mono = true) }
+        a.bitDepth?.let { Row2(stringResource(R.string.properties_media_bitdepth_label), "$it-bit", mono = true) }
+        a.bitrateBps?.let { Row2(stringResource(R.string.properties_media_bitrate_label), MediaFormatters.formatBitrate(it), mono = true) }
+        a.language?.let { Row2(stringResource(R.string.properties_media_language_label), it) }
+    }
+
+    if (info.subtitleTracks.isNotEmpty()) {
+        val subs = info.subtitleTracks.joinToString(", ") { s ->
+            val name = listOfNotNull(s.language, s.label).firstOrNull()
+            if (name != null) "$name (${s.codec})" else s.codec
+        }
+        Row2(stringResource(R.string.properties_media_subtitles_label), subs)
+    }
+
+    info.tags?.let { t ->
+        Text(stringResource(R.string.properties_media_tags_heading), Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        t.title?.let { Row2(stringResource(R.string.properties_media_title_label), it) }
+        t.artist?.let { Row2(stringResource(R.string.properties_media_artist_label), it) }
+        t.album?.let { Row2(stringResource(R.string.properties_media_album_label), it) }
+        t.year?.let { Row2(stringResource(R.string.properties_media_year_label), it, mono = true) }
+        t.genre?.let { Row2(stringResource(R.string.properties_media_genre_label), it) }
+        t.encoder?.let { Row2(stringResource(R.string.properties_media_encoder_label), it, mono = true) }
+    }
 }
 
 @Composable

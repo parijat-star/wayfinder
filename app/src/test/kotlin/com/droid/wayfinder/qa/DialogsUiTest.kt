@@ -200,6 +200,43 @@ class DialogsUiTest {
         assertNull(h.s.dialog)
     }
 
+    @Test fun propertiesDialogShowsMediaMetadataForAudioFile() {
+        launch {
+            val dir = File(root, "media").apply { mkdirs() }
+            val sampleRate = 48_000
+            val channels = 2
+            val bitsPerSample = 16
+            val byteRate = sampleRate * channels * (bitsPerSample / 8)
+            val dataSize = byteRate * 2 // 2 seconds
+            val buf = java.nio.ByteBuffer.allocate(44 + dataSize).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            buf.put("RIFF".toByteArray(Charsets.US_ASCII))
+            buf.putInt(36 + dataSize)
+            buf.put("WAVE".toByteArray(Charsets.US_ASCII))
+            buf.put("fmt ".toByteArray(Charsets.US_ASCII))
+            buf.putInt(16)
+            buf.putShort(1)
+            buf.putShort(channels.toShort())
+            buf.putInt(sampleRate)
+            buf.putInt(byteRate)
+            buf.putShort((channels * (bitsPerSample / 8)).toShort())
+            buf.putShort(bitsPerSample.toShort())
+            buf.put("data".toByteArray(Charsets.US_ASCII))
+            buf.putInt(dataSize)
+            File(dir, "clip.wav").writeBytes(buf.array())
+            navigate(pathOf("media")); select("media/clip.wav")
+        }
+        h.vm.showProperties()
+        h.until(what = "media info") { (h.s.dialog as? Dialog.Properties)?.mediaInfo != null }; idle()
+        rule.onNodeWithText("Media").assertExists()
+        rule.onNodeWithText("WAV").assertExists()
+        rule.onNodeWithText("PCM").assertExists()
+        rule.onNodeWithText("2 (Stereo)").assertExists()
+        rule.onNodeWithText("48 kHz").assertExists()
+        rule.onNodeWithText("16-bit").assertExists()
+        rule.onNodeWithText("Close").performClick(); idle()
+        assertNull(h.s.dialog)
+    }
+
     @Test fun pickerBannerEnablesSelectOnlyForAcceptedFiles() {
         launch(mapOf(BrowserViewModel.EXTRA_PICKER to true, BrowserViewModel.EXTRA_PICKER_MIME to arrayOf("text/plain"))) {
             file("pk/a.txt"); file("pk/b.zip"); navigate(pathOf("pk"))
