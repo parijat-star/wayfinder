@@ -20,11 +20,27 @@ android {
     // Pure Kotlin/JVM app: no native libs, so the single APK runs on x86_64 and arm64-v8a.
   }
 
+  signingConfigs {
+    val keystorePath = System.getenv("WAYFINDER_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
+    val keystorePassword = System.getenv("WAYFINDER_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
+    val keyAliasName = System.getenv("WAYFINDER_KEY_ALIAS")?.takeIf { it.isNotBlank() }
+    val keyPass = System.getenv("WAYFINDER_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+    if (keystorePath != null && keystorePassword != null && keyAliasName != null && keyPass != null) {
+      create("release") {
+        storeFile = file(keystorePath)
+        storePassword = keystorePassword
+        keyAlias = keyAliasName
+        keyPassword = keyPass
+      }
+    }
+  }
+
   buildTypes {
     release {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      signingConfigs.findByName("release")?.let { signingConfig = it }
     }
   }
   compileOptions {
