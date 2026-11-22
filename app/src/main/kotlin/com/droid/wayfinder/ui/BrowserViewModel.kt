@@ -180,6 +180,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private val redoStack = ArrayDeque<Undo>()
     private val recentHosts = LinkedHashSet<String>()
     private var hashJob: Job? = null
+    private var mediaJob: Job? = null
     private var recentsCache: Pair<Long, List<FileEntry>>? = null
     private var phoneReceiver: BroadcastReceiver? = null
     private var packageReceiver: BroadcastReceiver? = null
@@ -1415,7 +1416,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun setTextFocus(on: Boolean) { if (_state.value.textFocus != on) _state.update { it.copy(textFocus = on) } }
     fun requestSearchFocus() = _state.update { it.copy(focusSearch = it.focusSearch + 1) }
     fun showDialog(d: Dialog?) {
-        if (d !is Dialog.Properties) { hashJob?.cancel(); hashJob = null }
+        if (d !is Dialog.Properties) {
+            hashJob?.cancel(); hashJob = null
+            mediaJob?.cancel(); mediaJob = null
+        }
         _state.update { it.copy(dialog = d, compactSidebarOpen = if (d != null) false else it.compactSidebarOpen) }
     }
     fun dismissDialog() = showDialog(null)
@@ -2184,6 +2188,24 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 patch { it.copy(space = space) }
             }
             if (single != null && !single.isDir && !single.isServer && !single.isShare) {
+                if (single.kind == FileKind.Video || single.kind == FileKind.Audio) {
+                    patch { it.copy(mediaLoading = true, mediaError = null) }
+                    mediaJob?.cancel()
+                    mediaJob = viewModelScope.launch {
+                        try {
+                            val info = withContext(Dispatchers.IO) { inspectMediaEntry(single) }
+                            if (info != null) {
+                                patch { it.copy(mediaInfo = info, mediaLoading = false, mediaError = null) }
+                            } else {
+                                patch { it.copy(mediaLoading = false, mediaError = str(com.droid.wayfinder.R.string.properties_media_unavailable)) }
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            patch { it.copy(mediaLoading = false, mediaError = str(com.droid.wayfinder.R.string.properties_media_unavailable)) }
+                        }
+                    }
+                }
                 patch { it.copy(hashProgress = "Computing SHA-256 & CRC32…") }
                 hashJob?.cancel()
                 hashJob = viewModelScope.launch {
@@ -2210,6 +2232,26 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     fun copyValue(text: String, what: String) = emit(UiEvent.CopyText(text, what))
+
+    private suspend fun inspectMediaEntry(entry: FileEntry): com.droid.wayfinder.data.MediaInfo? {
+        val ext = entry.extension.takeIf { it.isNotBlank() }
+        val directUri = when {
+            FsPath.isLocalFile(entry.path) -> Uri.fromFile(File(entry.path))
+            FsPath.isSaf(entry.path) -> saf.documentUriOf(entry.path)
+            FsPath.isDoc(entry.path) -> com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(entry.path, tree = false)
+            else -> null
+        }
+        return if (directUri != null) {
+            com.droid.wayfinder.data.MediaInspector.inspectUri(app, directUri, entry.size, ext)
+        } else {
+            com.droid.wayfinder.data.MediaInspector.inspectStream(
+                context = app,
+                fileName = entry.name,
+                fileSizeBytes = entry.size,
+                openInput = { repo.fs(entry.path).openInput(entry.path) },
+            )
+        }
+    }
 
     // ---------------------------------------------------------------- import (drop from other apps)
 

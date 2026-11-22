@@ -251,6 +251,31 @@
     <string name="properties_volume_label" description="Row label in the Properties dialog for storage volume capacity. [CHAR_LIMIT=20]">Volume</string>
     <string name="properties_volume_free_of_total" description="Volume capacity summary in the Properties dialog. %1$s is formatted free space (e.g. 42.5 GB), %2$s is formatted total capacity (e.g. 256 GB). [CHAR_LIMIT=50]">%1$s free of %2$s</string>
     <string name="properties_checksums_section" description="Section heading in the Properties dialog above SHA-256 and CRC32 file hashes. [CHAR_LIMIT=25]">Checksums</string>
+    <string name="properties_media_section" description="Section heading in the Properties dialog above audio/video codec, resolution, bitrate, and duration metadata. [CHAR_LIMIT=25]">Media</string>
+    <string name="properties_media_inspecting" description="Status text shown in the Properties dialog while inspecting audio or video metadata. [CHAR_LIMIT=35]">Inspecting media…</string>
+    <string name="properties_media_unavailable" description="Fallback message shown in the Properties dialog when media metadata could not be read from an audio or video file. [CHAR_LIMIT=55]">Media metadata unavailable</string>
+    <string name="properties_media_copy" description="Content description for the button that copies the full media metadata summary in the Properties dialog. [CHAR_LIMIT=30]">Copy media info</string>
+    <string name="properties_media_container_label" description="Row label in the Properties dialog for media container format (e.g. MP4, MKV, FLAC). [CHAR_LIMIT=20]">Container</string>
+    <string name="properties_media_duration_label" description="Row label in the Properties dialog for audio or video playback length. [CHAR_LIMIT=20]">Duration</string>
+    <string name="properties_media_bitrate_label" description="Row label in the Properties dialog for media bitrate (e.g. 8.5 Mbps, 320 kbps). [CHAR_LIMIT=20]">Bitrate</string>
+    <string name="properties_media_video_heading" description="Subheading in the Properties dialog for a video track. [CHAR_LIMIT=20]">Video</string>
+    <string name="properties_media_audio_heading" description="Subheading in the Properties dialog for an audio track. [CHAR_LIMIT=20]">Audio</string>
+    <string name="properties_media_codec_label" description="Row label in the Properties dialog for video or audio codec. [CHAR_LIMIT=20]">Codec</string>
+    <string name="properties_media_resolution_label" description="Row label in the Properties dialog for video pixel dimensions and aspect ratio. [CHAR_LIMIT=20]">Resolution</string>
+    <string name="properties_media_framerate_label" description="Row label in the Properties dialog for video frame rate in frames per second. [CHAR_LIMIT=20]">Frame rate</string>
+    <string name="properties_media_color_label" description="Row label in the Properties dialog for video bit depth, color space, and HDR transfer info. [CHAR_LIMIT=20]">Color</string>
+    <string name="properties_media_channels_label" description="Row label in the Properties dialog for audio channel count/layout (e.g. Stereo, 5.1). [CHAR_LIMIT=20]">Channels</string>
+    <string name="properties_media_samplerate_label" description="Row label in the Properties dialog for audio sample rate (e.g. 48 kHz). [CHAR_LIMIT=20]">Sample rate</string>
+    <string name="properties_media_bitdepth_label" description="Row label in the Properties dialog for lossless/PCM audio bit depth (e.g. 24-bit). [CHAR_LIMIT=20]">Bit depth</string>
+    <string name="properties_media_language_label" description="Row label in the Properties dialog for track language. [CHAR_LIMIT=20]">Language</string>
+    <string name="properties_media_subtitles_label" description="Row label in the Properties dialog listing embedded subtitle tracks. [CHAR_LIMIT=20]">Subtitles</string>
+    <string name="properties_media_tags_heading" description="Subheading in the Properties dialog for embedded media tags (title, artist, album, encoder). [CHAR_LIMIT=20]">Tags</string>
+    <string name="properties_media_title_label" description="Row label in the Properties dialog for embedded media title tag. [CHAR_LIMIT=20]">Title</string>
+    <string name="properties_media_artist_label" description="Row label in the Properties dialog for embedded media artist tag. [CHAR_LIMIT=20]">Artist</string>
+    <string name="properties_media_album_label" description="Row label in the Properties dialog for embedded media album tag. [CHAR_LIMIT=20]">Album</string>
+    <string name="properties_media_year_label" description="Row label in the Properties dialog for embedded media release or recording year tag. [CHAR_LIMIT=20]">Year</string>
+    <string name="properties_media_genre_label" description="Row label in the Properties dialog for embedded media genre tag. [CHAR_LIMIT=20]">Genre</string>
+    <string name="properties_media_encoder_label" description="Row label in the Properties dialog for embedded encoder/software tag. [CHAR_LIMIT=20]">Encoder</string>
     <string name="shortcuts_trackpad_heading" description="Section heading in the F1 Shortcuts dialog describing trackpad gestures. [CHAR_LIMIT=25]">Trackpad</string>
     <string name="shortcuts_trackpad_body" description="Instructional summary of desktop trackpad gestures in the F1 Shortcuts dialog. [CHAR_LIMIT=220]">Two-finger click = context menu • two-finger scroll • drag a file onto a folder, sidebar item or tab to move (hold Ctrl to copy) • drag in empty space to select a group</string>
     <string name="batch_rename_mode_find_replace" description="Filter chip label in Batch Rename dialog for find-and-replace mode. [CHAR_LIMIT=25]">Find &amp; replace</string>
