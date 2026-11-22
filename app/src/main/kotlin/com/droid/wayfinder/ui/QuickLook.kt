@@ -12,6 +12,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -53,11 +59,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -95,7 +105,9 @@ fun QuickLook(vm: BrowserViewModel, s: AppState) {
 
     BoxWithConstraints(
         Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
-            .clickable(noRipple, indication = null) { vm.closeQuickLook() },
+            .focusProperties { canFocus = false }
+            .clickable(noRipple, indication = null) { vm.closeQuickLook() }
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)),
         contentAlignment = Alignment.Center,
     ) {
         val compact = maxWidth < 720.dp || maxHeight < 520.dp
@@ -103,6 +115,7 @@ fun QuickLook(vm: BrowserViewModel, s: AppState) {
         val vPad = if (compact) 12.dp else 40.dp
         Surface(
             Modifier.fillMaxSize().padding(horizontal = hPad, vertical = vPad)
+                .focusProperties { canFocus = false }
                 .clickable(noRipple, indication = null) {},
             shape = RoundedCornerShape(if (compact) 16.dp else 24.dp), color = cs.surfaceContainerLowest, shadowElevation = 12.dp,
         ) {
@@ -127,11 +140,32 @@ fun QuickLook(vm: BrowserViewModel, s: AppState) {
 @Composable
 private fun Header(vm: BrowserViewModel, e: FileEntry) {
     val cs = MaterialTheme.colorScheme
+    val focusCoord = LocalFocusCoordinator.current
+    val firstReq = remember { FocusRequester() }
+    val lastReq = remember { FocusRequester() }
+    DisposableEffect(firstReq, lastReq) {
+        focusCoord.activeQuickLookFirstRequester = firstReq
+        focusCoord.activeQuickLookLastRequester = lastReq
+        onDispose {
+            if (focusCoord.activeQuickLookFirstRequester === firstReq) {
+                focusCoord.activeQuickLookFirstRequester = null
+            }
+            if (focusCoord.activeQuickLookLastRequester === lastReq) {
+                focusCoord.activeQuickLookLastRequester = null
+            }
+        }
+    }
     val facts = buildList {
         add(e.typeLabel)
         if (!e.isDir) add(formatSize(e.size))
         if (e.modified > 0) add(formatDateFull(e.modified))
     }
+    val closeTooltip = stringResource(R.string.tooltip_quicklook_close)
+    val closeDesc = stringResource(R.string.action_close)
+    val prevTooltip = stringResource(R.string.tooltip_quicklook_previous)
+    val prevDesc = stringResource(R.string.action_previous)
+    val nextTooltip = stringResource(R.string.tooltip_quicklook_next)
+    val nextDesc = stringResource(R.string.action_next)
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val compact = maxWidth < 520.dp
         if (compact) {
@@ -142,12 +176,27 @@ private fun Header(vm: BrowserViewModel, e: FileEntry) {
                         Text(e.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(facts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    ActionTooltip("Close (Space)") { IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, "Close (Space)") } }
+                    ActionTooltip(closeTooltip) {
+                        IconButton({ vm.closeQuickLook() }, Modifier.size(48.dp).focusRequester(firstReq).focusRing(CircleShape)) {
+                            Icon(Icons.Outlined.Close, closeDesc)
+                        }
+                    }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    ActionTooltip("Previous (←)") { IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Previous (←)") } }
-                    ActionTooltip("Next (→)") { IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Next (→)") } }
-                    FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(start = 4.dp, end = 4.dp)) {
+                    ActionTooltip(prevTooltip) {
+                        IconButton({ vm.quickLookMove(-1) }, Modifier.size(48.dp).focusRing(CircleShape)) {
+                            Icon(Icons.AutoMirrored.Outlined.ArrowBack, prevDesc)
+                        }
+                    }
+                    ActionTooltip(nextTooltip) {
+                        IconButton({ vm.quickLookMove(1) }, Modifier.size(48.dp).focusRing(CircleShape)) {
+                            Icon(Icons.AutoMirrored.Outlined.ArrowForward, nextDesc)
+                        }
+                    }
+                    FilledTonalButton(
+                        { vm.closeQuickLook(); vm.openSelection() },
+                        Modifier.padding(start = 4.dp, end = 4.dp).sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRequester(lastReq).focusRing(RoundedCornerShape(20.dp)),
+                    ) {
                         Text(if (e.isDir) "Open folder" else "Open", maxLines = 1, softWrap = false)
                     }
                 }
@@ -159,12 +208,27 @@ private fun Header(vm: BrowserViewModel, e: FileEntry) {
                     Text(e.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(facts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                ActionTooltip("Previous (←)") { IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Previous (←)") } }
-                ActionTooltip("Next (→)") { IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Next (→)") } }
-                FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(horizontal = 8.dp)) {
+                ActionTooltip(prevTooltip) {
+                    IconButton({ vm.quickLookMove(-1) }, Modifier.size(48.dp).focusRequester(firstReq).focusRing(CircleShape)) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, prevDesc)
+                    }
+                }
+                ActionTooltip(nextTooltip) {
+                    IconButton({ vm.quickLookMove(1) }, Modifier.size(48.dp).focusRing(CircleShape)) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowForward, nextDesc)
+                    }
+                }
+                FilledTonalButton(
+                    { vm.closeQuickLook(); vm.openSelection() },
+                    Modifier.padding(horizontal = 8.dp).sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRing(RoundedCornerShape(20.dp)),
+                ) {
                     Text(if (e.isDir) "Open folder" else "Open", maxLines = 1, softWrap = false)
                 }
-                ActionTooltip("Close (Space)") { IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, "Close (Space)") } }
+                ActionTooltip(closeTooltip) {
+                    IconButton({ vm.closeQuickLook() }, Modifier.size(48.dp).focusRequester(lastReq).focusRing(CircleShape)) {
+                        Icon(Icons.Outlined.Close, closeDesc)
+                    }
+                }
             }
         }
     }
@@ -297,6 +361,21 @@ private fun Placeholder(e: FileEntry, message: String) {
     }
 }
 
+@Composable
+private fun rememberQuickLookBodyLastRequester(): FocusRequester {
+    val focusCoord = LocalFocusCoordinator.current
+    val req = remember { FocusRequester() }
+    DisposableEffect(req) {
+        focusCoord.activeQuickLookBodyLastRequester = req
+        onDispose {
+            if (focusCoord.activeQuickLookBodyLastRequester === req) {
+                focusCoord.activeQuickLookBodyLastRequester = null
+            }
+        }
+    }
+    return req
+}
+
 /** Images and videos on network/cloud storage (SMB, NAS, WebDAV, FTP, SAF), fetched into the thumbnail cache. */
 @Composable
 private fun RemoteMediaPreview(vm: BrowserViewModel, e: FileEntry) {
@@ -309,8 +388,16 @@ private fun RemoteMediaPreview(vm: BrowserViewModel, e: FileEntry) {
             modifier = Modifier.fillMaxSize().padding(8.dp),
         )
         if (e.kind == FileKind.Video) {
-            FilledTonalIconButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.size(72.dp), shape = CircleShape) {
-                Icon(Icons.Outlined.PlayArrow, "Play", Modifier.size(40.dp))
+            val playLabel = stringResource(R.string.action_play)
+            val bodyReq = rememberQuickLookBodyLastRequester()
+            ActionTooltip(playLabel) {
+                FilledTonalIconButton(
+                    { vm.closeQuickLook(); vm.openSelection() },
+                    Modifier.size(72.dp).focusRequester(bodyReq).focusRing(CircleShape),
+                    shape = CircleShape,
+                ) {
+                    Icon(Icons.Outlined.PlayArrow, playLabel, Modifier.size(40.dp))
+                }
             }
         }
     }
@@ -328,13 +415,21 @@ private fun ImagePreview(e: FileEntry) {
 @Composable
 private fun VideoPreview(vm: BrowserViewModel, e: FileEntry) {
     val ctx = LocalContext.current
+    val playLabel = stringResource(R.string.action_play)
+    val bodyReq = rememberQuickLookBodyLastRequester()
     Box(contentAlignment = Alignment.Center) {
         AsyncImage(
             remember(e.path) { ImageRequest.Builder(ctx).data(File(e.path)).size(1920).build() },
             e.name, Modifier.fillMaxSize().padding(8.dp), contentScale = ContentScale.Fit,
         )
-        FilledTonalIconButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.size(72.dp), shape = CircleShape) {
-            Icon(Icons.Outlined.PlayArrow, "Play", Modifier.size(40.dp))
+        ActionTooltip(playLabel) {
+            FilledTonalIconButton(
+                { vm.closeQuickLook(); vm.openSelection() },
+                Modifier.size(72.dp).focusRequester(bodyReq).focusRing(CircleShape),
+                shape = CircleShape,
+            ) {
+                Icon(Icons.Outlined.PlayArrow, playLabel, Modifier.size(40.dp))
+            }
         }
     }
 }
@@ -447,10 +542,17 @@ private fun AudioPreview(e: FileEntry) {
         when {
             failed -> Text("Can't play this audio file.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             !ready -> CircularProgressIndicator()
-            else -> FilledTonalIconButton(
-                { if (playing) player.pause() else player.start(); playing = !playing },
-                Modifier.size(64.dp), shape = CircleShape,
-            ) { Icon(if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, if (playing) "Pause" else "Play", Modifier.size(36.dp)) }
+            else -> {
+                val playLabel = stringResource(if (playing) R.string.action_pause else R.string.action_play)
+                val bodyReq = rememberQuickLookBodyLastRequester()
+                ActionTooltip(playLabel) {
+                    FilledTonalIconButton(
+                        { if (playing) player.pause() else player.start(); playing = !playing },
+                        Modifier.size(64.dp).focusRequester(bodyReq).focusRing(CircleShape),
+                        shape = CircleShape,
+                    ) { Icon(if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, playLabel, Modifier.size(36.dp)) }
+                }
+            }
         }
     }
 }

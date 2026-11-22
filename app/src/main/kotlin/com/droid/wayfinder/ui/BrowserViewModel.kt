@@ -1205,6 +1205,11 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val sel = tab.selectedEntries(hidden)
         if (sel.size == 1) open(sel.first(), newTab)
         else if (sel.isNotEmpty()) sel.filter { it.isDir }.forEach { open(it, newTab = true) }
+        else {
+            val fallback = tab.focused?.let { f -> tab.visible(hidden).firstOrNull { it.path == f } }
+                ?: tab.visible(hidden).firstOrNull()
+            if (fallback != null) open(fallback, newTab)
+        }
     }
 
     private fun openFile(path: String, chooser: Boolean = false) {

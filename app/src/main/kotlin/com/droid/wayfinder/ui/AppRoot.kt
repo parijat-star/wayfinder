@@ -42,11 +42,13 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
@@ -68,21 +70,26 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -91,7 +98,6 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.utf16CodePoint
@@ -101,6 +107,7 @@ import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -204,13 +211,31 @@ internal class TransientSnackbarController(
     }
 }
 
-private fun Modifier.reclaimFocus(vm: BrowserViewModel, fm: FocusManager, root: FocusRequester): Modifier =
+private fun Modifier.reclaimFocus(vm: BrowserViewModel, fm: FocusManager, focusCoord: FocusCoordinator, root: FocusRequester): Modifier =
     pointerInput(Unit) {
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            if (vm.state.value.textFocus) { fm.clearFocus(); root.requestFocus() }
+            if (vm.state.value.textFocus) {
+                fm.clearFocus()
+                if (!focusCoord.focusFileList()) runCatching { root.requestFocus() }
+            }
         }
     }
+
+private fun moveFocusWithWrap(
+    fm: FocusManager,
+    focusCoord: FocusCoordinator,
+    shift: Boolean,
+    showSidebar: Boolean,
+    fromFileList: Boolean,
+): Boolean {
+    if (!shift && fromFileList) {
+        if (showSidebar && focusCoord.requestSidebarFirst()) return true
+        if (focusCoord.requestTitleBarFirst()) return true
+    }
+    if (fm.moveFocus(if (shift) FocusDirection.Previous else FocusDirection.Next)) return true
+    return if (shift) focusCoord.focusFileList() else focusCoord.requestTitleBarFirst()
+}
 
 @Composable
 fun AppRoot(vm: BrowserViewModel) {
@@ -229,7 +254,41 @@ fun AppRoot(vm: BrowserViewModel) {
     var lastPointer by remember { mutableStateOf(Offset(400f, 300f)) }
     var typeBuffer by remember { mutableStateOf("") }
     var isCompactViewport by remember { mutableStateOf(false) }
+    var isPreviewViewport by remember { mutableStateOf(false) }
     var typeTime by remember { mutableStateOf(0L) }
+    val providedFocusCoord = LocalFocusCoordinator.current
+    val focusCoord = remember(providedFocusCoord) {
+        if (providedFocusCoord !== DefaultFocusCoordinator) providedFocusCoord else FocusCoordinator()
+    }
+    val inputModeManager = LocalInputModeManager.current
+    var titleZoneFocused by remember { mutableStateOf(false) }
+    var pickerZoneFocused by remember { mutableStateOf(false) }
+    var toolbarZoneFocused by remember { mutableStateOf(false) }
+    var sidebarZoneFocused by remember { mutableStateOf(false) }
+    var previewZoneFocused by remember { mutableStateOf(false) }
+    var drawerZoneFocused by remember { mutableStateOf(false) }
+    var quickLookZoneFocused by remember { mutableStateOf(false) }
+    var contentZoneFocused by remember { mutableStateOf(false) }
+
+    val nonListFocused = titleZoneFocused ||
+        pickerZoneFocused ||
+        toolbarZoneFocused ||
+        sidebarZoneFocused ||
+        previewZoneFocused ||
+        drawerZoneFocused ||
+        quickLookZoneFocused ||
+        focusCoord.contentAuxControlsFocused
+    val anyChildFocused = nonListFocused || contentZoneFocused
+    SideEffect { focusCoord.nonListZoneFocused = nonListFocused }
+    var wasQuickLookOpen by remember { mutableStateOf(s.quickLook != null) }
+    LaunchedEffect(s.quickLook != null) {
+        val open = s.quickLook != null
+        if (wasQuickLookOpen && !open) {
+            quickLookZoneFocused = false
+            focusCoord.focusFileList()
+        }
+        wasQuickLookOpen = open
+    }
 
     // "Mount Cloud / SAF…": the system document-tree picker; access is persisted by the view model.
     val treeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> uri?.let(vm::mountSaf) }
@@ -258,8 +317,11 @@ fun AppRoot(vm: BrowserViewModel) {
         }
     }
     SideEffect { drag.onDrop = { t, p, copy -> vm.dropOn(t, p, copy) } }
-    LaunchedEffect(Unit) { rootFocus.requestFocus() }
-    LaunchedEffect(s.dialog == null, s.addressEditing, s.paletteOpen) { if (s.dialog == null && !s.addressEditing && !s.paletteOpen) runCatching { rootFocus.requestFocus() } }
+    LaunchedEffect(anyChildFocused, s.dialog == null, s.addressEditing, s.paletteOpen) {
+        if (!anyChildFocused && s.dialog == null && !s.addressEditing && !s.paletteOpen) {
+            if (!focusCoord.focusFileList()) runCatching { rootFocus.requestFocus() }
+        }
+    }
     BackHandler(enabled = s.active.canGoBack) { vm.back() }
 
     LaunchedEffect(Unit) {
@@ -353,6 +415,13 @@ fun AppRoot(vm: BrowserViewModel) {
 
     fun onKey(e: KeyEvent): Boolean {
         if (e.type != KeyEventType.KeyDown) return false
+        val isSystemPhoneKey = e.key == Key.Back || e.key == Key.VolumeUp || e.key == Key.VolumeDown || e.key == Key.VolumeMute
+        if (!isSystemPhoneKey) {
+            focusCoord.keyboardFocusVisible = true
+            if (inputModeManager.inputMode != InputMode.Keyboard) {
+                runCatching { inputModeManager.requestInputMode(InputMode.Keyboard) }
+            }
+        }
         val st = vm.state.value
         val ctrl = e.isCtrlPressed || e.isMetaPressed
         val shift = e.isShiftPressed
@@ -368,6 +437,31 @@ fun AppRoot(vm: BrowserViewModel) {
 
         // Quick Look overlay owns the keyboard while open.
         if (st.quickLook != null) {
+            if (!ctrl && !alt && k == Key.Tab) {
+                if (!shift) {
+                    if (!quickLookZoneFocused) {
+                        focusCoord.requestQuickLookFirst()
+                    } else {
+                        val moved = fm.moveFocus(FocusDirection.Next)
+                        if (!moved || !quickLookZoneFocused) {
+                            focusCoord.requestQuickLookFirst()
+                        }
+                    }
+                } else {
+                    if (!quickLookZoneFocused) {
+                        focusCoord.requestQuickLookLast()
+                    } else {
+                        val moved = fm.moveFocus(FocusDirection.Previous)
+                        if (!moved || !quickLookZoneFocused) {
+                            focusCoord.requestQuickLookLast()
+                        }
+                    }
+                }
+                return true
+            }
+            if (quickLookZoneFocused && !ctrl && !alt && (k == Key.Enter || k == Key.NumPadEnter || k == Key.Spacebar)) {
+                return false
+            }
             val cols = if (tab.viewMode == ViewMode.Grid) st.gridColumns else 1
             when (k) {
                 Key.Spacebar, Key.Escape -> vm.closeQuickLook()
@@ -403,7 +497,163 @@ fun AppRoot(vm: BrowserViewModel) {
         if (alt && !ctrl && !shift && digitIndex(k) >= 0) { vm.selectTabIndex(digitIndex(k)); return true }
         if (alt && !ctrl && k == Key.D) { vm.setAddressEditing(true); return true }
         if (k == Key.F1) { vm.showDialog(Dialog.Shortcuts); return true }
-        if (st.dialog != null || st.textFocus) return false
+        if (st.dialog != null) return false
+
+        val showSidebarNow = st.sidebarVisible && !isCompactViewport
+        val showPreviewNow = st.previewVisible && isPreviewViewport
+        val showDrawerNow = st.compactSidebarOpen && isCompactViewport
+
+        // Handle Tab / Shift+Tab before textFocus early-return so single-line SearchField / AddressBar never trap Tab.
+        if (!ctrl && !alt && k == Key.Tab) {
+            if (showDrawerNow) {
+                if (!shift) {
+                    val moved = fm.moveFocus(FocusDirection.Next)
+                    if (!moved || !drawerZoneFocused) {
+                        if (!focusCoord.requestDrawerFirst()) focusCoord.requestSidebarFirst()
+                    }
+                } else {
+                    val moved = fm.moveFocus(FocusDirection.Previous)
+                    if (!moved || !drawerZoneFocused) {
+                        if (!focusCoord.requestSidebarLast()) focusCoord.requestDrawerFirst()
+                    }
+                }
+                return true
+            }
+            if (st.dualPane && !shift && !focusCoord.nonListZoneFocused && !st.textFocus) {
+                vm.switchPane()
+                return true
+            }
+            if (st.textFocus) {
+                if (st.addressEditing) vm.setAddressEditing(false)
+                vm.setTextFocus(false)
+            }
+            val wasSidebar = sidebarZoneFocused
+            val wasTitle = titleZoneFocused
+            val wasPicker = pickerZoneFocused
+            val wasToolbar = toolbarZoneFocused
+            val wasPreview = previewZoneFocused
+            val wasContentAux = focusCoord.contentAuxControlsFocused
+            val wasFileList = !focusCoord.nonListZoneFocused
+
+            fun advanceAfterContentCard() {
+                if (showPreviewNow && focusCoord.requestPreviewFirst()) return
+                if (showSidebarNow && focusCoord.requestSidebarFirst()) return
+                focusCoord.requestTitleBarFirst()
+            }
+
+            if (!shift) {
+                when {
+                    wasFileList -> {
+                        val moved = fm.moveFocus(FocusDirection.Next)
+                        if (moved && focusCoord.contentAuxControlsFocused) return true
+                        if (moved && showPreviewNow && previewZoneFocused) return true
+                        advanceAfterContentCard()
+                    }
+                    wasContentAux -> {
+                        val moved = fm.moveFocus(FocusDirection.Next)
+                        if (!moved || (!focusCoord.contentAuxControlsFocused && !contentZoneFocused)) {
+                            if (!(moved && showPreviewNow && previewZoneFocused)) {
+                                advanceAfterContentCard()
+                            }
+                        }
+                    }
+                    wasPreview -> {
+                        val moved = fm.moveFocus(FocusDirection.Next)
+                        if (!moved || !previewZoneFocused) {
+                            if (!showSidebarNow || !focusCoord.requestSidebarFirst()) {
+                                focusCoord.requestTitleBarFirst()
+                            }
+                        }
+                    }
+                    wasSidebar -> {
+                        val moved = fm.moveFocus(FocusDirection.Next)
+                        if (!moved || !sidebarZoneFocused) {
+                            focusCoord.requestTitleBarFirst()
+                        }
+                    }
+                    wasToolbar -> {
+                        val moved = fm.moveFocus(FocusDirection.Next)
+                        if (!moved || !toolbarZoneFocused) {
+                            if (!focusCoord.focusFileList()) {
+                                focusCoord.requestTitleBarFirst()
+                            }
+                        }
+                    }
+                    else -> {
+                        if (!fm.moveFocus(FocusDirection.Next)) {
+                            focusCoord.focusFileList()
+                        }
+                    }
+                }
+            } else {
+                when {
+                    wasFileList -> {
+                        val moved = fm.moveFocus(FocusDirection.Previous)
+                        if (!moved || !focusCoord.contentAuxControlsFocused) {
+                            if (!focusCoord.requestToolbarLast()) {
+                                focusCoord.requestTitleBarLast()
+                            }
+                        }
+                    }
+                    wasContentAux -> {
+                        val moved = fm.moveFocus(FocusDirection.Previous)
+                        if (!moved || (!focusCoord.contentAuxControlsFocused && !contentZoneFocused)) {
+                            if (!focusCoord.requestToolbarLast()) {
+                                focusCoord.requestTitleBarLast()
+                            }
+                        }
+                    }
+                    wasToolbar -> {
+                        val moved = fm.moveFocus(FocusDirection.Previous)
+                        if (!moved || (!toolbarZoneFocused && !pickerZoneFocused)) {
+                            if (!focusCoord.requestTitleBarLast()) {
+                                focusCoord.focusFileList()
+                            }
+                        }
+                    }
+                    wasPicker -> {
+                        val moved = fm.moveFocus(FocusDirection.Previous)
+                        if (!moved || !pickerZoneFocused) {
+                            if (!focusCoord.requestTitleBarLast()) {
+                                focusCoord.focusFileList()
+                            }
+                        }
+                    }
+                    wasTitle -> {
+                        val moved = fm.moveFocus(FocusDirection.Previous)
+                        if (!moved || !titleZoneFocused) {
+                            when {
+                                showSidebarNow && focusCoord.requestSidebarLast() -> Unit
+                                showPreviewNow && focusCoord.requestPreviewFirst() -> Unit
+                                else -> focusCoord.focusFileList()
+                            }
+                        }
+                    }
+                    wasSidebar -> {
+                        val moved = fm.moveFocus(FocusDirection.Previous)
+                        if (!moved || !sidebarZoneFocused) {
+                            if (!showPreviewNow || !focusCoord.requestPreviewFirst()) {
+                                focusCoord.focusFileList()
+                            }
+                        }
+                    }
+                    wasPreview -> {
+                        val moved = fm.moveFocus(FocusDirection.Previous)
+                        if (!moved || !previewZoneFocused) {
+                            focusCoord.focusFileList()
+                        }
+                    }
+                    else -> {
+                        if (!fm.moveFocus(FocusDirection.Previous)) {
+                            focusCoord.requestTitleBarLast()
+                        }
+                    }
+                }
+            }
+            return true
+        }
+
+        if (st.textFocus) return false
 
         val columns = tab.viewMode == ViewMode.Columns
         if (ctrl && !alt) {
@@ -439,6 +689,7 @@ fun AppRoot(vm: BrowserViewModel) {
                 k == Key.Enter || k == Key.NumPadEnter -> { vm.openSelection(newTab = true); return true }
                 k == Key.Spacebar -> { vm.toggleFocusedSelection(); return true }
                 k == Key.DirectionDown || k == Key.DirectionUp || k == Key.DirectionLeft || k == Key.DirectionRight -> {
+                    if (focusCoord.nonListZoneFocused) return false
                     val cols = if (tab.viewMode == ViewMode.Grid) st.gridColumns else 1
                     val d = when (k) { Key.DirectionDown -> cols; Key.DirectionUp -> -cols; Key.DirectionRight -> 1; else -> -1 }
                     if (cols == 1 && (k == Key.DirectionLeft || k == Key.DirectionRight)) return false
@@ -464,6 +715,29 @@ fun AppRoot(vm: BrowserViewModel) {
             return true
         }
 
+        // When keyboard focus is inside TitleBar, Toolbar, Sidebar, PreviewPane, or CompactSidebarDrawer,
+        // let focused controls receive Enter, Spacebar, Arrow keys, and Menu natively.
+        if (focusCoord.nonListZoneFocused) {
+            when (k) {
+                Key.F2 -> { vm.requestRename(); return true }
+                Key.F3 -> { vm.toggleDualPane(); return true }
+                Key.F5 -> { if (st.dualPane) vm.transferToOtherPane(move = false) else vm.refresh(); return true }
+                Key.F6 -> {
+                    when {
+                        sidebarZoneFocused -> focusCoord.requestTitleBarFirst()
+                        titleZoneFocused -> fm.moveFocus(FocusDirection.Down)
+                        else -> focusCoord.focusFileList()
+                    }
+                    return true
+                }
+                Key.Escape -> {
+                    if (st.compactSidebarOpen) vm.setCompactSidebarOpen(false) else focusCoord.focusFileList()
+                    return true
+                }
+                else -> return false
+            }
+        }
+
         val cols = if (tab.viewMode == ViewMode.Grid) st.gridColumns else 1
         when (k) {
             Key.F2 -> vm.requestRename()
@@ -471,8 +745,9 @@ fun AppRoot(vm: BrowserViewModel) {
             Key.F5 -> if (st.dualPane) vm.transferToOtherPane(move = false) else vm.refresh()
             Key.F6 -> if (st.dualPane) {
                 if (tab.selection.isNotEmpty()) vm.transferToOtherPane(move = true) else vm.switchPane()
-            } else return fm.moveFocus(if (shift) FocusDirection.Previous else FocusDirection.Next)
-            Key.Tab -> if (st.dualPane && !shift) vm.switchPane() else return fm.moveFocus(if (shift) FocusDirection.Previous else FocusDirection.Next)
+            } else {
+                return moveFocusWithWrap(fm, focusCoord, shift, showSidebarNow, fromFileList = true)
+            }
             Key.Delete -> vm.requestDelete(permanent = shift)
             Key.Enter, Key.NumPadEnter -> vm.openSelection()
             Key.Spacebar -> vm.toggleQuickLook()
@@ -503,70 +778,92 @@ fun AppRoot(vm: BrowserViewModel) {
         return true
     }
 
-    fun onPreviewGlobalKey(e: androidx.compose.ui.input.key.KeyEvent): Boolean {
-        if (e.type != KeyEventType.KeyDown) return false
-        val k = e.key
-        val isFunctionKey = k == Key.F1 || k == Key.F2 || k == Key.F3 || k == Key.F5 || k == Key.F6
-        if (e.isCtrlPressed || e.isMetaPressed || e.isAltPressed || isFunctionKey) {
-            return onKey(e)
-        }
-        return false
-    }
-
     // Interface zoom (Ctrl+= / Ctrl+- / Ctrl+0) scales everything by overriding the density.
     val baseDensity = LocalDensity.current
     val zoomed = remember(baseDensity, s.zoom) { Density(baseDensity.density * s.zoom, baseDensity.fontScale) }
-    CompositionLocalProvider(LocalMenu provides menu, LocalDrag provides drag, LocalDensity provides zoomed) {
+    CompositionLocalProvider(LocalMenu provides menu, LocalDrag provides drag, LocalFocusCoordinator provides focusCoord, LocalDensity provides zoomed) {
         Box(
             Modifier.fillMaxSize().background(cs.surfaceContainerLow)
-                .focusRequester(rootFocus).focusable()
-                .onPreviewKeyEvent(::onPreviewGlobalKey)
-                .onKeyEvent(::onKey)
+                .onPreviewKeyEvent(::onKey)
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
                         while (true) {
                             val ev = awaitPointerEvent(PointerEventPass.Initial)
-                            ev.changes.firstOrNull()?.let { lastPointer = it.position }
+                            ev.changes.firstOrNull()?.let { ch ->
+                                lastPointer = ch.position
+                                if (ch.pressed && focusCoord.keyboardFocusVisible) {
+                                    focusCoord.keyboardFocusVisible = false
+                                }
+                            }
                         }
                     }
                 },
         ) {
+            // Leaf fallback focus target active only before a child zone mounts, never visited during Tab traversal.
+            Box(
+                Modifier.size(0.dp)
+                    .focusRequester(rootFocus)
+                    .focusProperties { canFocus = !anyChildFocused }
+                    .focusable(),
+            )
             Column(
                 Modifier.fillMaxSize().windowInsetsPadding(
                     WindowInsets.systemBars.union(WindowInsets.displayCutout)
                         .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
                 ),
             ) {
-                Box(Modifier.reclaimFocus(vm, fm, rootFocus)) {
+                Box(Modifier.onFocusChanged { titleZoneFocused = it.hasFocus }.reclaimFocus(vm, fm, focusCoord, rootFocus)) {
                     TitleBar(vm, s) { off, items -> menu.show(off, items) }
                 }
-                s.picker?.let { PickerBanner(vm, s) }
-                Toolbar(vm, s)
-                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().reclaimFocus(vm, fm, rootFocus)) {
+                s.picker?.let {
+                    Box(Modifier.onFocusChanged { pickerZoneFocused = it.hasFocus }) {
+                        PickerBanner(vm, s)
+                    }
+                }
+                Box(Modifier.onFocusChanged { toolbarZoneFocused = it.hasFocus }) {
+                    Toolbar(vm, s)
+                }
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().reclaimFocus(vm, fm, focusCoord, rootFocus)) {
                     val compact = maxWidth < 600.dp
-                    SideEffect { isCompactViewport = compact }
+                    val previewFits = maxWidth >= 900.dp
+                    SideEffect {
+                        isCompactViewport = compact
+                        isPreviewViewport = previewFits
+                    }
                     LaunchedEffect(compact) {
                         if (!compact && s.compactSidebarOpen) vm.setCompactSidebarOpen(false)
                     }
                     val showSidebar = s.sidebarVisible && !compact
-                    val showPreview = s.previewVisible && maxWidth >= 900.dp
+                    val showPreview = s.previewVisible && previewFits
+                    LaunchedEffect(showSidebar) { if (!showSidebar) sidebarZoneFocused = false }
+                    LaunchedEffect(showPreview) { if (!showPreview) previewZoneFocused = false }
                     Row(Modifier.fillMaxSize().padding(end = 8.dp, bottom = 8.dp)) {
                         if (showSidebar) {
-                            Sidebar(vm, s, Modifier.width(s.sidebarWidth.dp).fillMaxSize())
+                            Box(Modifier.onFocusChanged { sidebarZoneFocused = it.hasFocus }) {
+                                Sidebar(vm, s, Modifier.width(s.sidebarWidth.dp).fillMaxSize())
+                            }
                             SidebarHandle(s.sidebarWidth) { vm.setSidebarWidth(it) }
                         } else Box(Modifier.width(8.dp))
-                        ContentCard(vm, s, Modifier.weight(1f).fillMaxSize())
+                        ContentCard(vm, s, Modifier.weight(1f).fillMaxSize().onFocusChanged { contentZoneFocused = it.hasFocus })
                         if (showPreview) {
                             Box(Modifier.width(8.dp))
-                            PreviewPane(vm, s, Modifier.width(300.dp).fillMaxSize())
+                            Box(Modifier.onFocusChanged { previewZoneFocused = it.hasFocus }) {
+                                PreviewPane(vm, s, Modifier.width(300.dp).fillMaxSize())
+                            }
                         }
                     }
                 }
             }
             if (isCompactViewport && s.compactSidebarOpen) {
-                CompactSidebarDrawer(vm, s)
+                Box(Modifier.onFocusChanged { drawerZoneFocused = it.hasFocus }) {
+                    CompactSidebarDrawer(vm, s)
+                }
+            } else if (drawerZoneFocused) {
+                SideEffect { drawerZoneFocused = false }
             }
-            QuickLook(vm, s)
+            Box(Modifier.onFocusChanged { quickLookZoneFocused = it.hasFocus }) {
+                QuickLook(vm, s)
+            }
             if (s.paletteOpen) CommandPalette(vm, s)
             MenuHost(menu)
             Dialogs(vm, s)
@@ -618,14 +915,30 @@ fun AppRoot(vm: BrowserViewModel) {
 @Composable
 private fun CompactSidebarDrawer(vm: BrowserViewModel, s: AppState) {
     val cs = MaterialTheme.colorScheme
+    val focusCoord = LocalFocusCoordinator.current
+    val closeDrawerRequester = remember { FocusRequester() }
     val dismissInteraction = remember { MutableInteractionSource() }
     val drawerA11yLabel = stringResource(R.string.nav_drawer_label)
+    val closeDrawerDesc = stringResource(R.string.nav_close_sidebar)
+    DisposableEffect(closeDrawerRequester) {
+        focusCoord.activeDrawerFirstRequester = closeDrawerRequester
+        onDispose {
+            if (focusCoord.activeDrawerFirstRequester === closeDrawerRequester) {
+                focusCoord.activeDrawerFirstRequester = null
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        if (!focusCoord.requestDrawerFirst()) focusCoord.requestSidebarFirst()
+    }
     BackHandler(enabled = true) { vm.setCompactSidebarOpen(false) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val drawerWidth = minOf(304.dp, maxWidth * 0.86f)
         Box(
             Modifier.fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.38f))
+                .focusProperties { canFocus = false }
                 .clickable(interactionSource = dismissInteraction, indication = null) {
                     vm.setCompactSidebarOpen(false)
                 },
@@ -639,7 +952,7 @@ private fun CompactSidebarDrawer(vm: BrowserViewModel, s: AppState) {
         ) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
                 Row(
-                    Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                    Modifier.fillMaxWidth().padding(start = 18.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -648,8 +961,13 @@ private fun CompactSidebarDrawer(vm: BrowserViewModel, s: AppState) {
                         style = MaterialTheme.typography.titleMedium,
                         color = cs.onSurface,
                     )
-                    IconButton({ vm.setCompactSidebarOpen(false) }, Modifier.size(40.dp)) {
-                        Icon(Icons.Outlined.Close, stringResource(R.string.nav_close_sidebar))
+                    ActionTooltip(closeDrawerDesc) {
+                        IconButton(
+                            { vm.setCompactSidebarOpen(false) },
+                            Modifier.size(48.dp).focusRequester(closeDrawerRequester).focusRing(CircleShape),
+                        ) {
+                            Icon(Icons.Outlined.Close, closeDrawerDesc)
+                        }
                     }
                 }
                 HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.5f))
@@ -695,27 +1013,28 @@ private fun PickerBanner(vm: BrowserViewModel, s: AppState) {
     ) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val compact = maxWidth < 560.dp
+            val btnMod = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRing(RoundedCornerShape(20.dp))
             val buttons: @Composable () -> Unit = {
                 when (req.mode) {
                     com.droid.wayfinder.data.PickerMode.OpenFile -> {
                         val pickable = remember(s.active.selection, s.active.entries) { vm.pickableSelection() }
-                        OutlinedButton({ vm.cancelPick() }) { Text("Cancel", maxLines = 1, softWrap = false) }
-                        Button({ vm.pickSelection() }, enabled = pickable.isNotEmpty()) {
+                        OutlinedButton({ vm.cancelPick() }, modifier = btnMod) { Text("Cancel", maxLines = 1, softWrap = false) }
+                        Button({ vm.pickSelection() }, modifier = btnMod, enabled = pickable.isNotEmpty()) {
                             Text(if (pickable.size > 1) "Select ${pickable.size} Files" else "Select File", maxLines = 1, softWrap = false)
                         }
                     }
                     com.droid.wayfinder.data.PickerMode.OpenTree -> {
                         val folderTarget = remember(s.active.path, s.active.selection, s.active.entries) { vm.targetTreeFolder() }
                         val canGrant = remember(folderTarget) { vm.canPickFolder(folderTarget) }
-                        OutlinedButton({ vm.cancelPick() }) { Text("Cancel", maxLines = 1, softWrap = false) }
-                        Button({ vm.pickCurrentFolder() }, enabled = canGrant) {
+                        OutlinedButton({ vm.cancelPick() }, modifier = btnMod) { Text("Cancel", maxLines = 1, softWrap = false) }
+                        Button({ vm.pickCurrentFolder() }, modifier = btnMod, enabled = canGrant) {
                             Text("Use this folder", maxLines = 1, softWrap = false)
                         }
                     }
                     com.droid.wayfinder.data.PickerMode.CreateDocument -> {
                         val validName = remember(s.createFileName) { FsPath.nameError(s.createFileName.trim()) == null }
-                        OutlinedButton({ vm.cancelPick() }) { Text("Cancel", maxLines = 1, softWrap = false) }
-                        Button({ vm.confirmCreateDocument() }, enabled = validName) {
+                        OutlinedButton({ vm.cancelPick() }, modifier = btnMod) { Text("Cancel", maxLines = 1, softWrap = false) }
+                        Button({ vm.confirmCreateDocument() }, modifier = btnMod, enabled = validName) {
                             Text("Save", maxLines = 1, softWrap = false)
                         }
                     }

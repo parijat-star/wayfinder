@@ -75,7 +75,7 @@ class AppRootUiTest {
         launch { dir("Alpha"); dir("Beta"); vm.newTab(pathOf("Alpha")); vm.newTab(pathOf("Beta")) }
         rule.onAllNodesWithText("Alpha")[0].assertIsDisplayed()
         rule.onAllNodesWithText("Beta")[0].assertIsDisplayed()
-        rule.onNodeWithContentDescription("New tab (Ctrl+T)").performClick()
+        rule.onNodeWithContentDescription("New tab").performClick()
         idle()
         assertEquals(4, h.s.tabs.size)
         // Click a tab to activate it, middle-click to close it.
@@ -136,7 +136,7 @@ class AppRootUiTest {
         root().performKeyInput { pressKey(Key.Spacebar) }
         idle()
         assertEquals(h.pathOf("story.txt"), h.s.quickLook)
-        rule.onNodeWithContentDescription("Close (Space)").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Close").assertIsDisplayed()
         rule.onAllNodesWithText("Once upon a time", substring = true)[0].assertIsDisplayed()
         root().performKeyInput { pressKey(Key.Escape) }
         idle()

@@ -467,4 +467,50 @@
     <string name="shortcut_switch_pane" description="System Keyboard Shortcuts Helper label for switching focus between dual panes (Tab). [CHAR_LIMIT=35]">Switch active pane</string>
     <string name="shortcut_copy_other_pane" description="System Keyboard Shortcuts Helper label for copying selected items to the other pane (F5). [CHAR_LIMIT=35]">Copy to other pane</string>
     <string name="shortcut_move_other_pane" description="System Keyboard Shortcuts Helper label for moving selected items to the other pane (F6). [CHAR_LIMIT=35]">Move to other pane</string>
+
+    <!-- Action tooltips (with keyboard shortcut hints) and plain-action accessibility contentDescriptions -->
+    <string name="action_up" description="Accessibility label for the toolbar button that navigates to the parent folder. [CHAR_LIMIT=18]">Up</string>
+    <string name="action_more_options" description="Accessibility label and tooltip for the toolbar overflow menu button. [CHAR_LIMIT=20]">More</string>
+    <string name="action_toggle_dual_pane" description="Accessibility click action label on the toolbar checkbox that toggles dual-pane mode. [CHAR_LIMIT=30]">Toggle dual pane</string>
+    <string name="action_close_tab_named" description="Accessibility click action label on a tab close button. %1$s is the tab title (e.g. Downloads). [CHAR_LIMIT=45]">Close tab %1$s</string>
+    <string name="action_select_tab_named" description="Accessibility click action label on a browser tab. %1$s is the tab title (e.g. Downloads). [CHAR_LIMIT=45]">Select tab %1$s</string>
+    <string name="action_close_details" description="Accessibility label for the button that closes the right-hand details pane. [CHAR_LIMIT=25]">Close details</string>
+    <string name="action_previous" description="Accessibility label for the Quick Look button that previews the previous item. [CHAR_LIMIT=20]">Previous</string>
+    <string name="action_next" description="Accessibility label for the Quick Look button that previews the next item. [CHAR_LIMIT=20]">Next</string>
+    <string name="action_mount_drive_folder" description="Accessibility label and tooltip for the sidebar Google Drive header action that mounts a Drive folder. [CHAR_LIMIT=40]">Mount Google Drive folder</string>
+    <string name="action_unpin_item" description="Accessibility label and tooltip for unpinning a sidebar item. %1$s is the item name. [CHAR_LIMIT=45]">Unpin %1$s</string>
+    <string name="action_unmount_item" description="Accessibility label and tooltip for unmounting a sidebar storage mount. %1$s is the mount label or account email. [CHAR_LIMIT=45]">Unmount %1$s</string>
+    <string name="action_disconnect_item" description="Accessibility label and tooltip for disconnecting a sidebar network server. %1$s is the server label. [CHAR_LIMIT=45]">Disconnect %1$s</string>
+    <string name="action_sign_out_item" description="Accessibility label and tooltip for signing out of a sidebar cloud account. %1$s is the account email. [CHAR_LIMIT=45]">Sign out %1$s</string>
+    <string name="tooltip_back" description="Hover tooltip for the toolbar Back button showing its keyboard shortcut. [CHAR_LIMIT=30]">Back (Alt+←)</string>
+    <string name="tooltip_forward" description="Hover tooltip for the toolbar Forward button showing its keyboard shortcut. [CHAR_LIMIT=32]">Forward (Alt+→)</string>
+    <string name="tooltip_up" description="Hover tooltip for the toolbar Up button showing its keyboard shortcut. [CHAR_LIMIT=28]">Up (Alt+↑)</string>
+    <string name="tooltip_refresh_f5" description="Hover tooltip for the toolbar Refresh button in single-pane mode showing its keyboard shortcut. [CHAR_LIMIT=30]">Refresh (F5)</string>
+    <string name="tooltip_refresh_ctrl_r" description="Hover tooltip for the toolbar Refresh button in dual-pane mode showing its keyboard shortcut. [CHAR_LIMIT=32]">Refresh (Ctrl+R)</string>
+    <string name="tooltip_undo" description="Hover tooltip for the toolbar Undo button showing its keyboard shortcut. [CHAR_LIMIT=30]">Undo (Ctrl+Z)</string>
+    <string name="tooltip_redo" description="Hover tooltip for the toolbar Redo button showing its keyboard shortcut. [CHAR_LIMIT=30]">Redo (Ctrl+Y)</string>
+    <string name="tooltip_details_view" description="Hover tooltip for the toolbar Details view toggle showing its keyboard shortcut. [CHAR_LIMIT=32]">Details (Ctrl+1)</string>
+    <string name="tooltip_grid_view" description="Hover tooltip for the toolbar Grid view toggle showing its keyboard shortcut. [CHAR_LIMIT=30]">Grid (Ctrl+2)</string>
+    <string name="tooltip_columns_view" description="Hover tooltip for the toolbar Miller Columns view toggle showing its keyboard shortcut. [CHAR_LIMIT=32]">Columns (Ctrl+3)</string>
+    <string name="tooltip_dual_pane" description="Hover tooltip for the toolbar Dual pane toggle showing its keyboard shortcuts. [CHAR_LIMIT=36]">Dual pane (Ctrl+4 / F3)</string>
+    <string name="tooltip_new_tab" description="Hover tooltip for the title bar New tab button showing its keyboard shortcut. [CHAR_LIMIT=32]">New tab (Ctrl+T)</string>
+    <string name="tooltip_close_details" description="Hover tooltip for the details pane Close button showing its keyboard shortcut. [CHAR_LIMIT=36]">Close details (Alt+P)</string>
+    <string name="tooltip_quicklook_close" description="Hover tooltip for the Quick Look Close button showing its keyboard shortcut. [CHAR_LIMIT=30]">Close (Space)</string>
+    <string name="tooltip_quicklook_previous" description="Hover tooltip for the Quick Look Previous item button showing its keyboard shortcut. [CHAR_LIMIT=30]">Previous (←)</string>
+    <string name="tooltip_quicklook_next" description="Hover tooltip for the Quick Look Next item button showing its keyboard shortcut. [CHAR_LIMIT=30]">Next (→)</string>
+    <string name="tooltip_locate_active_folder" description="Hover tooltip for the sidebar button that reveals the active folder in the tree. [CHAR_LIMIT=48]">Locate active folder (Alt+Shift+L)</string>
+    <string name="tooltip_clear_search" description="Accessibility label and hover tooltip for the button that clears the search input field. [CHAR_LIMIT=28]">Clear search</string>
+    <string name="tooltip_more_options" description="Hover tooltip for the toolbar overflow menu button. [CHAR_LIMIT=28]">More options</string>
+    <string name="tooltip_cancel_operation" description="Accessibility label and hover tooltip for the status bar button that cancels an in-progress file operation. [CHAR_LIMIT=32]">Cancel operation</string>
+    <string name="tooltip_close_tab" description="Hover tooltip for a browser tab close button showing its keyboard shortcut. [CHAR_LIMIT=30]">Close tab (Ctrl+W)</string>
+    <string name="action_play" description="Accessibility label and hover tooltip for the Quick Look button that starts audio or video playback. [CHAR_LIMIT=18]">Play</string>
+    <string name="action_pause" description="Accessibility label and hover tooltip for the Quick Look button that pauses audio playback. [CHAR_LIMIT=18]">Pause</string>
+    <string name="tooltip_color_tag" description="Hover tooltip on a color tag chip in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=32]">Tag: %1$s</string>
+    <string name="a11y_color_tag" description="Accessibility label on a color tag checkbox in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=32]">Tag %1$s</string>
+    <string name="action_add_color_tag" description="Accessibility click action label to apply a color tag in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=36]">Add %1$s tag</string>
+    <string name="action_remove_color_tag" description="Accessibility click action label to remove a color tag in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=40]">Remove %1$s tag</string>
+    <string name="action_expand" description="Accessibility label on a collapsed sidebar folder chevron icon. [CHAR_LIMIT=20]">Expand</string>
+    <string name="action_collapse" description="Accessibility label on an expanded sidebar folder chevron icon. [CHAR_LIMIT=20]">Collapse</string>
+    <string name="action_expand_folder" description="Accessibility click label and hover tooltip to expand a sidebar folder. %1$s is the folder name. [CHAR_LIMIT=45]">Expand %1$s</string>
+    <string name="action_collapse_folder" description="Accessibility click label and hover tooltip to collapse a sidebar folder. %1$s is the folder name. [CHAR_LIMIT=45]">Collapse %1$s</string>
 </resources>

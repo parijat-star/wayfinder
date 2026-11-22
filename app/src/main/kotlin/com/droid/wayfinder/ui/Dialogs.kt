@@ -239,11 +239,14 @@ private fun MediaPropertiesSection(
     ) {
         Text(sectionTitle, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         if (info != null) {
-            IconButton(
-                onClick = { onCopy(MediaFormatters.formatSummary(info), sectionTitle) },
-                modifier = Modifier.size(32.dp),
-            ) {
-                Icon(Icons.Outlined.ContentCopy, stringResource(R.string.properties_media_copy), Modifier.size(16.dp))
+            val copyDesc = stringResource(R.string.properties_media_copy)
+            ActionTooltip(copyDesc) {
+                IconButton(
+                    onClick = { onCopy(MediaFormatters.formatSummary(info), sectionTitle) },
+                    modifier = Modifier.size(48.dp).focusRing(androidx.compose.foundation.shape.CircleShape),
+                ) {
+                    Icon(Icons.Outlined.ContentCopy, copyDesc, Modifier.size(16.dp))
+                }
             }
         }
     }
@@ -316,7 +319,17 @@ private fun Row2(label: String, value: String, mono: Boolean = false, onCopy: ((
         androidx.compose.foundation.text.selection.SelectionContainer(Modifier.weight(1f)) {
             Text(value, style = MaterialTheme.typography.bodyMedium, fontFamily = if (mono) FontFamily.Monospace else null)
         }
-        if (onCopy != null) IconButton(onCopy, Modifier.size(32.dp)) { Icon(Icons.Outlined.ContentCopy, "Copy $label", Modifier.size(16.dp)) }
+        if (onCopy != null) {
+            val copyLabel = "Copy $label"
+            ActionTooltip(copyLabel) {
+                IconButton(
+                    onClick = onCopy,
+                    modifier = Modifier.size(48.dp).focusRing(androidx.compose.foundation.shape.CircleShape),
+                ) {
+                    Icon(Icons.Outlined.ContentCopy, copyLabel, Modifier.size(16.dp))
+                }
+            }
+        }
     }
 }
 

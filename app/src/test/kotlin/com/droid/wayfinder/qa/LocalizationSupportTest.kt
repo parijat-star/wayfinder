@@ -45,6 +45,14 @@ class LocalizationSupportTest {
         assertFalse("UI sources must use ICU plurals rather than item(s)", mainSources.contains("item(s)"))
         assertFalse("UI sources must use ICU plurals rather than folder(s)", mainSources.contains("folder(s)"))
         assertFalse("UI sources must use ICU plurals rather than conflict(s)", mainSources.contains("conflict(s)"))
+        assertFalse(
+            "ActionTooltip calls must use strings.xml resources rather than hardcoded string literals",
+            Regex("""ActionTooltip\(\s*(?:text\s*=\s*)?"""").containsMatchIn(mainSources),
+        )
+        assertFalse(
+            "HeaderAction calls must use strings.xml resources rather than hardcoded string literals",
+            Regex("""HeaderAction\([^,\n]+,\s*(?:tooltip\s*=\s*)?"""").containsMatchIn(mainSources),
+        )
 
         val charLimitRegex = Regex("""\[CHAR_LIMIT=(\d+|NONE)]""")
         for (i in 0 until nodes.length) {

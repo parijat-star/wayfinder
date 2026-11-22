@@ -40,14 +40,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isShiftPressed
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -62,6 +55,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -108,8 +102,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.isCtrlPressed
@@ -169,7 +167,9 @@ fun ContentCard(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             }
             if (s.statusBarVisible || s.ops.isNotEmpty()) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                StatusBar(vm, s)
+                Box(Modifier.trackContentAuxFocus("status_bar")) {
+                    StatusBar(vm, s)
+                }
             }
         }
     }
@@ -218,11 +218,40 @@ private fun Pane(vm: BrowserViewModel, s: AppState, tab: TabState, right: Boolea
 private fun FolderView(vm: BrowserViewModel, s: AppState, tab: TabState, active: Boolean) {
     val visible = remember(tab.entries, tab.searchResults, tab.sortKey, tab.sortAsc, s.showHidden, s.marks) { tab.visible(s.showHidden) }
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.35f)
+    val focusCoord = LocalFocusCoordinator.current
+    val emptyPaneFocusable = active && visible.isEmpty()
+    val emptyPaneRequester = remember { FocusRequester() }
+
+    DisposableEffect(emptyPaneFocusable, emptyPaneRequester) {
+        if (emptyPaneFocusable) focusCoord.activeFileListRequester = emptyPaneRequester
+        onDispose {
+            if (focusCoord.activeFileListRequester === emptyPaneRequester) {
+                focusCoord.activeFileListRequester = null
+            }
+        }
+    }
+    LaunchedEffect(active, tab.id, tab.path, emptyPaneFocusable) {
+        if (emptyPaneFocusable && !focusCoord.nonListZoneFocused && s.dialog == null && !s.addressEditing && !s.paletteOpen && !s.textFocus) {
+            withFrameNanos { }
+            runCatching { emptyPaneRequester.requestFocus() }
+        }
+    }
+
     Column(Modifier.fillMaxSize().externalDrop(vm, tab.path)) {
         if (tab.path == FsPath.PHONE_ROOT && (s.phoneConnected || s.quickAccessAvailable)) {
-            PhoneQuickAccessBanner(vm, s.pairedPhone, s.quickAccessAvailable)
+            Box(Modifier.trackContentAuxFocus("phone_banner")) {
+                PhoneQuickAccessBanner(vm, s.pairedPhone, s.quickAccessAvailable)
+            }
         }
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+        BoxWithConstraints(
+            Modifier.weight(1f).fillMaxWidth().then(
+                if (emptyPaneFocusable) {
+                    Modifier.focusRequester(emptyPaneRequester).focusProperties { canFocus = true }.focusRing(RoundedCornerShape(12.dp)).focusable()
+                } else {
+                    Modifier
+                },
+            ),
+        ) {
             val paneWidthDp = maxWidth.value
             LaunchedEffect(active, tab.viewMode, paneWidthDp, fontScale) {
                 if (active) {
@@ -250,6 +279,7 @@ internal fun PhoneQuickAccessBanner(
     val cs = MaterialTheme.colorScheme
     val phoneName = phone?.name ?: "Phone"
     val subtitle = phone?.subtitle ?: if (quickAccessAvailable) "Cross-Device Services" else "Internal Storage"
+    val btnMod = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRing(RoundedCornerShape(20.dp))
     Surface(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
         shape = RoundedCornerShape(12.dp),
@@ -260,21 +290,21 @@ internal fun PhoneQuickAccessBanner(
             val compact = maxWidth < 620.dp
             val actions: @Composable () -> Unit = {
                 if (quickAccessAvailable) {
-                    Button(onClick = { vm.openCrossDevicePhoneInSystemFiles() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Button(onClick = { vm.openCrossDevicePhoneInSystemFiles() }, modifier = btnMod, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                         Icon(Icons.Outlined.Smartphone, null, Modifier.size(16.dp))
                         Text("Browse in Files", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                     }
-                    OutlinedButton(onClick = { vm.openQuickShareFolder() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    OutlinedButton(onClick = { vm.openQuickShareFolder() }, modifier = btnMod, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                         Icon(Icons.Outlined.Folder, null, Modifier.size(16.dp))
                         Text("Quick Share", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                     }
                 } else {
-                    Button(onClick = { vm.openQuickShareFolder() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Button(onClick = { vm.openQuickShareFolder() }, modifier = btnMod, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                         Icon(Icons.Outlined.Folder, null, Modifier.size(16.dp))
                         Text("Quick Share", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                     }
                 }
-                OutlinedButton(onClick = { vm.openPhoneHubSettings() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                OutlinedButton(onClick = { vm.openPhoneHubSettings() }, modifier = btnMod, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                     Icon(Icons.Outlined.Settings, null, Modifier.size(16.dp))
                     Text("Phone Hub", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                 }
@@ -395,31 +425,34 @@ private fun CenterMessage(icon: androidx.compose.ui.graphics.vector.ImageVector,
         Text(title, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         if (body != null) Text(body, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
         androidx.compose.foundation.layout.FlowRow(
-            Modifier.padding(top = 16.dp),
+            Modifier.padding(top = 16.dp).trackContentAuxFocus("center_msg_actions"),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) { actions() }
     }
 }
 
+private fun emptyBtnMod(): Modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRing(RoundedCornerShape(20.dp))
+
 @Composable
 private fun ErrorView(vm: BrowserViewModel, tab: TabState) {
     val e = tab.error!!
+    val btnMod = emptyBtnMod()
     CenterMessage(Icons.Outlined.ErrorOutline, "Can't open this location", e.message) {
         if (FsPath.isGdrive(tab.path)) {
             val email = tab.path.removePrefix("gdrive://").substringBefore('/')
-            Button({ vm.requestMountSaf(email) }) { Text("Mount via File Picker (SAF)") }
+            Button({ vm.requestMountSaf(email) }, modifier = btnMod) { Text("Mount via File Picker (SAF)") }
         }
         if (e.authHost != null) {
             if (FsPath.isOneDrive(e.authHost)) {
                 val accId = e.authHost.removePrefix("onedrive://").substringBefore('/').takeIf { it.isNotBlank() }
-                Button({ vm.showConnectOneDriveDialog(accId) }) { Text("Sign in") }
+                Button({ vm.showConnectOneDriveDialog(accId) }, modifier = btnMod) { Text("Sign in") }
             } else {
-                Button({ vm.showDialog(Dialog.SmbAuth(e.authHost)) }) { Text("Sign in") }
+                Button({ vm.showDialog(Dialog.SmbAuth(e.authHost)) }, modifier = btnMod) { Text("Sign in") }
             }
         }
-        OutlinedButton({ vm.refresh() }) { Text("Retry") }
-        if (tab.canGoBack) OutlinedButton({ vm.back() }) { Text("Go back") }
+        OutlinedButton({ vm.refresh() }, modifier = btnMod) { Text("Retry") }
+        if (tab.canGoBack) OutlinedButton({ vm.back() }, modifier = btnMod) { Text("Go back") }
     }
 }
 
@@ -449,6 +482,7 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
             tab.path == FsPath.PHONE_ROOT -> {
                 val isUsbMtp = s.pairedPhone?.transport == com.droid.wayfinder.data.PhoneTransport.USB_MTP
                 val note = stringResource(R.string.phone_privilege_note)
+                val btnMod = emptyBtnMod()
                 CenterMessage(
                     Icons.Outlined.Smartphone,
                     s.pairedPhone?.name ?: if (s.quickAccessAvailable) "Cross-Device Phone" else "Connect Phone Storage",
@@ -464,33 +498,33 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
                     } + "\n\n$note",
                 ) {
                     if (isUsbMtp) {
-                        Button({ vm.requestMountPhoneStorage(s.pairedPhone) }) {
+                        Button({ vm.requestMountPhoneStorage(s.pairedPhone) }, modifier = btnMod) {
                             Icon(Icons.Outlined.Smartphone, null, Modifier.size(18.dp))
                             Text("Mount USB phone folders…", Modifier.padding(start = 6.dp))
                         }
                         if (s.quickAccessAvailable) {
-                            OutlinedButton({ vm.openCrossDevicePhoneInSystemFiles() }) { Text("Browse phone in Files window") }
+                            OutlinedButton({ vm.openCrossDevicePhoneInSystemFiles() }, modifier = btnMod) { Text("Browse phone in Files window") }
                         }
-                        OutlinedButton({ vm.requestImportFromPhone() }) { Text("Import files…") }
+                        OutlinedButton({ vm.requestImportFromPhone() }, modifier = btnMod) { Text("Import files…") }
                     } else if (s.quickAccessAvailable) {
-                        Button({ vm.openCrossDevicePhoneInSystemFiles() }) {
+                        Button({ vm.openCrossDevicePhoneInSystemFiles() }, modifier = btnMod) {
                             Icon(Icons.Outlined.Smartphone, null, Modifier.size(18.dp))
                             Text("Browse phone in Files window", Modifier.padding(start = 6.dp))
                         }
-                        OutlinedButton({ vm.requestImportFromPhone() }) { Text("Import files from phone…") }
-                        OutlinedButton({ vm.requestMountPhoneStorage(s.pairedPhone) }) { Text("Mount USB phone (MTP)…") }
+                        OutlinedButton({ vm.requestImportFromPhone() }, modifier = btnMod) { Text("Import files from phone…") }
+                        OutlinedButton({ vm.requestMountPhoneStorage(s.pairedPhone) }, modifier = btnMod) { Text("Mount USB phone (MTP)…") }
                     } else {
-                        Button({ vm.requestImportFromPhone() }) {
+                        Button({ vm.requestImportFromPhone() }, modifier = btnMod) {
                             Icon(Icons.Outlined.Smartphone, null, Modifier.size(18.dp))
                             Text("Import files from phone…", Modifier.padding(start = 6.dp))
                         }
-                        OutlinedButton({ vm.requestMountPhoneStorage(s.pairedPhone) }) { Text("Mount USB phone (MTP)…") }
+                        OutlinedButton({ vm.requestMountPhoneStorage(s.pairedPhone) }, modifier = btnMod) { Text("Mount USB phone (MTP)…") }
                     }
                     if (!s.bluetoothPermissionGranted) {
-                        OutlinedButton({ vm.requestBluetoothPermission() }) { Text("Allow Bluetooth detection") }
+                        OutlinedButton({ vm.requestBluetoothPermission() }, modifier = btnMod) { Text("Allow Bluetooth detection") }
                     }
-                    OutlinedButton({ vm.openPhoneHubSettings() }) { Text("Phone Hub settings") }
-                    OutlinedButton({ vm.openQuickShareFolder() }) { Text("Quick Share folder") }
+                    OutlinedButton({ vm.openPhoneHubSettings() }, modifier = btnMod) { Text("Phone Hub settings") }
+                    OutlinedButton({ vm.openQuickShareFolder() }, modifier = btnMod) { Text("Quick Share folder") }
                 }
             }
             FsPath.tagOf(tab.path) != null -> CenterMessage(Icons.AutoMirrored.Outlined.Label, "Nothing tagged “${FsPath.name(tab.path)}”", "Right-click items and choose Color tags to label them.")
@@ -498,13 +532,13 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
             tab.path == FsPath.SMB_ROOT -> CenterMessage(
                 Icons.Outlined.WifiFind, if (s.scanning) "Looking for servers…" else "No servers found",
                 "Connect to a server by address, e.g. smb://nas/media, davs://cloud/dav or ftp://host",
-            ) { Button({ vm.showConnectDialog() }) { Text("Connect to server") }; OutlinedButton({ vm.refresh() }) { Text("Rescan") } }
+            ) { Button({ vm.showConnectDialog() }, modifier = emptyBtnMod()) { Text("Connect to server") }; OutlinedButton({ vm.refresh() }, modifier = emptyBtnMod()) { Text("Rescan") } }
             tab.path == FsPath.TRASH_ROOT -> CenterMessage(Icons.Outlined.FolderOpen, stringResource(R.string.empty_trash_title), "Deleted files appear here until you empty the Trash.")
             !s.showHidden && tab.entries.any { it.isHidden } -> CenterMessage(
                 Icons.Outlined.FolderOpen,
                 stringResource(R.string.empty_only_hidden_title),
                 icuStringResource(R.string.empty_only_hidden_body_plural, tab.entries.count { it.isHidden }),
-            ) { Button({ vm.toggleHidden() }) { Text(stringResource(R.string.action_show_hidden_files)) } }
+            ) { Button({ vm.toggleHidden() }, modifier = emptyBtnMod()) { Text(stringResource(R.string.action_show_hidden_files)) } }
             else -> CenterMessage(Icons.Outlined.FolderOpen, stringResource(R.string.empty_folder_title), "Right-click or press Ctrl+Shift+N to create a new folder.")
         }
     }
@@ -514,12 +548,23 @@ private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
 private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries: List<FileEntry>, active: Boolean) {
     val menu = LocalMenu.current
     val density = LocalDensity.current
+    val focusCoord = LocalFocusCoordinator.current
     val rb = remember(tab.id) { RubberBandState() }
     val scrolls = remember { ScrollStates() }
     val listState = scrolls.lists.getOrPut(tab.id) { LazyListState() }
     val gridState = scrolls.grids.getOrPut(tab.id) { LazyGridState() }
     var origin by remember { androidx.compose.runtime.mutableStateOf(Offset.Zero) }
     val cs = MaterialTheme.colorScheme
+
+    val rovingPath = remember(entries, tab.focused) {
+        tab.focused?.takeIf { f -> entries.any { it.path == f } } ?: entries.firstOrNull()?.path
+    }
+    LaunchedEffect(active, tab.id, tab.path, rovingPath) {
+        if (active && rovingPath != null && !focusCoord.nonListZoneFocused && s.dialog == null && !s.addressEditing && !s.paletteOpen && !s.textFocus) {
+            withFrameNanos { }
+            focusCoord.focusFileList()
+        }
+    }
 
     // Reset scroll when navigating within a tab (but not when switching tabs).
     LaunchedEffect(tab.id, tab.path) {
@@ -581,7 +626,7 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
                         GridCells.Adaptive(cell), Modifier.fillMaxSize(), gridState,
                         contentPadding = PaddingValues(12.dp),
                     ) {
-                        items(entries, key = { it.path }) { e -> GridCell(vm, s, tab, e, rb) }
+                        items(entries, key = { it.path }) { e -> GridCell(vm, s, tab, e, rb, isRovingTarget = active && e.path == rovingPath) }
                     }
                     LazyGridScrollbar(gridState, Modifier.align(Alignment.CenterEnd))
                 }
@@ -593,7 +638,7 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
                     if (details) DetailsHeader(vm, s, tab, width)
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         LazyColumn(Modifier.fillMaxSize(), listState, contentPadding = PaddingValues(vertical = 4.dp)) {
-                            items(entries, key = { it.path }) { e -> EntryRow(vm, s, tab, e, rb, details, width) }
+                            items(entries, key = { it.path }) { e -> EntryRow(vm, s, tab, e, rb, details, width, isRovingTarget = active && e.path == rovingPath) }
                             item("filler") { Box(Modifier.fillParentMaxHeightCompat().fillMaxWidth()) }
                         }
                         LazyListScrollbar(listState, Modifier.align(Alignment.CenterEnd))
@@ -779,7 +824,9 @@ private fun DetailsHeader(vm: BrowserViewModel, s: AppState, tab: TabState, widt
                         }
                 }
                 Row(
-                    mod.fillMaxHeightCompat()
+                    mod.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .trackContentAuxFocus("details_header_${key.name}")
+                        .focusRing(RoundedCornerShape(10.dp))
                         .then(dragMod)
                         .clickable(role = Role.Button, onClickLabel = "Sort by $label") { vm.setSort(key) },
                     verticalAlignment = Alignment.CenterVertically,
@@ -924,36 +971,51 @@ private fun ColumnDividerHandle(
     }
 }
 
-private fun Modifier.fillMaxHeightCompat(): Modifier = this.heightIn(min = 28.dp)
+private fun Modifier.fillMaxHeightCompat(): Modifier = this.heightIn(min = 48.dp)
 
-/** Selection, drag-and-drop, click and context-menu behaviour shared by rows and grid cells. */
+/** Selection, drag-and-drop, click, keyboard focus, and context-menu behaviour shared by rows and grid cells. */
 @Composable
-private fun Modifier.entryInteractions(vm: BrowserViewModel, tab: TabState, e: FileEntry, rb: RubberBandState): Modifier {
+private fun Modifier.entryInteractions(
+    vm: BrowserViewModel,
+    tab: TabState,
+    e: FileEntry,
+    rb: RubberBandState,
+    focusShape: Shape,
+    isRovingTarget: Boolean,
+): Modifier {
     val menu = LocalMenu.current
-    val cs = MaterialTheme.colorScheme
+    val focusCoord = LocalFocusCoordinator.current
+    val itemFocusRequester = remember { FocusRequester() }
     val selected = e.path in tab.selection
-    val itemInteraction = remember { MutableInteractionSource() }
-    val keyFocused by itemInteraction.collectIsFocusedAsState()
     DisposableEffect(e.path) { onDispose { rb.itemBounds.remove(e.path) } }
+    DisposableEffect(isRovingTarget, itemFocusRequester) {
+        if (isRovingTarget) focusCoord.activeFileListRequester = itemFocusRequester
+        onDispose {
+            if (focusCoord.activeFileListRequester === itemFocusRequester) {
+                focusCoord.activeFileListRequester = null
+            }
+        }
+    }
+    LaunchedEffect(isRovingTarget) {
+        val st = vm.state.value
+        if (isRovingTarget && !focusCoord.nonListZoneFocused && st.dialog == null && !st.addressEditing && !st.paletteOpen && !st.textFocus) {
+            runCatching { itemFocusRequester.requestFocus() }
+        }
+    }
     val dropPath = if (e.isDir && !selected && !e.isServer) e.path else null
     return this
         .onGloballyPositioned { rb.itemBounds[e.path] = it.boundsInRoot() }
-        .then(if (keyFocused) Modifier.border(2.dp, cs.primary, RoundedCornerShape(16.dp)) else Modifier)
-        .focusable(interactionSource = itemInteraction)
-        .onPreviewKeyEvent { ev ->
-            if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-            when {
-                ev.key == Key.Enter || ev.key == Key.NumPadEnter || ev.key == Key.Spacebar -> {
-                    vm.open(e); true
-                }
-                ev.key == Key.Menu || (ev.key == Key.F10 && ev.isShiftPressed) -> {
-                    vm.setSelectionIfNotSelected(e.path)
-                    menu.show(Offset.Zero, fileMenu(vm, vm.state.value, e))
-                    true
-                }
-                else -> false
-            }
-        }
+        .keyboardFocusableItem(
+            shape = focusShape,
+            canFocus = isRovingTarget,
+            allowSpacebar = false,
+            focusRequester = if (isRovingTarget) itemFocusRequester else null,
+            onActivate = { _, _ -> vm.open(e) },
+            onContextMenu = { off ->
+                vm.setSelectionIfNotSelected(e.path)
+                menu.show(off, fileMenu(vm, vm.state.value, e))
+            },
+        )
         .dropTarget(dropPath)
         .dragSource(
             e.path,
@@ -984,7 +1046,7 @@ private fun Modifier.entryInteractions(vm: BrowserViewModel, tab: TabState, e: F
 }
 
 @Composable
-private fun EntryRow(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEntry, rb: RubberBandState, details: Boolean, width: Dp) {
+private fun EntryRow(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEntry, rb: RubberBandState, details: Boolean, width: Dp, isRovingTarget: Boolean) {
     val cs = MaterialTheme.colorScheme
     val selected = e.path in tab.selection
     val focused = e.path == tab.focused
@@ -1000,12 +1062,13 @@ private fun EntryRow(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEn
         else -> Color.Transparent
     }
     val shape = RoundedCornerShape(if (details) 20.dp else 16.dp)
+    val keyboardMode = LocalFocusCoordinator.current.keyboardFocusVisible
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp).heightIn(min = if (details) 48.dp else 44.dp)
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp).heightIn(min = 48.dp)
             .alpha(if (cut) 0.5f else 1f)
             .clip(shape).background(bg)
-            .then(if (focused) Modifier.border(2.dp, cs.primary.copy(alpha = 0.7f), shape) else Modifier)
-            .hoverable(hover).entryInteractions(vm, tab, e, rb)
+            .then(if (focused && keyboardMode) Modifier.border(2.dp, cs.primary.copy(alpha = 0.7f), shape) else Modifier)
+            .hoverable(hover).entryInteractions(vm, tab, e, rb, focusShape = shape, isRovingTarget = isRovingTarget)
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1051,7 +1114,7 @@ private fun EntryRow(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEn
 }
 
 @Composable
-private fun GridCell(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEntry, rb: RubberBandState) {
+private fun GridCell(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEntry, rb: RubberBandState, isRovingTarget: Boolean) {
     val cs = MaterialTheme.colorScheme
     val selected = e.path in tab.selection
     val focused = e.path == tab.focused
@@ -1061,6 +1124,7 @@ private fun GridCell(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEn
     val dropHover = drag.active && drag.hover == e.path
     val cut = s.clipboard?.cut == true && e.path in s.clipboard.paths
     val shape = RoundedCornerShape(16.dp)
+    val keyboardMode = LocalFocusCoordinator.current.keyboardFocusVisible
     val bg = when {
         dropHover -> cs.primaryContainer
         selected -> cs.secondaryContainer
@@ -1069,8 +1133,8 @@ private fun GridCell(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEn
     }
     Column(
         Modifier.padding(3.dp).alpha(if (cut) 0.5f else 1f).clip(shape).background(bg)
-            .then(if (focused) Modifier.border(2.dp, cs.primary.copy(alpha = 0.7f), shape) else Modifier)
-            .hoverable(hover).entryInteractions(vm, tab, e, rb).padding(6.dp),
+            .then(if (focused && keyboardMode) Modifier.border(2.dp, cs.primary.copy(alpha = 0.7f), shape) else Modifier)
+            .hoverable(hover).entryInteractions(vm, tab, e, rb, focusShape = shape, isRovingTarget = isRovingTarget).padding(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
@@ -1106,6 +1170,7 @@ private fun StatusBar(vm: BrowserViewModel, s: AppState) {
         }
         if (tab.searching) append("  •  $searchingLabel")
     }
+    val cancelDesc = stringResource(R.string.tooltip_cancel_operation)
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val roomForHint = maxWidth > 720.dp && LocalDensity.current.fontScale <= 1.3f
         val compactOp = maxWidth < 520.dp
@@ -1131,8 +1196,8 @@ private fun StatusBar(vm: BrowserViewModel, s: AppState) {
                     )
                     if (f != null) LinearProgressIndicator({ f }, Modifier.width(120.dp)) else LinearProgressIndicator(Modifier.width(120.dp))
                     Text(if (f != null) "  ${(f * 100).toInt()}%" else "", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(44.dp))
-                    ActionTooltip("Cancel") {
-                        IconButton({ vm.cancelOp(op.id) }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "Cancel", Modifier.size(18.dp)) }
+                    ActionTooltip(cancelDesc) {
+                        IconButton({ vm.cancelOp(op.id) }, Modifier.size(48.dp).focusRing(CircleShape)) { Icon(Icons.Outlined.Close, cancelDesc, Modifier.size(18.dp)) }
                     }
                 }
             }
@@ -1153,8 +1218,8 @@ private fun StatusBar(vm: BrowserViewModel, s: AppState) {
                     )
                     if (f != null) LinearProgressIndicator({ f }, Modifier.width(84.dp)) else LinearProgressIndicator(Modifier.width(84.dp))
                     if (f != null) Text("${(f * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-                    ActionTooltip("Cancel") {
-                        IconButton({ vm.cancelOp(op.id) }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "Cancel", Modifier.size(18.dp)) }
+                    ActionTooltip(cancelDesc) {
+                        IconButton({ vm.cancelOp(op.id) }, Modifier.size(48.dp).focusRing(CircleShape)) { Icon(Icons.Outlined.Close, cancelDesc, Modifier.size(18.dp)) }
                     }
                 }
             }
@@ -1208,13 +1273,25 @@ private fun AncestorColumn(vm: BrowserViewModel, s: AppState, tab: TabState, dir
             items(visible, key = { it.path }) { e ->
                 MillerRow(
                     s, e, highlighted = e.path == next, selected = false, focused = false,
-                    Modifier.dropTarget(if (e.isDir && !e.isServer) e.path else null).mouseGestures(
-                        e.path,
-                        onClick = { _, _, _ -> vm.columnClick(e) },
-                        onDoubleClick = { if (!e.isDir) vm.open(e) },
-                        onSecondary = { off -> if (e.isDir) menu.show(off, sidebarMenu(vm, vm.state.value, e.path, e.path in vm.state.value.pins)) },
-                        onMiddle = { if (e.isDir) vm.open(e, newTab = true) },
-                    ),
+                    Modifier
+                        .keyboardFocusableItem(
+                            shape = RoundedCornerShape(10.dp),
+                            canFocus = e.path == next,
+                            allowSpacebar = false,
+                            onActivate = { _, _ -> vm.columnClick(e) },
+                            onContextMenu = { off -> if (e.isDir) menu.show(off, sidebarMenu(vm, vm.state.value, e.path, e.path in vm.state.value.pins)) },
+                        )
+                        .dropTarget(if (e.isDir && !e.isServer) e.path else null)
+                        .mouseGestures(
+                            e.path,
+                            role = Role.Button,
+                            onClickLabel = "Open ${e.name}",
+                            onClick = { _, _, _ -> vm.columnClick(e) },
+                            onDoubleClick = { if (!e.isDir) vm.open(e) },
+                            onSecondary = { off -> if (e.isDir) menu.show(off, sidebarMenu(vm, vm.state.value, e.path, e.path in vm.state.value.pins)) },
+                            onLongPress = { off -> if (e.isDir) menu.show(off, sidebarMenu(vm, vm.state.value, e.path, e.path in vm.state.value.pins)) },
+                            onMiddle = { if (e.isDir) vm.open(e, newTab = true) },
+                        ),
                 )
             }
         }
@@ -1226,11 +1303,22 @@ private fun AncestorColumn(vm: BrowserViewModel, s: AppState, tab: TabState, dir
 private fun CurrentColumn(vm: BrowserViewModel, s: AppState, tab: TabState, entries: List<FileEntry>) {
     val menu = LocalMenu.current
     val density = LocalDensity.current
+    val focusCoord = LocalFocusCoordinator.current
     val cs = MaterialTheme.colorScheme
+    val active = s.active.id == tab.id
     val rb = remember(tab.id) { RubberBandState() }
     val state = rememberLazyListState()
     var origin by remember { androidx.compose.runtime.mutableStateOf(Offset.Zero) }
+    val rovingPath = remember(entries, tab.focused) {
+        tab.focused?.takeIf { f -> entries.any { it.path == f } } ?: entries.firstOrNull()?.path
+    }
     LaunchedEffect(tab.path) { state.scrollToItem(0) }
+    LaunchedEffect(active, tab.id, tab.path, rovingPath) {
+        if (active && rovingPath != null && !focusCoord.nonListZoneFocused && s.dialog == null && !s.addressEditing && !s.paletteOpen && !s.textFocus) {
+            withFrameNanos { }
+            focusCoord.focusFileList()
+        }
+    }
     LaunchedEffect(tab.focused) {
         val idx = entries.indexOfFirst { it.path == tab.focused }
         val info = state.layoutInfo.visibleItemsInfo
@@ -1253,10 +1341,34 @@ private fun CurrentColumn(vm: BrowserViewModel, s: AppState, tab: TabState, entr
                 LazyColumn(Modifier.fillMaxSize(), state, contentPadding = PaddingValues(vertical = 4.dp)) {
                     items(entries, key = { it.path }) { e ->
                         val selected = e.path in tab.selection
+                        val isRoving = active && e.path == rovingPath
+                        val millerFocusRequester = remember { FocusRequester() }
                         DisposableEffect(e.path) { onDispose { rb.itemBounds.remove(e.path) } }
+                        DisposableEffect(isRoving, millerFocusRequester) {
+                            if (isRoving) focusCoord.activeFileListRequester = millerFocusRequester
+                            onDispose {
+                                if (focusCoord.activeFileListRequester === millerFocusRequester) {
+                                    focusCoord.activeFileListRequester = null
+                                }
+                            }
+                        }
+                        LaunchedEffect(isRoving) {
+                            val st = vm.state.value
+                            if (isRoving && !focusCoord.nonListZoneFocused && st.dialog == null && !st.addressEditing && !st.paletteOpen && !st.textFocus) {
+                                runCatching { millerFocusRequester.requestFocus() }
+                            }
+                        }
                         MillerRow(
                             s, e, highlighted = false, selected = selected, focused = e.path == tab.focused,
                             Modifier.onGloballyPositioned { rb.itemBounds[e.path] = it.boundsInRoot() }
+                                .keyboardFocusableItem(
+                                    shape = RoundedCornerShape(10.dp),
+                                    canFocus = isRoving,
+                                    allowSpacebar = false,
+                                    focusRequester = if (isRoving) millerFocusRequester else null,
+                                    onActivate = { _, _ -> vm.open(e) },
+                                    onContextMenu = { off -> vm.setSelectionIfNotSelected(e.path); menu.show(off, fileMenu(vm, vm.state.value, e)) },
+                                )
                                 .dropTarget(if (e.isDir && !selected && !e.isServer) e.path else null)
                                 .dragSource(
                                     e.path,
@@ -1265,6 +1377,9 @@ private fun CurrentColumn(vm: BrowserViewModel, s: AppState, tab: TabState, entr
                                 )
                                 .mouseGestures(
                                     e.path,
+                                    role = Role.Button,
+                                    selected = selected,
+                                    onClickLabel = "Open ${e.name}",
                                     onClick = { ctrl, shift, touch ->
                                         when {
                                             touch && vm.state.value.active.selection.isNotEmpty() -> vm.click(e.path, ctrl = true, shift = false)
@@ -1305,6 +1420,7 @@ private fun MillerRow(s: AppState, e: FileEntry, highlighted: Boolean, selected:
     val drag = LocalDrag.current
     val cut = s.clipboard?.cut == true && e.path in s.clipboard.paths
     val shape = RoundedCornerShape(10.dp)
+    val keyboardMode = LocalFocusCoordinator.current.keyboardFocusVisible
     val bg = when {
         drag.active && drag.hover == e.path -> cs.primaryContainer
         selected -> cs.secondaryContainer
@@ -1313,9 +1429,9 @@ private fun MillerRow(s: AppState, e: FileEntry, highlighted: Boolean, selected:
         else -> Color.Transparent
     }
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 6.dp).heightIn(min = 32.dp).alpha(if (cut) 0.5f else 1f)
+        Modifier.fillMaxWidth().padding(horizontal = 6.dp).heightIn(min = 48.dp).alpha(if (cut) 0.5f else 1f)
             .clip(shape).background(bg)
-            .then(if (focused) Modifier.border(2.dp, cs.primary.copy(alpha = 0.7f), shape) else Modifier)
+            .then(if (focused && keyboardMode) Modifier.border(2.dp, cs.primary.copy(alpha = 0.7f), shape) else Modifier)
             .hoverable(hover).then(modifier).padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

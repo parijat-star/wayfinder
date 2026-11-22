@@ -35,6 +35,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -73,6 +75,16 @@ import java.io.File
 @Composable
 fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
     val cs = MaterialTheme.colorScheme
+    val focusCoord = LocalFocusCoordinator.current
+    val closeRequester = remember { FocusRequester() }
+    androidx.compose.runtime.DisposableEffect(closeRequester) {
+        focusCoord.activePreviewFirstRequester = closeRequester
+        onDispose {
+            if (focusCoord.activePreviewFirstRequester === closeRequester) {
+                focusCoord.activePreviewFirstRequester = null
+            }
+        }
+    }
     val tab = s.active
     val sel = tab.selectedEntries(s.showHidden)
     Surface(modifier, shape = RoundedCornerShape(16.dp), color = cs.surfaceContainerLowest) {
@@ -81,8 +93,14 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.details_pane_title), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                    ActionTooltip("Close details (Alt+P)") {
-                        IconButton({ vm.togglePreview() }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "Close details (Alt+P)", Modifier.size(18.dp)) }
+                    val closeDetailsDesc = stringResource(R.string.action_close_details)
+                    ActionTooltip(stringResource(R.string.tooltip_close_details)) {
+                        IconButton(
+                            { vm.togglePreview() },
+                            Modifier.size(48.dp).focusRequester(closeRequester).focusRing(CircleShape),
+                        ) {
+                            Icon(Icons.Outlined.Close, closeDetailsDesc, Modifier.size(18.dp))
+                        }
                     }
                 }
             when (sel.size) {
@@ -102,25 +120,26 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                     if (FsPath.isLocalFile(e.path)) PosixFact(e)
                     if (!e.isServer && !e.isShare) MarksEditor(vm, s, e)
                     val btnPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    val btnMod = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRing(RoundedCornerShape(20.dp))
                     FlowRow(
                         Modifier.padding(top = 16.dp).fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        FilledTonalButton({ vm.openSelection() }, contentPadding = btnPadding) { Text("Open", maxLines = 1, softWrap = false) }
+                        FilledTonalButton({ vm.openSelection() }, modifier = btnMod, contentPadding = btnPadding) { Text("Open", maxLines = 1, softWrap = false) }
                         if (FsPath.isOneDrive(e.path)) {
-                            FilledTonalButton({ vm.openInOneDriveWeb(e.path) }, contentPadding = btnPadding) {
+                            FilledTonalButton({ vm.openInOneDriveWeb(e.path) }, modifier = btnMod, contentPadding = btnPadding) {
                                 Text(stringResource(R.string.onedrive_action_open_web), maxLines = 1, softWrap = false)
                             }
                         }
-                        if (FsPath.isLocalFile(e.path) && !e.isDir) FilledTonalButton({ vm.share() }, contentPadding = btnPadding) { Text("Share", maxLines = 1, softWrap = false) }
+                        if (FsPath.isLocalFile(e.path) && !e.isDir) FilledTonalButton({ vm.share() }, modifier = btnMod, contentPadding = btnPadding) { Text("Share", maxLines = 1, softWrap = false) }
                         if (!e.isServer && !e.isShare && !FsPath.isZip(e.path) && !FsPath.isVirtual(e.path)) {
                             val pinned = e.path in s.pins
-                            FilledTonalButton({ vm.togglePin(e.path) }, contentPadding = btnPadding) {
+                            FilledTonalButton({ vm.togglePin(e.path) }, modifier = btnMod, contentPadding = btnPadding) {
                                 Text(if (pinned) "Unpin" else "Pin", maxLines = 1, softWrap = false)
                             }
                         }
-                        if (!e.isServer && !e.isShare && !FsPath.isZip(e.path)) FilledTonalButton({ vm.requestRename() }, contentPadding = btnPadding) { Text("Rename", maxLines = 1, softWrap = false) }
+                        if (!e.isServer && !e.isShare && !FsPath.isZip(e.path)) FilledTonalButton({ vm.requestRename() }, modifier = btnMod, contentPadding = btnPadding) { Text("Rename", maxLines = 1, softWrap = false) }
                     }
                     if (!e.isDir && FsPath.isLocalFile(e.path) && (e.kind == FileKind.Text || e.kind == FileKind.Code)) TextSnippet(e)
                 }
@@ -183,56 +202,85 @@ private fun MarksEditor(vm: BrowserViewModel, s: AppState, e: FileEntry) {
     val starred = s.marks.isStarred(e.path)
     val pinned = e.path in s.pins
     val tags = s.marks.tagsOf(e.path)
-    Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("Tags", Modifier.widthIn(min = 84.dp).padding(end = 8.dp), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.padding(top = 10.dp)) {
+        Text("Tags", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+        FlowRow(
+            Modifier.padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
             if (!FsPath.isVirtual(e.path) && !FsPath.isZip(e.path)) {
+                val pinDesc = stringResource(if (pinned) R.string.action_unpin_from_sidebar else R.string.action_pin_to_sidebar)
+                ActionTooltip(pinDesc) {
+                    Box(
+                        Modifier.size(48.dp)
+                            .focusRing(CircleShape)
+                            .semantics {
+                                role = Role.Checkbox
+                                this.selected = pinned
+                            }
+                            .clip(CircleShape)
+                            .clickable(role = Role.Checkbox, onClickLabel = pinDesc) { vm.togglePin(e.path) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            if (pinned) androidx.compose.material.icons.Icons.Filled.PushPin else androidx.compose.material.icons.Icons.Outlined.PushPin,
+                            pinDesc,
+                            Modifier.size(20.dp),
+                            tint = if (pinned) cs.primary else cs.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            val starDesc = stringResource(if (starred) R.string.action_remove_from_starred else R.string.action_add_to_starred)
+            ActionTooltip(starDesc) {
                 Box(
-                    Modifier.sizeIn(minWidth = 32.dp, minHeight = 32.dp)
+                    Modifier.size(48.dp)
+                        .focusRing(CircleShape)
                         .semantics {
                             role = Role.Checkbox
-                            this.selected = pinned
+                            this.selected = starred
                         }
                         .clip(CircleShape)
-                        .clickable(onClickLabel = if (pinned) "Unpin from sidebar" else "Pin to sidebar") { vm.togglePin(e.path) },
+                        .clickable(role = Role.Checkbox, onClickLabel = starDesc) { vm.toggleStar(listOf(e.path)) },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        if (pinned) androidx.compose.material.icons.Icons.Filled.PushPin else androidx.compose.material.icons.Icons.Outlined.PushPin,
-                        if (pinned) "Unpin from sidebar" else "Pin to sidebar",
+                        if (starred) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                        starDesc,
                         Modifier.size(20.dp),
-                        tint = if (pinned) cs.primary else cs.onSurfaceVariant,
+                        tint = if (starred) StarColor else cs.onSurfaceVariant,
                     )
                 }
             }
-            Box(
-                Modifier.sizeIn(minWidth = 32.dp, minHeight = 32.dp)
-                    .semantics {
-                        role = Role.Checkbox
-                        this.selected = starred
-                    }
-                    .clip(CircleShape)
-                    .clickable(onClickLabel = if (starred) "Remove from Starred" else "Add to Starred") { vm.toggleStar(listOf(e.path)) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(if (starred) Icons.Filled.Star else Icons.Outlined.StarOutline, if (starred) "Remove from Starred" else "Add to Starred",
-                    Modifier.size(20.dp), tint = if (starred) StarColor else cs.onSurfaceVariant)
-            }
             ColorTag.entries.forEach { t ->
                 val on = t in tags
-                Box(
-                    Modifier.sizeIn(minWidth = 32.dp, minHeight = 32.dp)
-                        .semantics {
-                            role = Role.Checkbox
-                            this.selected = on
-                            contentDescription = "Tag ${t.label}"
+                val tagDesc = stringResource(if (on) R.string.action_remove_color_tag else R.string.action_add_color_tag, t.label)
+                val tagTooltip = stringResource(R.string.tooltip_color_tag, t.label)
+                val tagA11y = stringResource(R.string.a11y_color_tag, t.label)
+                ActionTooltip(tagTooltip) {
+                    Box(
+                        Modifier.size(48.dp)
+                            .focusRing(CircleShape)
+                            .semantics {
+                                role = Role.Checkbox
+                                this.selected = on
+                                contentDescription = tagA11y
+                            }
+                            .clip(CircleShape)
+                            .clickable(role = Role.Checkbox, onClickLabel = tagDesc) { vm.toggleTag(t, listOf(e.path)) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier.size(28.dp).clip(CircleShape)
+                                .background(Color(t.argb).copy(alpha = if (on) 1f else 0.25f))
+                                .then(if (on) Modifier.border(2.dp, cs.onSurface.copy(alpha = 0.5f), CircleShape) else Modifier),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (on) Icon(Icons.Filled.Check, t.label, Modifier.size(14.dp), tint = Color.White)
                         }
-                        .clip(CircleShape)
-                        .background(Color(t.argb).copy(alpha = if (on) 1f else 0.25f))
-                        .then(if (on) Modifier.border(2.dp, cs.onSurface.copy(alpha = 0.5f), CircleShape) else Modifier)
-                        .clickable(onClickLabel = if (on) "Remove ${t.label} tag" else "Add ${t.label} tag") { vm.toggleTag(t, listOf(e.path)) },
-                    contentAlignment = Alignment.Center,
-                ) { if (on) Icon(Icons.Filled.Check, t.label, Modifier.size(14.dp), tint = Color.White) }
+                    }
+                }
             }
         }
     }

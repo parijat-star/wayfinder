@@ -84,21 +84,21 @@ class AdaptiveCertificationTest {
     @Test fun homeToolbarAndTitleBarIconButtonsMeetMinimumTouchTargets() {
         launch { file("doc.txt", "hello") }
         listOf(
-            "Back (Alt+←)",
-            "Forward (Alt+→)",
-            "Up (Alt+↑)",
-            "Refresh (F5)",
-            "Undo (Ctrl+Z)",
-            "Redo (Ctrl+Y)",
+            "Back",
+            "Forward",
+            "Up",
+            "Refresh",
+            "Undo",
+            "Redo",
             "More",
         ).forEach { desc ->
             rule.onNodeWithContentDescription(desc)
                 .assertWidthIsAtLeast(48.dp)
                 .assertHeightIsAtLeast(48.dp)
         }
-        rule.onNodeWithContentDescription("New tab (Ctrl+T)")
+        rule.onNodeWithContentDescription("New tab")
             .assertWidthIsAtLeast(48.dp)
-            .assertHeightIsAtLeast(44.dp)
+            .assertHeightIsAtLeast(48.dp)
     }
 
     @Test fun touchLongPressOnFileOpensContextMenu() {

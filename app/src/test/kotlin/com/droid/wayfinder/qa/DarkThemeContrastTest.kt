@@ -150,9 +150,9 @@ class DarkThemeContrastTest {
         h.settle()
         rule.waitForIdle()
 
-        rule.onNodeWithContentDescription("Refresh (F5)").assertIsDisplayed()
-        rule.onNodeWithContentDescription("Undo (Ctrl+Z)").assertIsDisplayed()
-        rule.onNodeWithContentDescription("Redo (Ctrl+Y)").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Refresh").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Undo").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Redo").assertIsDisplayed()
         rule.onNodeWithContentDescription("More").assertIsDisplayed()
         rule.onNodeWithText("Sort").assertIsDisplayed().performClick()
         rule.waitForIdle()
