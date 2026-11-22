@@ -378,4 +378,68 @@
     <string name="default_handler_test_prompt" description="Secondary button in the Default File Handler dialog that launches ACTION_VIEW_DOWNLOADS to trigger Android\'s Open-with chooser. [CHAR_LIMIT=30]">Test Open-With Prompt</string>
     <string name="default_handler_app_settings" description="Primary button in the Default File Handler dialog that opens Android App Info or Default Apps settings for Wayfinder. [CHAR_LIMIT=30]">App Default Settings</string>
     <string name="default_handler_not_now" description="Dismiss button in the Default File Handler dialog to close the prompt without changing settings. [CHAR_LIMIT=20]">Not now</string>
+
+    <!-- System Keyboard Shortcuts Helper (Meta+/) -->
+    <string name="shortcut_group_tabs_windows" description="Category heading in the system Keyboard Shortcuts Helper for tab and window shortcuts. [CHAR_LIMIT=30]">Tabs &amp; windows</string>
+    <string name="shortcut_group_navigate" description="Category heading in the system Keyboard Shortcuts Helper for navigation shortcuts. [CHAR_LIMIT=25]">Navigate</string>
+    <string name="shortcut_group_select_edit" description="Category heading in the system Keyboard Shortcuts Helper for selection and file editing shortcuts. [CHAR_LIMIT=25]">Select &amp; edit</string>
+    <string name="shortcut_group_view" description="Category heading in the system Keyboard Shortcuts Helper for view and layout shortcuts. [CHAR_LIMIT=20]">View</string>
+    <string name="shortcut_group_dual_pane" description="Category heading in the system Keyboard Shortcuts Helper for dual-pane commander shortcuts. [CHAR_LIMIT=25]">Dual pane</string>
+
+    <string name="shortcut_new_tab" description="System Keyboard Shortcuts Helper label for opening a new tab (Ctrl+T). [CHAR_LIMIT=35]">New tab</string>
+    <string name="shortcut_close_tab" description="System Keyboard Shortcuts Helper label for closing the active tab (Ctrl+W). [CHAR_LIMIT=35]">Close tab</string>
+    <string name="shortcut_next_tab" description="System Keyboard Shortcuts Helper label for switching to the next tab (Ctrl+Tab). [CHAR_LIMIT=35]">Next tab</string>
+    <string name="shortcut_previous_tab" description="System Keyboard Shortcuts Helper label for switching to the previous tab (Ctrl+Shift+Tab). [CHAR_LIMIT=35]">Previous tab</string>
+    <string name="shortcut_go_to_tab" description="System Keyboard Shortcuts Helper label for jumping to tabs 1 through 9 (Alt+1 to Alt+9). [CHAR_LIMIT=35]">Go to tab 1–9</string>
+    <string name="shortcut_reopen_closed_tab" description="System Keyboard Shortcuts Helper label for reopening the last closed tab (Ctrl+Shift+T). [CHAR_LIMIT=35]">Reopen closed tab</string>
+    <string name="shortcut_open_folder_new_tab" description="System Keyboard Shortcuts Helper label for opening the selected folder in a new tab (Ctrl+Enter). [CHAR_LIMIT=40]">Open folder in new tab</string>
+    <string name="shortcut_command_palette" description="System Keyboard Shortcuts Helper label for opening the command palette (Ctrl+K). [CHAR_LIMIT=35]">Command palette</string>
+    <string name="shortcut_new_window" description="System Keyboard Shortcuts Helper label for opening a new Wayfinder window (Ctrl+N). [CHAR_LIMIT=35]">New window</string>
+
+    <string name="shortcut_back" description="System Keyboard Shortcuts Helper label for navigating back in folder history (Alt+Left). [CHAR_LIMIT=35]">Back</string>
+    <string name="shortcut_forward" description="System Keyboard Shortcuts Helper label for navigating forward in folder history (Alt+Right). [CHAR_LIMIT=35]">Forward</string>
+    <string name="shortcut_up_one_level" description="System Keyboard Shortcuts Helper label for navigating to the parent folder (Alt+Up). [CHAR_LIMIT=35]">Up one level</string>
+    <string name="shortcut_open" description="System Keyboard Shortcuts Helper label for opening the selected file or folder (Enter). [CHAR_LIMIT=35]">Open</string>
+    <string name="shortcut_quick_look" description="System Keyboard Shortcuts Helper label for toggling the Quick Look file preview overlay (Space). [CHAR_LIMIT=35]">Quick Look preview</string>
+    <string name="shortcut_address_bar" description="System Keyboard Shortcuts Helper label for focusing the path address bar (Ctrl+L). [CHAR_LIMIT=35]">Address bar</string>
+    <string name="shortcut_search" description="System Keyboard Shortcuts Helper label for focusing the folder search bar (Ctrl+F). [CHAR_LIMIT=35]">Search</string>
+    <string name="shortcut_refresh" description="System Keyboard Shortcuts Helper label for reloading the current folder (Ctrl+R). [CHAR_LIMIT=35]">Refresh</string>
+    <string name="shortcut_connect_server" description="System Keyboard Shortcuts Helper label for opening the Connect to server dialog (Ctrl+Shift+K). [CHAR_LIMIT=35]">Connect to server</string>
+
+    <string name="shortcut_select_all" description="System Keyboard Shortcuts Helper label for selecting all items in the active folder (Ctrl+A). [CHAR_LIMIT=35]">Select all</string>
+    <string name="shortcut_invert_selection" description="System Keyboard Shortcuts Helper label for inverting the current selection (Ctrl+Shift+I). [CHAR_LIMIT=35]">Invert selection</string>
+    <string name="shortcut_clear_selection" description="System Keyboard Shortcuts Helper label for clearing the current selection (Ctrl+Shift+A). [CHAR_LIMIT=35]">Clear selection</string>
+    <string name="shortcut_toggle_item" description="System Keyboard Shortcuts Helper label for toggling selection on the focused item (Ctrl+Space). [CHAR_LIMIT=35]">Toggle item selection</string>
+    <string name="shortcut_cut" description="System Keyboard Shortcuts Helper label for cutting selected files (Ctrl+X). [CHAR_LIMIT=35]">Cut</string>
+    <string name="shortcut_copy" description="System Keyboard Shortcuts Helper label for copying selected files (Ctrl+C). [CHAR_LIMIT=35]">Copy</string>
+    <string name="shortcut_paste" description="System Keyboard Shortcuts Helper label for pasting files into the active folder (Ctrl+V). [CHAR_LIMIT=35]">Paste</string>
+    <string name="shortcut_undo" description="System Keyboard Shortcuts Helper label for undoing the last file operation (Ctrl+Z). [CHAR_LIMIT=35]">Undo</string>
+    <string name="shortcut_redo" description="System Keyboard Shortcuts Helper label for redoing an undone file operation (Ctrl+Y). [CHAR_LIMIT=35]">Redo</string>
+    <string name="shortcut_duplicate" description="System Keyboard Shortcuts Helper label for duplicating selected files (Ctrl+D). [CHAR_LIMIT=35]">Duplicate</string>
+    <string name="shortcut_rename" description="System Keyboard Shortcuts Helper label for renaming the selected item (F2). [CHAR_LIMIT=35]">Rename</string>
+    <string name="shortcut_batch_rename" description="System Keyboard Shortcuts Helper label for opening the batch rename dialog (Ctrl+Shift+R). [CHAR_LIMIT=35]">Batch rename</string>
+    <string name="shortcut_copy_path" description="System Keyboard Shortcuts Helper label for copying the selected path to the clipboard (Ctrl+Shift+C). [CHAR_LIMIT=35]">Copy path</string>
+    <string name="shortcut_delete" description="System Keyboard Shortcuts Helper label for moving selected items to Trash (Delete). [CHAR_LIMIT=35]">Delete</string>
+    <string name="shortcut_delete_permanently" description="System Keyboard Shortcuts Helper label for permanently deleting selected items (Shift+Delete). [CHAR_LIMIT=35]">Delete permanently</string>
+    <string name="shortcut_new_folder" description="System Keyboard Shortcuts Helper label for creating a new folder (Ctrl+Shift+N). [CHAR_LIMIT=35]">New folder</string>
+    <string name="shortcut_new_text_file" description="System Keyboard Shortcuts Helper label for creating a new text file (Ctrl+Shift+M). [CHAR_LIMIT=35]">New text file</string>
+    <string name="shortcut_properties" description="System Keyboard Shortcuts Helper label for viewing file or folder properties (Ctrl+I). [CHAR_LIMIT=35]">Properties</string>
+
+    <string name="shortcut_view_details" description="System Keyboard Shortcuts Helper label for switching to Details list view (Ctrl+1). [CHAR_LIMIT=35]">Details view</string>
+    <string name="shortcut_view_grid" description="System Keyboard Shortcuts Helper label for switching to Grid view (Ctrl+2). [CHAR_LIMIT=35]">Grid view</string>
+    <string name="shortcut_view_columns" description="System Keyboard Shortcuts Helper label for switching to Miller columns view (Ctrl+3). [CHAR_LIMIT=35]">Columns view</string>
+    <string name="shortcut_hidden_files" description="System Keyboard Shortcuts Helper label for toggling visibility of hidden dotfiles (Ctrl+H). [CHAR_LIMIT=35]">Show hidden files</string>
+    <string name="shortcut_pin_folder" description="System Keyboard Shortcuts Helper label for pinning or unpinning the active folder in the sidebar (Ctrl+B). [CHAR_LIMIT=35]">Pin / unpin folder</string>
+    <string name="shortcut_toggle_sidebar" description="System Keyboard Shortcuts Helper label for showing or hiding the sidebar (Ctrl+\). [CHAR_LIMIT=35]">Toggle sidebar</string>
+    <string name="shortcut_toggle_details_pane" description="System Keyboard Shortcuts Helper label for showing or hiding the details preview pane (Alt+P). [CHAR_LIMIT=35]">Toggle details pane</string>
+    <string name="shortcut_locate_in_tree" description="System Keyboard Shortcuts Helper label for revealing the active folder in the sidebar tree (Alt+Shift+L). [CHAR_LIMIT=35]">Locate folder in tree</string>
+    <string name="shortcut_zoom_in" description="System Keyboard Shortcuts Helper label for increasing interface zoom (Ctrl+=). [CHAR_LIMIT=35]">Zoom in</string>
+    <string name="shortcut_zoom_out" description="System Keyboard Shortcuts Helper label for decreasing interface zoom (Ctrl+-). [CHAR_LIMIT=35]">Zoom out</string>
+    <string name="shortcut_zoom_reset" description="System Keyboard Shortcuts Helper label for resetting interface zoom to default (Ctrl+0). [CHAR_LIMIT=35]">Reset zoom</string>
+    <string name="shortcut_help" description="System Keyboard Shortcuts Helper label for opening Wayfinder\'s in-app shortcuts sheet (F1). [CHAR_LIMIT=35]">Keyboard shortcuts</string>
+
+    <string name="shortcut_toggle_dual_pane" description="System Keyboard Shortcuts Helper label for toggling dual-pane commander mode (F3). [CHAR_LIMIT=35]">Toggle dual pane</string>
+    <string name="shortcut_switch_pane" description="System Keyboard Shortcuts Helper label for switching focus between dual panes (Tab). [CHAR_LIMIT=35]">Switch active pane</string>
+    <string name="shortcut_copy_other_pane" description="System Keyboard Shortcuts Helper label for copying selected items to the other pane (F5). [CHAR_LIMIT=35]">Copy to other pane</string>
+    <string name="shortcut_move_other_pane" description="System Keyboard Shortcuts Helper label for moving selected items to the other pane (F6). [CHAR_LIMIT=35]">Move to other pane</string>
 </resources>

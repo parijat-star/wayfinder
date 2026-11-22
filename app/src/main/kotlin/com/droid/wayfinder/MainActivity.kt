@@ -9,6 +9,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.view.KeyboardShortcutGroup
+import android.view.Menu
 import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -175,6 +177,15 @@ class MainActivity : ComponentActivity() {
             intent = Intent(i.action)
         }
         return true
+    }
+
+    override fun onProvideKeyboardShortcuts(
+        data: MutableList<KeyboardShortcutGroup>?,
+        menu: Menu?,
+        deviceId: Int,
+    ) {
+        super.onProvideKeyboardShortcuts(data, menu, deviceId)
+        data?.addAll(com.droid.wayfinder.data.KeyboardShortcuts.toSystemGroups(this))
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
