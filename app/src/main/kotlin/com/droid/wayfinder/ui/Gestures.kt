@@ -193,8 +193,12 @@ fun Modifier.mouseGestures(
                             if (ch.isConsumed || (ch.position - down.position).getDistance() > vc.touchSlop) {
                                 return@awaitEachGesture
                             }
-                            if (!ch.pressed) {
-                                ch.consume()
+                            val stillPressed = ch.pressed
+                            val finalEvent = awaitPointerEvent(PointerEventPass.Final)
+                            val finalCh = finalEvent.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+                            if (finalCh.isConsumed) return@awaitEachGesture
+                            if (!stillPressed) {
+                                finalCh.consume()
                                 click(false, false, true)
                                 return@awaitEachGesture
                             }
@@ -270,7 +274,8 @@ fun Modifier.mouseGestures(
                     return@awaitEachGesture
                 }
 
-                // Precise pointer (mouse / trackpad): monitor for mid-gesture two-finger secondary click as well.
+                // Precise pointer (mouse / trackpad): monitor for mid-gesture two-finger secondary click as well,
+                // while checking PointerEventPass.Final so outer dragSource / scroll gestures aren't preempted on release.
                 var up: PointerInputChange?
                 while (true) {
                     val nextEvent = awaitPointerEvent(PointerEventPass.Main)
@@ -284,8 +289,12 @@ fun Modifier.mouseGestures(
                     }
                     val ch = nextEvent.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
                     if (ch.isConsumed) return@awaitEachGesture
-                    if (!ch.pressed) {
-                        up = ch
+                    val stillPressed = ch.pressed
+                    val finalEvent = awaitPointerEvent(PointerEventPass.Final)
+                    val finalCh = finalEvent.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+                    if (finalCh.isConsumed) return@awaitEachGesture
+                    if (!stillPressed) {
+                        up = finalCh
                         break
                     }
                 }
@@ -473,6 +482,30 @@ class RubberBandState {
 
     fun clear() {
         overlayRect = null
+    }
+
+    /**
+     * Updates [itemBounds] for [path] from [coords]. Items pinned off-screen (e.g. holding keyboard
+     * focus in a [androidx.compose.foundation.lazy.LazyColumn]) have empty clipped [boundsInRoot] and
+     * are removed from live viewport bounds so stale coordinates never overwrite [MarqueeSession];
+     * visible items record their unclipped root bounds so partial edge clipping preserves content height.
+     */
+    fun recordItemCoordinates(path: String, coords: LayoutCoordinates): Rect? {
+        if (!coords.isAttached) {
+            itemBounds.remove(path)
+            dragHandleBounds.remove(path)
+            return null
+        }
+        val clipped = coords.boundsInRoot()
+        if (clipped.isEmpty) {
+            itemBounds.remove(path)
+            dragHandleBounds.remove(path)
+            return null
+        }
+        val pos = coords.positionInRoot()
+        val unclipped = Rect(pos.x, pos.y, pos.x + coords.size.width.toFloat(), pos.y + coords.size.height.toFloat())
+        itemBounds[path] = unclipped
+        return unclipped
     }
 }
 

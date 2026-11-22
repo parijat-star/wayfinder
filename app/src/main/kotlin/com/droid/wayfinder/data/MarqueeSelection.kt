@@ -145,6 +145,7 @@ class MarqueeSession(
     /** Records currently visible items' viewport-local bounds into drag content space. */
     fun updateVisibleItems(visibleViewportBounds: Map<String, MarqueeRect>) {
         for ((path, rect) in visibleViewportBounds) {
+            if (rect.isEmpty) continue
             itemContentBounds[path] = rect.translate(0f, scrollY)
         }
     }

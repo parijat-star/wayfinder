@@ -1065,7 +1065,10 @@ private class RowHandleTracker(private val rb: RubberBandState, private val path
     private var name: androidx.compose.ui.geometry.Rect? = null
     private var sub: androidx.compose.ui.geometry.Rect? = null
 
-    fun onRow(r: androidx.compose.ui.geometry.Rect) { row = r; sync() }
+    fun onRow(r: androidx.compose.ui.geometry.Rect?) {
+        row = r
+        if (r == null) rb.dragHandleBounds.remove(path) else sync()
+    }
     fun onIcon(r: androidx.compose.ui.geometry.Rect) { icon = r; sync() }
     fun onName(r: androidx.compose.ui.geometry.Rect) { name = r; sync() }
     fun onSub(r: androidx.compose.ui.geometry.Rect?) { sub = r; sync() }
@@ -1121,8 +1124,7 @@ private fun Modifier.entryInteractions(
     val dropPath = if (e.isDir && !selected && !e.isServer) e.path else null
     return this
         .onGloballyPositioned {
-            val bounds = it.boundsInRoot()
-            rb.itemBounds[e.path] = bounds
+            val bounds = rb.recordItemCoordinates(e.path, it)
             handleTracker?.onRow(bounds)
         }
         .keyboardFocusableItem(
@@ -1515,8 +1517,7 @@ private fun CurrentColumn(vm: BrowserViewModel, s: AppState, tab: TabState, entr
                             MillerRow(
                                 s, e, highlighted = false, selected = selected, focused = e.path == tab.focused,
                                 Modifier.onGloballyPositioned {
-                                    val bounds = it.boundsInRoot()
-                                    rb.itemBounds[e.path] = bounds
+                                    val bounds = rb.recordItemCoordinates(e.path, it)
                                     tracker.onRow(bounds)
                                 }
                                     .keyboardFocusableItem(

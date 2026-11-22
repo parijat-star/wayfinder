@@ -815,6 +815,9 @@ internal fun startSystemFileDrag(
     paths: List<String>,
     initialCopyMode: Boolean = false,
 ): Boolean {
+    // Robolectric's ShadowView.startDragAndDrop returns true without dispatching DragEvents;
+    // fall back to in-process DragController during JVM Robolectric UI tests.
+    if (android.os.Build.FINGERPRINT == "robolectric") return false
     val built = buildOutboundDragClipData(view.context, paths) ?: return false
     val (clip, hasContentUris) = built
     val shadow = WayfinderDragShadowBuilder(view.context, paths)
