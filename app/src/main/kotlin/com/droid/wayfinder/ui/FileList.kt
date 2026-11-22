@@ -62,6 +62,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -779,7 +780,7 @@ private fun DetailsHeader(vm: BrowserViewModel, s: AppState, tab: TabState, widt
                         }
                 }
                 Row(
-                    mod.fillMaxHeightCompat()
+                    mod.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                         .then(dragMod)
                         .clickable(role = Role.Button, onClickLabel = "Sort by $label") { vm.setSort(key) },
                     verticalAlignment = Alignment.CenterVertically,
@@ -924,7 +925,7 @@ private fun ColumnDividerHandle(
     }
 }
 
-private fun Modifier.fillMaxHeightCompat(): Modifier = this.heightIn(min = 28.dp)
+private fun Modifier.fillMaxHeightCompat(): Modifier = this.heightIn(min = 48.dp)
 
 /** Selection, drag-and-drop, click and context-menu behaviour shared by rows and grid cells. */
 @Composable
@@ -1001,7 +1002,7 @@ private fun EntryRow(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEn
     }
     val shape = RoundedCornerShape(if (details) 20.dp else 16.dp)
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp).heightIn(min = if (details) 48.dp else 44.dp)
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp).heightIn(min = 48.dp)
             .alpha(if (cut) 0.5f else 1f)
             .clip(shape).background(bg)
             .then(if (focused) Modifier.border(2.dp, cs.primary.copy(alpha = 0.7f), shape) else Modifier)
@@ -1314,7 +1315,7 @@ private fun MillerRow(s: AppState, e: FileEntry, highlighted: Boolean, selected:
         else -> Color.Transparent
     }
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 6.dp).heightIn(min = 32.dp).alpha(if (cut) 0.5f else 1f)
+        Modifier.fillMaxWidth().padding(horizontal = 6.dp).heightIn(min = 48.dp).alpha(if (cut) 0.5f else 1f)
             .clip(shape).background(bg)
             .then(if (focused) Modifier.border(2.dp, cs.primary.copy(alpha = 0.7f), shape) else Modifier)
             .hoverable(hover).then(modifier).padding(horizontal = 10.dp, vertical = 4.dp),

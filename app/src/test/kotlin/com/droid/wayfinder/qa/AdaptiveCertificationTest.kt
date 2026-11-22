@@ -98,7 +98,7 @@ class AdaptiveCertificationTest {
         }
         rule.onNodeWithContentDescription("New tab")
             .assertWidthIsAtLeast(48.dp)
-            .assertHeightIsAtLeast(44.dp)
+            .assertHeightIsAtLeast(48.dp)
     }
 
     @Test fun touchLongPressOnFileOpensContextMenu() {

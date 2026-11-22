@@ -410,4 +410,14 @@
     <string name="tooltip_quicklook_previous" description="Hover tooltip for the Quick Look Previous item button showing its keyboard shortcut. [CHAR_LIMIT=30]">Previous (←)</string>
     <string name="tooltip_quicklook_next" description="Hover tooltip for the Quick Look Next item button showing its keyboard shortcut. [CHAR_LIMIT=30]">Next (→)</string>
     <string name="tooltip_locate_active_folder" description="Hover tooltip for the sidebar button that reveals the active folder in the tree. [CHAR_LIMIT=48]">Locate active folder (Alt+Shift+L)</string>
+    <string name="tooltip_clear_search" description="Accessibility label and hover tooltip for the button that clears the search input field. [CHAR_LIMIT=28]">Clear search</string>
+    <string name="tooltip_close_tab" description="Hover tooltip for a browser tab close button showing its keyboard shortcut. [CHAR_LIMIT=30]">Close tab (Ctrl+W)</string>
+    <string name="tooltip_color_tag" description="Hover tooltip on a color tag chip in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=32]">Tag: %1$s</string>
+    <string name="a11y_color_tag" description="Accessibility label on a color tag checkbox in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=32]">Tag %1$s</string>
+    <string name="action_add_color_tag" description="Accessibility click action label to apply a color tag in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=36]">Add %1$s tag</string>
+    <string name="action_remove_color_tag" description="Accessibility click action label to remove a color tag in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=40]">Remove %1$s tag</string>
+    <string name="action_expand" description="Accessibility label on a collapsed sidebar folder chevron icon. [CHAR_LIMIT=20]">Expand</string>
+    <string name="action_collapse" description="Accessibility label on an expanded sidebar folder chevron icon. [CHAR_LIMIT=20]">Collapse</string>
+    <string name="action_expand_folder" description="Accessibility click label and hover tooltip to expand a sidebar folder. %1$s is the folder name. [CHAR_LIMIT=45]">Expand %1$s</string>
+    <string name="action_collapse_folder" description="Accessibility click label and hover tooltip to collapse a sidebar folder. %1$s is the folder name. [CHAR_LIMIT=45]">Collapse %1$s</string>
 </resources>

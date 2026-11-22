@@ -12,6 +12,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -96,7 +102,8 @@ fun QuickLook(vm: BrowserViewModel, s: AppState) {
 
     BoxWithConstraints(
         Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
-            .clickable(noRipple, indication = null) { vm.closeQuickLook() },
+            .clickable(noRipple, indication = null) { vm.closeQuickLook() }
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)),
         contentAlignment = Alignment.Center,
     ) {
         val compact = maxWidth < 720.dp || maxHeight < 520.dp
@@ -149,12 +156,12 @@ private fun Header(vm: BrowserViewModel, e: FileEntry) {
                         Text(e.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(facts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    ActionTooltip(closeTooltip) { IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, closeDesc) } }
+                    ActionTooltip(closeTooltip) { IconButton({ vm.closeQuickLook() }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, closeDesc) } }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    ActionTooltip(prevTooltip) { IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, prevDesc) } }
-                    ActionTooltip(nextTooltip) { IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, nextDesc) } }
-                    FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(start = 4.dp, end = 4.dp)) {
+                    ActionTooltip(prevTooltip) { IconButton({ vm.quickLookMove(-1) }, Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, prevDesc) } }
+                    ActionTooltip(nextTooltip) { IconButton({ vm.quickLookMove(1) }, Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, nextDesc) } }
+                    FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(start = 4.dp, end = 4.dp).sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                         Text(if (e.isDir) "Open folder" else "Open", maxLines = 1, softWrap = false)
                     }
                 }
@@ -166,12 +173,12 @@ private fun Header(vm: BrowserViewModel, e: FileEntry) {
                     Text(e.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(facts.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                ActionTooltip(prevTooltip) { IconButton({ vm.quickLookMove(-1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, prevDesc) } }
-                ActionTooltip(nextTooltip) { IconButton({ vm.quickLookMove(1) }) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, nextDesc) } }
-                FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(horizontal = 8.dp)) {
+                ActionTooltip(prevTooltip) { IconButton({ vm.quickLookMove(-1) }, Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, prevDesc) } }
+                ActionTooltip(nextTooltip) { IconButton({ vm.quickLookMove(1) }, Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, nextDesc) } }
+                FilledTonalButton({ vm.closeQuickLook(); vm.openSelection() }, Modifier.padding(horizontal = 8.dp).sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                     Text(if (e.isDir) "Open folder" else "Open", maxLines = 1, softWrap = false)
                 }
-                ActionTooltip(closeTooltip) { IconButton({ vm.closeQuickLook() }) { Icon(Icons.Outlined.Close, closeDesc) } }
+                ActionTooltip(closeTooltip) { IconButton({ vm.closeQuickLook() }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, closeDesc) } }
             }
         }
     }

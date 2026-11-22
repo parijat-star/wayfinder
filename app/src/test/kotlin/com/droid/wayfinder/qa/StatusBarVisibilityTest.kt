@@ -61,22 +61,22 @@ class StatusBarVisibilityTest {
         val density = Density(density = 2f, fontScale = 1f)
 
         // Non-DeX fullscreen mode (capTop == 0, statusTop == 56px = 28.dp):
-        // reserves 28.dp topInset above the 44.dp tab strip (total height = 72.dp).
+        // reserves 28.dp topInset above the 48.dp tab strip (total height = 76.dp).
         val fullscreen = computeCaptionMetrics(capTopPx = 0, statusTopPx = 56, cutoutTopPx = 0, startPx = 0, endPx = 0, density = density)
         assertEquals(28.dp, fullscreen.topInset)
-        assertEquals(72.dp, fullscreen.height)
+        assertEquals(76.dp, fullscreen.height)
 
         // Portrait punch-hole taller than status bar (statusTop == 56px, cutoutTop == 113px = 56.5.dp):
         // reserves max(statusTopPx, cutoutTopPx) so camera cutout never overlaps tabs.
         val cutout = computeCaptionMetrics(capTopPx = 0, statusTopPx = 56, cutoutTopPx = 113, startPx = 0, endPx = 0, density = density)
         assertEquals(56.5.dp, cutout.topInset)
-        assertEquals(100.5.dp, cutout.height)
+        assertEquals(104.5.dp, cutout.height)
 
         // Hidden system status bar in fullscreen mode (capTop == 0, statusTop == 0, cutoutTop == 113px):
         // collapses topInset to 0.dp so the tab strip reclaims the top edge.
         val hiddenStatus = computeCaptionMetrics(capTopPx = 0, statusTopPx = 0, cutoutTopPx = 113, startPx = 0, endPx = 0, density = density)
         assertEquals(0.dp, hiddenStatus.topInset)
-        assertEquals(44.dp, hiddenStatus.height)
+        assertEquals(48.dp, hiddenStatus.height)
 
         // Desktop / DeX caption bar mode (capTop == 96px = 48.dp, statusTop == 56px):
         // tabs live inside the caption bar with topInset = 0.dp and end inset for window controls.
