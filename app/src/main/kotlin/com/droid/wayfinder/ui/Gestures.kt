@@ -193,15 +193,13 @@ fun Modifier.mouseGestures(
                             if (ch.isConsumed || (ch.position - down.position).getDistance() > vc.touchSlop) {
                                 return@awaitEachGesture
                             }
-                            val stillPressed = ch.pressed
-                            val finalEvent = awaitPointerEvent(PointerEventPass.Final)
-                            val finalCh = finalEvent.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
-                            if (finalCh.isConsumed) return@awaitEachGesture
-                            if (!stillPressed) {
-                                finalCh.consume()
+                            if (!ch.pressed) {
+                                ch.consume()
                                 click(false, false, true)
                                 return@awaitEachGesture
                             }
+                            val finalEvent = awaitPointerEvent(PointerEventPass.Final)
+                            if (finalEvent.changes.any { it.id == down.id && it.isConsumed }) return@awaitEachGesture
                         }
                     }
 
@@ -289,14 +287,12 @@ fun Modifier.mouseGestures(
                     }
                     val ch = nextEvent.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
                     if (ch.isConsumed) return@awaitEachGesture
-                    val stillPressed = ch.pressed
-                    val finalEvent = awaitPointerEvent(PointerEventPass.Final)
-                    val finalCh = finalEvent.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
-                    if (finalCh.isConsumed) return@awaitEachGesture
-                    if (!stillPressed) {
-                        up = finalCh
+                    if (!ch.pressed) {
+                        up = ch
                         break
                     }
+                    val finalEvent = awaitPointerEvent(PointerEventPass.Final)
+                    if (finalEvent.changes.any { it.id == down.id && it.isConsumed }) return@awaitEachGesture
                 }
                 val resolvedUp = up
                 resolvedUp.consume()

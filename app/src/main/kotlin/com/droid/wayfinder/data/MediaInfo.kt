@@ -216,8 +216,8 @@ object MediaInspector {
             width = f.width.takeIf { it > 0 },
             height = f.height.takeIf { it > 0 },
             rotationDegrees = ((f.rotationDegrees % 360) + 360) % 360,
-            pixelAspectRatio = if (f.pixelWidthHeightRatio > 0f) f.pixelWidthHeightRatio else 1f,
-            frameRate = f.frameRate.takeIf { it > 0f && it != Format.NO_VALUE.toFloat() },
+            pixelAspectRatio = if (f.pixelWidthHeightRatio.isFinite() && f.pixelWidthHeightRatio > 0f) f.pixelWidthHeightRatio else 1f,
+            frameRate = f.frameRate.takeIf { it.isFinite() && it > 0f && it != Format.NO_VALUE.toFloat() },
             bitrateBps = bestBitrate(f),
             bitDepth = color?.lumaBitdepth?.takeIf { it > 0 && it != Format.NO_VALUE },
             colorSpace = color?.let { friendlyColorSpace(it.colorSpace) },
@@ -398,6 +398,11 @@ object MediaFormatters {
 
     /** Formats [fps] as `24 fps`, `60 fps`, `23.98 fps`, `29.97 fps`, etc. */
     fun formatFrameRate(fps: Float): String {
+        if (!fps.isFinite() || fps <= 0f) return "0 fps"
+        if (fps >= 1_000_000f) {
+            val formatted = "%.2f".format(Locale.US, fps).trimEnd('0').trimEnd('.')
+            return "$formatted fps"
+        }
         val rounded = fps.roundToInt()
         return if (abs(fps - rounded) < 0.01f) {
             "$rounded fps"
@@ -414,8 +419,8 @@ object MediaFormatters {
         rotationDegrees: Int = 0,
         pixelAspectRatio: Float = 1f,
     ): String {
-        val effectiveW = if (pixelAspectRatio > 0f && abs(pixelAspectRatio - 1f) > 0.01f) {
-            (width * pixelAspectRatio).roundToInt()
+        val effectiveW = if (width > 0 && pixelAspectRatio.isFinite() && pixelAspectRatio > 0f && abs(pixelAspectRatio - 1f) > 0.01f) {
+            (width.toDouble() * pixelAspectRatio.toDouble()).coerceIn(1.0, Int.MAX_VALUE.toDouble()).toInt()
         } else {
             width
         }
@@ -443,14 +448,14 @@ object MediaFormatters {
     }
 
     private fun gcd(a: Int, b: Int): Int {
-        var x = abs(a)
-        var y = abs(b)
-        while (y != 0) {
+        var x = abs(a.toLong())
+        var y = abs(b.toLong())
+        while (y != 0L) {
             val t = x % y
             x = y
             y = t
         }
-        return if (x == 0) 1 else x
+        return if (x <= 0L || x > Int.MAX_VALUE.toLong()) 1 else x.toInt()
     }
 
     /** Formats audio channel counts into familiar layout names. */
