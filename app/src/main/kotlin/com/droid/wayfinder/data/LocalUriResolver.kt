@@ -380,6 +380,56 @@ object LocalUriResolver {
                 }
             }
         }
+        // Fallback: primary volume RELATIVE_PATH + DISPLAY_NAME (handles mount-prefix aliases).
+        val extDir = runCatching { Environment.getExternalStorageDirectory() }.getOrNull()
+        if (extDir != null) {
+            val rootPaths = LocalMediaStoreUri.buildDataCandidates(
+                extDir.absolutePath,
+                runCatching { extDir.canonicalPath }.getOrNull(),
+            )
+            val rel = candidatePaths.firstNotNullOfOrNull { candidate ->
+                rootPaths.firstNotNullOfOrNull { root ->
+                    LocalMediaStoreUri.relativeLocationInPrimaryStorage(candidate, root)
+                }
+            }
+            val collectionUri = mediaCollectionUri(MediaStore.VOLUME_EXTERNAL, mimeType)
+            if (rel != null && collectionUri != null) {
+                val (relSelection, relArgs) = if (rel.relativePath == "/") {
+                    "${MediaStore.MediaColumns.VOLUME_NAME} = ? AND " +
+                        "(${MediaStore.MediaColumns.RELATIVE_PATH} = ? OR ${MediaStore.MediaColumns.RELATIVE_PATH} = ?) AND " +
+                        "${MediaStore.MediaColumns.DISPLAY_NAME} = ?" to
+                        arrayOf(MediaStore.VOLUME_EXTERNAL_PRIMARY, "/", "", rel.displayName)
+                } else {
+                    "${MediaStore.MediaColumns.VOLUME_NAME} = ? AND " +
+                        "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND " +
+                        "${MediaStore.MediaColumns.DISPLAY_NAME} = ?" to
+                        arrayOf(MediaStore.VOLUME_EXTERNAL_PRIMARY, rel.relativePath, rel.displayName)
+                }
+                val found = runCatching {
+                    ctx.contentResolver.query(
+                        collectionUri,
+                        arrayOf(MediaStore.MediaColumns._ID),
+                        relSelection,
+                        relArgs,
+                        null,
+                    )?.use { c ->
+                        if (c.moveToFirst()) {
+                            val idIdx = c.getColumnIndex(MediaStore.MediaColumns._ID)
+                            if (idIdx >= 0 && !c.isNull(idIdx)) {
+                                ContentUris.withAppendedId(collectionUri, c.getLong(idIdx))
+                            } else {
+                                null
+                            }
+                        } else {
+                            null
+                        }
+                    }
+                }.getOrNull()
+                if (found != null && canGrantMediaUri(ctx, found, write = false)) {
+                    return found
+                }
+            }
+        }
         return null
     }
 

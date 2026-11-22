@@ -1085,6 +1085,7 @@ internal fun buildOpenWithSystemIntent(
     preferredUri: android.net.Uri? = null,
     forceFileProvider: Boolean = false,
     allowSyncLookup: Boolean = true,
+    allowMediaStore: Boolean = true,
 ): Intent? {
     val localTarget: File? = if (FsPath.isLocalFile(path)) {
         try {
@@ -1098,9 +1099,10 @@ internal fun buildOpenWithSystemIntent(
 
     val candidateUri: android.net.Uri? = when {
         forceFileProvider -> null
-        preferredUri != null -> preferredUri
+        preferredUri != null -> preferredUri.takeUnless { !allowMediaStore && com.droid.wayfinder.data.LocalUriResolver.isMediaUri(it) }
         allowSyncLookup && localTarget != null && !isStagedCacheFile(ctx, localTarget) ->
             com.droid.wayfinder.data.LocalUriResolver.resolvePreferredLocalUriSync(ctx, localTarget.path)
+                ?.takeUnless { !allowMediaStore && com.droid.wayfinder.data.LocalUriResolver.isMediaUri(it) }
         FsPath.isSaf(path) || FsPath.isDoc(path) ->
             com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(path, tree = false)
         else -> null
