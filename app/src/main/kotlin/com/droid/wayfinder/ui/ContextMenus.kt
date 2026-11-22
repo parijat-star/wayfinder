@@ -177,10 +177,10 @@ val StarColor = Color(0xFFF4B400)
 fun fileMenu(vm: BrowserViewModel, s: AppState, entry: FileEntry): List<MenuEntry> {
     val tab = s.active
     val sel = tab.selectedEntries(s.showHidden)
-    val inTrash = FsPath.isWithin(FsPath.TRASH_ROOT, tab.path) || tab.path == FsPath.TRASH_ROOT
+    val inTrash = vm.isInTrash(tab.path)
     val single = sel.size == 1
-    if (inTrash) return listOf(
-        item(vm.str(R.string.action_restore), Icons.Outlined.Restore) { vm.restoreFromTrash() },
+    if (inTrash) return listOfNotNull(
+        item(vm.str(R.string.action_restore), Icons.Outlined.Restore) { vm.restoreFromTrash() }.takeIf { tab.path == FsPath.TRASH_ROOT },
         item(vm.str(R.string.action_delete_permanently), Icons.Outlined.DeleteForever, "Del") { vm.requestDelete(true) },
         MenuEntry.Divider,
         item(vm.str(R.string.action_properties), Icons.Outlined.Info, "Ctrl+I") { vm.showProperties() },

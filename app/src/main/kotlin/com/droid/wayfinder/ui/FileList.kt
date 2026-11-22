@@ -110,6 +110,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.isCtrlPressed
@@ -123,6 +125,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -1099,6 +1102,8 @@ private fun Modifier.entryInteractions(
 ): Modifier {
     val menu = LocalMenu.current
     val focusCoord = LocalFocusCoordinator.current
+    val touchLongPressSelectsOnly = LocalTouchLongPressSelectsOnly.current
+    val haptics = LocalHapticFeedback.current
     val itemFocusRequester = remember { FocusRequester() }
     val selected = e.path in tab.selection
     DisposableEffect(rb, e.path) {
@@ -1168,10 +1173,29 @@ private fun Modifier.entryInteractions(
             },
             onMiddle = { if (e.isDir) vm.open(e, newTab = true) },
             onLongPress = { off ->
-                vm.setSelectionIfNotSelected(e.path)
-                menu.show(off, fileMenu(vm, vm.state.value, e))
+                handleFileLongPress(vm, tab.id, e, off, menu, touchLongPressSelectsOnly, haptics)
             },
         )
+}
+
+private fun handleFileLongPress(
+    vm: BrowserViewModel,
+    tabId: Long,
+    entry: FileEntry,
+    offset: Offset,
+    menu: MenuController,
+    selectOnly: Boolean,
+    haptics: HapticFeedback,
+) {
+    val actionable = !entry.isServer && !entry.isShare && !FsPath.isVirtual(entry.path)
+    if (selectOnly && actionable) {
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        val cur = vm.state.value.tabById(tabId)?.selection.orEmpty()
+        if (entry.path !in cur) vm.click(entry.path, ctrl = true, shift = false)
+    } else {
+        vm.setSelectionIfNotSelected(entry.path)
+        menu.show(offset, fileMenu(vm, vm.state.value, entry))
+    }
 }
 
 @Composable
@@ -1446,6 +1470,8 @@ private fun AncestorColumn(vm: BrowserViewModel, s: AppState, tab: TabState, dir
 private fun CurrentColumn(vm: BrowserViewModel, s: AppState, tab: TabState, entries: List<FileEntry>) {
     val menu = LocalMenu.current
     val focusCoord = LocalFocusCoordinator.current
+    val touchLongPressSelectsOnly = LocalTouchLongPressSelectsOnly.current
+    val haptics = LocalHapticFeedback.current
     val cs = MaterialTheme.colorScheme
     val active = s.active.id == tab.id
     val rb = remember(tab.id) { RubberBandState() }
@@ -1557,7 +1583,7 @@ private fun CurrentColumn(vm: BrowserViewModel, s: AppState, tab: TabState, entr
                                         onDoubleClick = { if (!e.isDir) vm.open(e) },
                                         onSecondary = { off -> vm.setSelectionIfNotSelected(e.path); menu.show(off, fileMenu(vm, vm.state.value, e)) },
                                         onMiddle = { if (e.isDir) vm.open(e, newTab = true) },
-                                        onLongPress = { off -> vm.setSelectionIfNotSelected(e.path); menu.show(off, fileMenu(vm, vm.state.value, e)) },
+                                        onLongPress = { off -> handleFileLongPress(vm, tab.id, e, off, menu, touchLongPressSelectsOnly, haptics) },
                                     ),
                                 handleTracker = tracker,
                             )

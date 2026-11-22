@@ -838,8 +838,10 @@ fun AppRoot(vm: BrowserViewModel) {
                     }
                     val showSidebar = s.sidebarVisible && !compact
                     val showPreview = s.previewVisible && previewFits
+                    val touchLongPressSelectsOnly = maxWidth <= 960.dp
                     LaunchedEffect(showSidebar) { if (!showSidebar) sidebarZoneFocused = false }
                     LaunchedEffect(showPreview) { if (!showPreview) previewZoneFocused = false }
+                    CompositionLocalProvider(LocalTouchLongPressSelectsOnly provides touchLongPressSelectsOnly) {
                     Row(Modifier.fillMaxSize().padding(end = 8.dp, bottom = 8.dp)) {
                         if (showSidebar) {
                             Box(Modifier.onFocusChanged { sidebarZoneFocused = it.hasFocus }) {
@@ -854,6 +856,7 @@ fun AppRoot(vm: BrowserViewModel) {
                                 PreviewPane(vm, s, Modifier.width(300.dp).fillMaxSize())
                             }
                         }
+                    }
                     }
                 }
             }

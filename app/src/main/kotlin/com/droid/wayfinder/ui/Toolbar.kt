@@ -40,15 +40,23 @@ import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.outlined.VerticalSplit
 import androidx.compose.material.icons.outlined.ViewColumn
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SelectAll
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material.icons.outlined.ViewHeadline
 import androidx.compose.material.icons.outlined.SwapVert
@@ -59,8 +67,10 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonColors
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -93,6 +103,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.filled.Circle
@@ -104,12 +115,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.ui.res.stringResource
 import com.droid.wayfinder.R
+import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.ModifiedRange
 import com.droid.wayfinder.data.SearchCategory
 import com.droid.wayfinder.data.SearchScope
+import com.droid.wayfinder.data.SelectionToolbarState
 import com.droid.wayfinder.data.SortKey
 import com.droid.wayfinder.data.ViewMode
+import com.droid.wayfinder.data.selectionToolbarState
 
 @Composable
 fun Toolbar(
@@ -132,16 +146,31 @@ fun Toolbar(
             if (!isCompact && compactSearchOpen) compactSearchOpen = false
         }
         val showExpandedCompactSearch = isCompact && (compactSearchOpen || tab.query.isNotEmpty())
-        BackHandler(enabled = showExpandedCompactSearch) {
-            vm.setQuery("")
-            focusManager.clearFocus()
-            compactSearchOpen = false
-        }
         val iconBtnColors = IconButtonDefaults.iconButtonColors(
             contentColor = cs.onSurfaceVariant,
             disabledContentColor = cs.onSurface.copy(alpha = 0.38f),
         )
+        val selectedEntries = remember(tab.entries, tab.searchResults, tab.selection, s.showHidden) {
+            if (tab.selection.isEmpty()) emptyList()
+            else (tab.searchResults ?: tab.entries).filter { (s.showHidden || !it.isHidden) && it.path in tab.selection }
+        }
+        val tabInTrash = remember(tab.path) { vm.isInTrash(tab.path) }
+        val selectionActions = remember(tab.path, selectedEntries, tabInTrash) {
+            selectionToolbarState(tab.path, selectedEntries, inTrash = tabInTrash)
+        }
+        val showCompactSelectionMode = wide <= 960.dp && selectionActions.showToolbarActions
+        BackHandler(enabled = showExpandedCompactSearch && !showCompactSelectionMode) {
+            vm.setQuery("")
+            focusManager.clearFocus()
+            compactSearchOpen = false
+        }
+        BackHandler(enabled = showCompactSelectionMode) {
+            vm.clearSelection()
+        }
         Column(Modifier.fillMaxWidth()) {
+        if (showCompactSelectionMode) {
+            CompactSelectionBar(vm, s, selectedEntries, selectionActions, wide)
+        } else {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -247,18 +276,22 @@ fun Toolbar(
                 } else {
                     SearchField(vm, s, Modifier.width(if (wide > 1160.dp) 260.dp else if (wide > 1000.dp) 200.dp else 176.dp))
                 }
-                if (wide > 960.dp) ViewToggle(vm, tab.viewMode, s.dualPane)
+                if (wide > 960.dp) {
+                    if (selectionActions.showToolbarActions) SelectionActions(vm, selectionActions)
+                    else ViewToggle(vm, tab.viewMode, s.dualPane)
+                }
                 if (wide > 760.dp) SortButton(vm, s)
                 OverflowMenu(
                     vm = vm,
                     s = s,
-                    showViewItems = wide <= 960.dp,
+                    showViewItems = wide <= 960.dp || selectionActions.showToolbarActions,
                     showSortItems = wide <= 760.dp,
                     hasDesktopCaption = hasDesktopCaption,
                     isCompactViewport = isCompact,
                     showCompactNavItems = isNarrowCompact,
                 )
             }
+        }
         }
         if (tab.query.isNotBlank()) SearchFilterRow(vm, tab)
         }
@@ -600,6 +633,258 @@ private fun ViewToggle(vm: BrowserViewModel, mode: ViewMode, dual: Boolean) {
     }
 }
 
+private val VIEW_TOGGLE_SLOT_WIDTH = 244.dp
+
+@Composable
+private fun SelectionActions(vm: BrowserViewModel, actions: SelectionToolbarState) {
+    val cs = MaterialTheme.colorScheme
+    val colors = IconButtonDefaults.iconButtonColors(
+        contentColor = cs.onSecondaryContainer,
+        disabledContentColor = cs.onSecondaryContainer.copy(alpha = 0.38f),
+    )
+    Box(Modifier.width(VIEW_TOGGLE_SLOT_WIDTH), contentAlignment = Alignment.CenterEnd) {
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(cs.secondaryContainer)
+                .padding(2.dp),
+        ) {
+            SelectionActionButtons(vm, actions, colors)
+        }
+    }
+}
+
+@Composable
+private fun CompactSelectionBar(
+    vm: BrowserViewModel,
+    s: AppState,
+    selectedEntries: List<FileEntry>,
+    actions: SelectionToolbarState,
+    wide: Dp,
+) {
+    val cs = MaterialTheme.colorScheme
+    val colors = IconButtonDefaults.iconButtonColors(
+        contentColor = cs.onSecondaryContainer,
+        disabledContentColor = cs.onSecondaryContainer.copy(alpha = 0.38f),
+    )
+    val selectedLabel = icuStringResource(R.string.selected_count_plural, actions.selectedCount)
+    val showCutInline = wide >= 360.dp
+    val showCompressInline = wide >= 480.dp
+    val showCompactNumber = wide < 410.dp && !actions.inTrash
+    val displayedCount = if (showCompactNumber) {
+        formatLocalizedNumber(actions.selectedCount.toLong())
+    } else {
+        selectedLabel
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(cs.secondaryContainer)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SelectionActionButton(
+            icon = Icons.Outlined.Close,
+            tooltip = stringResource(R.string.tooltip_clear_selection),
+            contentDesc = stringResource(R.string.palette_clear_selection),
+            enabled = true,
+            colors = colors,
+        ) { vm.clearSelection() }
+        Text(
+            text = displayedCount,
+            style = MaterialTheme.typography.titleMedium,
+            color = cs.onSecondaryContainer,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 4.dp)
+                .then(
+                    if (showCompactNumber) Modifier.semantics { contentDescription = selectedLabel }
+                    else Modifier,
+                ),
+        )
+        SelectionActionButtons(
+            vm = vm,
+            actions = actions,
+            colors = colors,
+            showCut = showCutInline,
+            showCompress = showCompressInline,
+        )
+        SelectionMoreButton(vm = vm, s = s, selectedEntries = selectedEntries, colors = colors)
+    }
+}
+
+@Composable
+private fun SelectionMoreButton(
+    vm: BrowserViewModel,
+    s: AppState,
+    selectedEntries: List<FileEntry>,
+    colors: IconButtonColors,
+) {
+    var open by remember { mutableStateOf(false) }
+    var activeItems by remember { mutableStateOf<List<MenuEntry>>(emptyList()) }
+    val moreTooltip = stringResource(R.string.tooltip_more_options)
+    val moreDesc = stringResource(R.string.action_more_options)
+    val focusCoord = LocalFocusCoordinator.current
+    val moreRequester = remember { FocusRequester() }
+    androidx.compose.runtime.DisposableEffect(moreRequester) {
+        focusCoord.activeToolbarLastRequester = moreRequester
+        onDispose {
+            if (focusCoord.activeToolbarLastRequester === moreRequester) {
+                focusCoord.activeToolbarLastRequester = null
+            }
+        }
+    }
+    Box {
+        ActionTooltip(moreTooltip) {
+            IconButton(
+                onClick = {
+                    val tab = s.active
+                    val anchor = selectedEntries.firstOrNull { it.path == tab.focused } ?: selectedEntries.firstOrNull()
+                    if (anchor != null) {
+                        val visibleCount = tab.visible(s.showHidden).size
+                        activeItems = buildList {
+                            addAll(fileMenu(vm, s, anchor))
+                            if (visibleCount > selectedEntries.size) {
+                                add(MenuEntry.Divider)
+                                add(
+                                    MenuEntry.Item(
+                                        label = vm.str(R.string.action_select_all),
+                                        icon = Icons.Outlined.SelectAll,
+                                        shortcut = "Ctrl+A",
+                                    ) { vm.selectAll() },
+                                )
+                            }
+                        }.trimDividersPublic()
+                        open = true
+                    }
+                },
+                modifier = Modifier.size(48.dp).focusRequester(moreRequester).focusRing(CircleShape),
+                colors = colors,
+            ) {
+                Icon(Icons.Outlined.MoreVert, moreDesc, Modifier.size(20.dp))
+            }
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            activeItems.forEach { entry ->
+                when (entry) {
+                    MenuEntry.Divider -> HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    is MenuEntry.Item -> DropdownMenuItem(
+                        text = { Text(entry.label) },
+                        leadingIcon = entry.icon?.let {
+                            { Icon(it, null, Modifier.size(20.dp), tint = entry.tint ?: LocalContentColor.current) }
+                        },
+                        trailingIcon = when {
+                            entry.checked -> ({ Icon(Icons.Filled.Check, "On", Modifier.size(18.dp)) })
+                            entry.submenu != null -> ({ Text("›", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) })
+                            entry.shortcut != null -> ({ Hint(entry.shortcut) })
+                            else -> null
+                        },
+                        enabled = entry.enabled,
+                        onClick = {
+                            val sub = entry.submenu
+                            if (sub != null) activeItems = sub() else { open = false; entry.action() }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectionActionButtons(
+    vm: BrowserViewModel,
+    actions: SelectionToolbarState,
+    colors: IconButtonColors,
+    showCut: Boolean = true,
+    showCompress: Boolean = true,
+) {
+    if (actions.inTrash) {
+        if (actions.canRestore) {
+            val restoreLabel = stringResource(R.string.action_restore)
+            SelectionActionButton(
+                icon = Icons.Outlined.Restore,
+                tooltip = restoreLabel,
+                contentDesc = restoreLabel,
+                enabled = true,
+                colors = colors,
+            ) { vm.restoreFromTrash() }
+        }
+        SelectionActionButton(
+            icon = Icons.Outlined.DeleteForever,
+            tooltip = stringResource(R.string.tooltip_delete_permanently),
+            contentDesc = stringResource(R.string.action_delete_permanently),
+            enabled = actions.canDelete,
+            colors = colors,
+        ) { vm.requestDelete(permanent = true) }
+    } else {
+        if (showCut) {
+            SelectionActionButton(
+                icon = Icons.Outlined.ContentCut,
+                tooltip = stringResource(R.string.tooltip_cut),
+                contentDesc = stringResource(R.string.action_cut),
+                enabled = actions.canCut,
+                colors = colors,
+            ) { vm.cut() }
+        }
+        SelectionActionButton(
+            icon = Icons.Outlined.ContentCopy,
+            tooltip = stringResource(R.string.tooltip_copy),
+            contentDesc = stringResource(R.string.action_copy),
+            enabled = actions.canCopy,
+            colors = colors,
+        ) { vm.copy() }
+        if (showCompress) {
+            val compressLabel = stringResource(R.string.action_compress_to_zip)
+            SelectionActionButton(
+                icon = Icons.Outlined.Archive,
+                tooltip = compressLabel,
+                contentDesc = compressLabel,
+                enabled = actions.canCompress,
+                colors = colors,
+            ) { vm.requestCompress() }
+        }
+        val shareLabel = stringResource(R.string.action_share)
+        SelectionActionButton(
+            icon = Icons.Outlined.Share,
+            tooltip = shareLabel,
+            contentDesc = shareLabel,
+            enabled = actions.canShare,
+            colors = colors,
+        ) { vm.share() }
+        SelectionActionButton(
+            icon = Icons.Outlined.Delete,
+            tooltip = stringResource(R.string.tooltip_delete),
+            contentDesc = stringResource(R.string.action_delete),
+            enabled = actions.canDelete,
+            colors = colors,
+        ) { vm.requestDelete(permanent = false) }
+    }
+}
+
+@Composable
+private fun SelectionActionButton(
+    icon: ImageVector,
+    tooltip: String,
+    contentDesc: String,
+    enabled: Boolean,
+    colors: IconButtonColors,
+    onClick: () -> Unit,
+) {
+    ActionTooltip(tooltip) {
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier.size(48.dp).focusRing(CircleShape),
+            enabled = enabled,
+            colors = colors,
+        ) {
+            Icon(icon, contentDesc, Modifier.size(20.dp))
+        }
+    }
+}
+
 @Composable
 private fun SortButton(vm: BrowserViewModel, s: AppState) {
     val cs = MaterialTheme.colorScheme
@@ -729,10 +1014,10 @@ private fun OverflowMenu(
             if (showViewItems) {
                 HorizontalDivider()
                 listOf(
-                    ViewMode.Details to "Details view",
-                    ViewMode.List to "List view",
-                    ViewMode.Grid to "Grid view",
-                    ViewMode.Columns to "Columns view",
+                    ViewMode.Details to stringResource(R.string.action_details_view),
+                    ViewMode.List to stringResource(R.string.action_list_view),
+                    ViewMode.Grid to stringResource(R.string.action_grid_view),
+                    ViewMode.Columns to stringResource(R.string.action_columns_view),
                 ).forEach { (m, label) ->
                     DropdownMenuItem(
                         { Text(label) },

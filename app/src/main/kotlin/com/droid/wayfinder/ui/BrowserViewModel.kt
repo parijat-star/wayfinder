@@ -2020,6 +2020,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         })
     }
 
+    fun isInTrash(path: String): Boolean = trash.isInTrash(path)
+
     fun restoreFromTrash() {
         val paths = selectionPaths()
         launchOp(str(com.droid.wayfinder.R.string.op_restoring), { _ -> paths.map { trash.restore(it) } }) { toast(icuStr(com.droid.wayfinder.R.string.toast_restored_plural, it.size)) }
@@ -2134,7 +2136,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun requestCompress() {
         val paths = selectionPaths()
-        if (paths.isEmpty() || FsPath.isReadOnly(tab.path)) return
+        if (paths.isEmpty() || FsPath.isReadOnly(tab.path) || trash.isInTrash(tab.path)) return
         val suggested = if (paths.size == 1) FsPath.name(paths[0]).substringBeforeLast('.', FsPath.name(paths[0])) else FsPath.name(tab.path).ifEmpty { "Archive" }
         showDialog(Dialog.Compress(paths, suggested))
     }
@@ -2142,6 +2144,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun compress(sources: List<String>, name: String) {
         dismissDialog()
         val dir = tab.path
+        if (FsPath.isReadOnly(dir) || trash.isInTrash(dir)) return
         val wanted = name.trim().removeSuffix(".zip") + ".zip"
         FsPath.nameError(wanted)?.let { toast(it); return }
         launchOp("Compressing", { report ->

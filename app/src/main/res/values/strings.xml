@@ -489,6 +489,11 @@
     <string name="tooltip_refresh_ctrl_r" description="Hover tooltip for the toolbar Refresh button in dual-pane mode showing its keyboard shortcut. [CHAR_LIMIT=32]">Refresh (Ctrl+R)</string>
     <string name="tooltip_undo" description="Hover tooltip for the toolbar Undo button showing its keyboard shortcut. [CHAR_LIMIT=30]">Undo (Ctrl+Z)</string>
     <string name="tooltip_redo" description="Hover tooltip for the toolbar Redo button showing its keyboard shortcut. [CHAR_LIMIT=30]">Redo (Ctrl+Y)</string>
+    <string name="tooltip_cut" description="Hover tooltip for the selection toolbar Cut button showing its keyboard shortcut. [CHAR_LIMIT=28]">Cut (Ctrl+X)</string>
+    <string name="tooltip_copy" description="Hover tooltip for the selection toolbar Copy button showing its keyboard shortcut. [CHAR_LIMIT=28]">Copy (Ctrl+C)</string>
+    <string name="tooltip_delete" description="Hover tooltip for the selection toolbar Delete button showing its keyboard shortcut. [CHAR_LIMIT=28]">Delete (Del)</string>
+    <string name="tooltip_delete_permanently" description="Hover tooltip for the Trash selection toolbar Delete permanently button showing its keyboard shortcut. [CHAR_LIMIT=40]">Delete permanently (Del)</string>
+    <string name="tooltip_clear_selection" description="Hover tooltip for the compact selection bar Clear selection button showing its keyboard shortcut. [CHAR_LIMIT=44]">Clear selection (Ctrl+Shift+A)</string>
     <string name="tooltip_details_view" description="Hover tooltip for the toolbar Details view toggle showing its keyboard shortcut. [CHAR_LIMIT=32]">Details (Ctrl+1)</string>
     <string name="tooltip_grid_view" description="Hover tooltip for the toolbar Grid view toggle showing its keyboard shortcut. [CHAR_LIMIT=30]">Grid (Ctrl+2)</string>
     <string name="tooltip_columns_view" description="Hover tooltip for the toolbar Miller Columns view toggle showing its keyboard shortcut. [CHAR_LIMIT=32]">Columns (Ctrl+3)</string>
