@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -214,7 +215,7 @@ fun Toolbar(
                         }
                     }
                 }
-                if (wide > 560.dp) {
+                if (wide > 1120.dp) {
                     ActionTooltip(stringResource(R.string.tooltip_undo)) {
                         IconButton({ vm.undo() }, Modifier.size(48.dp), enabled = s.canUndo, colors = iconBtnColors) {
                             Icon(Icons.AutoMirrored.Outlined.Undo, stringResource(R.string.action_undo))
@@ -240,14 +241,14 @@ fun Toolbar(
                         }
                     }
                 } else {
-                    SearchField(vm, s, Modifier.width(if (wide > 960.dp) 260.dp else if (wide > 720.dp) 190.dp else 140.dp))
+                    SearchField(vm, s, Modifier.width(if (wide > 1160.dp) 260.dp else if (wide > 1000.dp) 200.dp else 176.dp))
                 }
-                if (wide > 640.dp) ViewToggle(vm, tab.viewMode, s.dualPane)
+                if (wide > 960.dp) ViewToggle(vm, tab.viewMode, s.dualPane)
                 if (wide > 760.dp) SortButton(vm, s)
                 OverflowMenu(
                     vm = vm,
                     s = s,
-                    showViewItems = wide <= 640.dp,
+                    showViewItems = wide <= 960.dp,
                     showSortItems = wide <= 760.dp,
                     hasDesktopCaption = hasDesktopCaption,
                     isCompactViewport = isCompact,
@@ -325,9 +326,9 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         var tf by remember(tab.path) { mutableStateOf(TextFieldValue(initialAddress, TextRange(0, initialAddress.length))) }
         var hadFocus by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) { fr.requestFocus() }
-        Row(modifier.heightIn(min = 40.dp).clip(shape).background(cs.surfaceContainerLowest).padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier.heightIn(min = 48.dp).clip(shape).background(cs.surfaceContainerLowest).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             BasicTextField(
-                tf, { tf = it }, Modifier.weight(1f).focusRequester(fr)
+                tf, { tf = it }, Modifier.weight(1f).sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRequester(fr)
                     .semantics { contentDescription = "Address bar" }
                     .onFocusChanged {
                         // The initial (unfocused) event arrives before requestFocus(); only a real blur ends editing.
@@ -344,6 +345,11 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                     val p = resolveAddress(tf.text, s)
                     if (p != null) vm.navigate(p) else if (!vm.openAddress(tf.text)) vm.setAddressEditing(false)
                 }),
+                decorationBox = { innerTextField ->
+                    Box(Modifier.fillMaxWidth().heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {
+                        innerTextField()
+                    }
+                },
             )
         }
     } else {
@@ -351,16 +357,16 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         val scroll = rememberScrollState()
         LaunchedEffect(tab.path, crumbs.size) { scroll.scrollTo(scroll.maxValue) }
         Row(
-            modifier.heightIn(min = 40.dp).clip(shape).background(cs.surfaceContainerHigh)
+            modifier.heightIn(min = 48.dp).clip(shape).background(cs.surfaceContainerHigh)
                 .semantics { contentDescription = "Address bar" }
-                .clickable { vm.setAddressEditing(true) }.padding(horizontal = 6.dp, vertical = 4.dp).horizontalScroll(scroll),
+                .clickable { vm.setAddressEditing(true) }.padding(horizontal = 4.dp).horizontalScroll(scroll),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             crumbs.forEachIndexed { i, (label, path) ->
                 if (i > 0) Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
                 val last = i == crumbs.lastIndex
                 Box(
-                    Modifier.heightIn(min = 32.dp).clip(RoundedCornerShape(16.dp)).dropTarget(path)
+                    Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(24.dp)).dropTarget(path)
                         .clickable { if (!last) vm.navigate(path) else vm.setAddressEditing(true) }.padding(horizontal = 10.dp, vertical = 2.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -406,20 +412,23 @@ private fun SearchField(
     val fr = remember { FocusRequester() }
     val focus = LocalFocusManager.current
     val searchA11yLabel = stringResource(R.string.search_placeholder)
+    val clearSearchLabel = stringResource(R.string.tooltip_clear_search)
     LaunchedEffect(s.focusSearch, autoFocusOnMount) {
         if (s.focusSearch > 0 || autoFocusOnMount) fr.requestFocus()
     }
     Row(
-        modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(24.dp)).background(cs.surfaceContainerLowest)
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+        modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).background(cs.surfaceContainerLowest)
+            .padding(start = 12.dp, end = if (tab.query.isNotEmpty()) 0.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.Search, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
-        Box(Modifier.weight(1f).padding(horizontal = 8.dp), contentAlignment = Alignment.CenterStart) {
-            if (tab.query.isEmpty()) Text(stringResource(R.string.search_files_placeholder), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1)
+        Icon(Icons.Outlined.Search, null, Modifier.size(20.dp), tint = cs.onSurfaceVariant)
+        Box(
+            Modifier.weight(1f).heightIn(min = 48.dp).padding(start = 8.dp, end = if (tab.query.isNotEmpty()) 0.dp else 4.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
             BasicTextField(
                 tab.query, { vm.setQuery(it) },
-                Modifier.fillMaxWidth().focusRequester(fr)
+                Modifier.fillMaxWidth().sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRequester(fr)
                     .semantics { contentDescription = searchA11yLabel }
                     .onFocusChanged { vm.setTextFocus(it.isFocused) }
                     .onPreviewKeyEvent { e ->
@@ -432,18 +441,34 @@ private fun SearchField(
                         else if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) { focus.clearFocus(); vm.moveFocus(1); true }
                         else false
                     },
-                singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(color = cs.onSurface),
+                singleLine = true, textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
                 cursorBrush = SolidColor(cs.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
+                decorationBox = { innerTextField ->
+                    Box(Modifier.fillMaxWidth().heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {
+                        if (tab.query.isEmpty()) {
+                            Text(
+                                stringResource(R.string.search_files_placeholder),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = cs.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        innerTextField()
+                    }
+                },
             )
         }
         if (tab.query.isNotEmpty()) {
-            Box(
-                Modifier.size(28.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = "Clear search") { vm.setQuery("") },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Outlined.Clear, "Clear search", Modifier.size(18.dp), tint = cs.onSurfaceVariant)
+            ActionTooltip(clearSearchLabel) {
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = clearSearchLabel) { vm.setQuery("") },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Outlined.Clear, clearSearchLabel, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
+                }
             }
         }
     }
@@ -459,13 +484,21 @@ private fun SearchFilterRow(vm: BrowserViewModel, tab: TabState) {
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         SearchScope.entries.forEach { sc ->
-            FilterChip(f.scope == sc, { vm.setSearchFilter(f.copy(scope = sc)) }, label = { Text(sc.label) })
+            FilterChip(
+                selected = f.scope == sc,
+                onClick = { vm.setSearchFilter(f.copy(scope = sc)) },
+                label = { Text(sc.label) },
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+            )
         }
         VerticalDivider(Modifier.height(20.dp), color = cs.outlineVariant)
         ChipMenu(SearchCategory.entries, f.category, { it.label }, active = f.category != SearchCategory.All) { vm.setSearchFilter(f.copy(category = it)) }
         ChipMenu(ModifiedRange.entries, f.modified, { it.label }, active = f.modified != ModifiedRange.Any) { vm.setSearchFilter(f.copy(modified = it)) }
         if (f.category != SearchCategory.All || f.modified != ModifiedRange.Any) {
-            TextButton({ vm.setSearchFilter(f.copy(category = SearchCategory.All, modified = ModifiedRange.Any)) }) { Text("Clear filters") }
+            TextButton(
+                onClick = { vm.setSearchFilter(f.copy(category = SearchCategory.All, modified = ModifiedRange.Any)) },
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+            ) { Text("Clear filters") }
         }
         val n = tab.searchResults?.size
         if (n != null) Text(
@@ -480,8 +513,11 @@ private fun <T> ChipMenu(options: List<T>, selected: T, label: (T) -> String, ac
     var open by remember { mutableStateOf(false) }
     Box {
         FilterChip(
-            active, { open = true }, label = { Text(label(selected)) },
+            selected = active,
+            onClick = { open = true },
+            label = { Text(label(selected)) },
             trailingIcon = { Icon(Icons.Outlined.ArrowDropDown, null, Modifier.size(18.dp)) },
+            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
         )
         DropdownMenu(open, { open = false }) {
             options.forEach { o ->
@@ -553,7 +589,7 @@ private fun SortButton(vm: BrowserViewModel, s: AppState) {
     Box {
         ActionTooltip(stringResource(R.string.sort_button_label)) {
             Row(
-                Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).background(cs.surfaceContainerHigh)
+                Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(24.dp)).background(cs.surfaceContainerHigh)
                     .clickable { open = true }.padding(horizontal = 14.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

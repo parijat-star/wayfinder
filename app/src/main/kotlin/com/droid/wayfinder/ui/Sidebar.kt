@@ -428,9 +428,9 @@ private fun HeaderAction(
                         onClick(); true
                     } else false
                 }
-                .mouseGestures(contentDesc, role = Role.Button, onClickLabel = contentDesc, onClick = { _, _, _ -> onClick() }),
+                .mouseGestures(contentDesc, role = Role.Button, contentDescription = contentDesc, onClickLabel = contentDesc, onClick = { _, _, _ -> onClick() }),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, contentDesc, Modifier.size(18.dp), tint = cs.onSurfaceVariant) }
+        ) { Icon(icon, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant) }
     }
 }
 
@@ -585,40 +585,44 @@ private fun SidebarItem(
             .padding(start = 4.dp + 14.dp * depth, end = 10.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (expandable || loading) {
+        if (expandable) {
             val toggleInteraction = remember { MutableInteractionSource() }
             val toggleFocused by toggleInteraction.collectIsFocusedAsState()
-            Box(
-                Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(24.dp))
-                    .then(if (toggleFocused) Modifier.border(2.dp, cs.primary, RoundedCornerShape(24.dp)) else Modifier)
-                    .then(
-                        if (expandable) {
-                            Modifier.focusable(interactionSource = toggleInteraction)
-                                .onPreviewKeyEvent { ev ->
-                                    if (ev.type == KeyEventType.KeyDown && (ev.key == Key.Enter || ev.key == Key.NumPadEnter || ev.key == Key.Spacebar)) {
-                                        onToggle(); true
-                                    } else false
-                                }
-                                .mouseGestures(
-                                    "toggle$label$depth",
-                                    role = Role.Button,
-                                    onClickLabel = if (expanded) "Collapse $label" else "Expand $label",
-                                    onClick = { _, _, _ -> onToggle() },
-                                )
-                        } else Modifier,
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                when {
-                    loading -> CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
-                    expandable -> Icon(
-                        if (expanded) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight, if (expanded) "Collapse" else "Expand",
-                        Modifier.size(18.dp), tint = cs.onSurfaceVariant,
-                    )
+            val toggleDesc = stringResource(if (expanded) R.string.action_collapse_folder else R.string.action_expand_folder, label)
+            val toggleIconDesc = stringResource(if (expanded) R.string.action_collapse else R.string.action_expand)
+            ActionTooltip(toggleDesc) {
+                Box(
+                    Modifier.size(48.dp).clip(RoundedCornerShape(24.dp))
+                        .then(if (toggleFocused) Modifier.border(2.dp, cs.primary, RoundedCornerShape(24.dp)) else Modifier)
+                        .focusable(interactionSource = toggleInteraction)
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type == KeyEventType.KeyDown && (ev.key == Key.Enter || ev.key == Key.NumPadEnter || ev.key == Key.Spacebar)) {
+                                onToggle(); true
+                            } else false
+                        }
+                        .mouseGestures(
+                            "toggle$label$depth",
+                            role = Role.Button,
+                            contentDescription = toggleIconDesc,
+                            onClickLabel = toggleDesc,
+                            onClick = { _, _, _ -> onToggle() },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (loading) {
+                        CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                    } else {
+                        Icon(
+                            if (expanded) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight, null,
+                            Modifier.size(18.dp), tint = cs.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         } else {
-            Box(Modifier.size(20.dp))
+            Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                if (loading) CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+            }
         }
         if (iconComposable != null) {
             Box(Modifier.padding(horizontal = 6.dp).size(20.dp), contentAlignment = Alignment.Center) {
