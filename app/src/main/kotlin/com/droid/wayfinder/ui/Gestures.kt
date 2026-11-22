@@ -3,27 +3,40 @@
 
 package com.droid.wayfinder.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.areAnyPressed
+import androidx.compose.ui.input.pointer.isBackPressed
 import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isForwardPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
@@ -43,6 +56,15 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTag
+import androidx.compose.ui.unit.dp
+import com.droid.wayfinder.data.MarqueeMode
+import com.droid.wayfinder.data.MarqueeRect
+import com.droid.wayfinder.data.MarqueeSession
+import com.droid.wayfinder.data.marqueeAutoScrollSpeedPxPerSec
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * Tracks whether the current pointer gesture came from a mouse or trackpad. Android reports
@@ -72,6 +94,17 @@ object PointerSource {
 
 /** True for mouse and trackpad input (desktop semantics), false for touchscreen/stylus. */
 fun PointerInputChange.isPrecise(): Boolean = type == PointerType.Mouse || PointerSource.precise
+
+/**
+ * True when a mouse/trackpad press is a primary action (left button or trackpad tap-and-drag with
+ * zero button mask), excluding secondary/tertiary/back/forward buttons.
+ */
+private fun PointerEvent.isPrimaryMouseAction(): Boolean {
+    if (buttons.isSecondaryPressed || buttons.isTertiaryPressed || buttons.isBackPressed || buttons.isForwardPressed) {
+        return false
+    }
+    return buttons.isPrimaryPressed || !buttons.areAnyPressed
+}
 
 /**
  * Unified mouse/trackpad/touch gestures for rows, sidebar locations, and tabs:
@@ -333,11 +366,17 @@ fun Modifier.dropTarget(path: String?): Modifier {
 }
 
 /**
- * Starts a mouse/trackpad drag (immediate on touchSlop) or touch/stylus hold-and-drag (after long-press hold + slop)
+ * Starts a mouse/trackpad drag (immediate on touchSlop, gated by [canDrag] so empty row whitespace
+ * can start marquee selection instead) or touch/stylus hold-and-drag (after long-press hold + slop)
  * of [paths], initiating system cross-app [android.view.View.startDragAndDrop] with seamless in-window fallback.
  */
 @Composable
-fun Modifier.dragSource(key: Any?, paths: () -> List<String>, onStart: () -> Unit): Modifier {
+fun Modifier.dragSource(
+    key: Any?,
+    paths: () -> List<String>,
+    onStart: () -> Unit,
+    canDrag: (rootOffset: Offset) -> Boolean = { true },
+): Modifier {
     val drag = LocalDrag.current
     val menu = LocalMenu.current
     val view = LocalView.current
@@ -346,15 +385,17 @@ fun Modifier.dragSource(key: Any?, paths: () -> List<String>, onStart: () -> Uni
     val holder = remember { arrayOfNulls<LayoutCoordinates>(1) }
     val currentPaths by rememberUpdatedState(paths)
     val start by rememberUpdatedState(onStart)
+    val allowDrag by rememberUpdatedState(canDrag)
     return this
         .onGloballyPositioned { holder[0] = it }
         .pointerInput(key) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 val mouse = down.isPrecise()
-                if (mouse && !currentEvent.buttons.isPrimaryPressed) return@awaitEachGesture
-
+                if (mouse && !currentEvent.isPrimaryMouseAction()) return@awaitEachGesture
                 val origin = holder[0]?.positionInRoot() ?: Offset.Zero
+                if (mouse && !allowDrag(origin + down.position)) return@awaitEachGesture
+
                 val dragStartChange: PointerInputChange
                 if (mouse) {
                     dragStartChange = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
@@ -405,22 +446,94 @@ fun Modifier.dragSource(key: Any?, paths: () -> List<String>, onStart: () -> Uni
         }
 }
 
-/** Rubber-band (marquee) selection on empty space; items report their bounds in root coordinates. */
+/** Rubber-band (marquee) selection state; items report their full and drag-handle bounds in root coordinates. */
 class RubberBandState {
-    var start by mutableStateOf<Offset?>(null)
-    var current by mutableStateOf(Offset.Zero)
+    /** Active normalized & viewport-clamped marquee box in viewport-local pixels, or null when idle. */
+    var overlayRect by mutableStateOf<MarqueeRect?>(null)
+    val active: Boolean get() = overlayRect != null
     val itemBounds = HashMap<String, Rect>()
-    val rect: Rect? get() = start?.let { Rect(it, current) }
+    val dragHandleBounds = HashMap<String, Rect>()
+
+    fun isOnDragHandle(path: String, rootPos: Offset): Boolean {
+        val handle = dragHandleBounds[path] ?: itemBounds[path] ?: return false
+        return handle.contains(rootPos)
+    }
+
+    /** True if pressing at [rootPos] should start file drag-and-drop instead of marquee selection. */
+    fun isDraggableHit(rootPos: Offset, selection: Set<String>, canDragPath: (String) -> Boolean): Boolean {
+        for ((path, bounds) in itemBounds) {
+            if (!bounds.contains(rootPos)) continue
+            if (!canDragPath(path)) continue
+            if (path in selection) return true
+            val handle = dragHandleBounds[path] ?: bounds
+            if (handle.contains(rootPos)) return true
+        }
+        return false
+    }
+
+    fun clear() {
+        overlayRect = null
+    }
 }
 
+/** Draws the translucent Material 3 marquee rectangle overlay without forcing layout passes on drag moves. */
+@Composable
+fun MarqueeOverlay(state: RubberBandState) {
+    val rect = state.overlayRect ?: return
+    val cs = MaterialTheme.colorScheme
+    val fill = cs.primary.copy(alpha = 0.14f)
+    val stroke = cs.primary.copy(alpha = 0.72f)
+    Canvas(
+        Modifier.fillMaxSize().semantics { testTag = "marquee_selection_box" },
+    ) {
+        if (rect.width <= 0f && rect.height <= 0f) return@Canvas
+        val minPx = 1.dp.toPx()
+        val w = maxOf(rect.width, minPx)
+        val h = maxOf(rect.height, minPx)
+        val left = rect.left.coerceIn(0f, (size.width - w).coerceAtLeast(0f))
+        val top = rect.top.coerceIn(0f, (size.height - h).coerceAtLeast(0f))
+        val radius = CornerRadius(4.dp.toPx())
+        val topLeft = Offset(left, top)
+        val rectSize = Size(w, h)
+        drawRoundRect(color = fill, topLeft = topLeft, size = rectSize, cornerRadius = radius)
+        drawRoundRect(
+            color = stroke,
+            topLeft = topLeft,
+            size = rectSize,
+            cornerRadius = radius,
+            style = Stroke(width = 1.dp.toPx()),
+        )
+    }
+}
+
+/**
+ * Click-and-drag (marquee / rubber-band) multi-selection for scrollable file lists and grids.
+ *
+ * Intercepts mouse/trackpad drags in [PointerEventPass.Initial] when starting outside file drag
+ * handles so [LazyColumn]/[LazyVerticalGrid] vertical scroll never steals the drag, while still
+ * allowing clicks on row whitespace, right-clicks, touch scrolling, and file drag-and-drop.
+ */
 fun Modifier.rubberBand(
     state: RubberBandState,
-    onSelect: (Set<String>, additive: Boolean) -> Unit,
+    currentSelection: () -> Set<String>,
+    validPaths: () -> Set<String>,
+    canDragPath: (String) -> Boolean,
+    scrollBy: suspend (Float) -> Float,
+    canScrollUp: () -> Boolean,
+    canScrollDown: () -> Boolean,
+    onSelect: (Set<String>) -> Unit,
     onEmptyClick: () -> Unit,
     onSecondary: (Offset) -> Unit,
     onLongPress: (Offset) -> Unit = onSecondary,
 ): Modifier = composed {
+    val scope = rememberCoroutineScope()
     val holder = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    val selectionProvider by rememberUpdatedState(currentSelection)
+    val validPathsProvider by rememberUpdatedState(validPaths)
+    val canDragProvider by rememberUpdatedState(canDragPath)
+    val scrollByProvider by rememberUpdatedState(scrollBy)
+    val canScrollUpProvider by rememberUpdatedState(canScrollUp)
+    val canScrollDownProvider by rememberUpdatedState(canScrollDown)
     val select by rememberUpdatedState(onSelect)
     val empty by rememberUpdatedState(onEmptyClick)
     val sec by rememberUpdatedState(onSecondary)
@@ -429,41 +542,39 @@ fun Modifier.rubberBand(
     val vc = LocalViewConfiguration.current
     this
         .onGloballyPositioned { holder[0] = it }
-        .pointerInput(Unit) {
+        .pointerInput(state) {
             awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = true)
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 val origin = holder[0]?.positionInRoot() ?: Offset.Zero
-                if (currentEvent.buttons.isSecondaryPressed) {
-                    down.consume()
-                    sec(origin + down.position)
-                    waitForUpOrCancellation()?.consume()
-                    return@awaitEachGesture
-                }
+                val downRoot = origin + down.position
+
                 if (!down.isPrecise()) {
-                    // Touch on empty folder area: tap clears selection, long-press opens folder background menu.
-                    // Offset by +16ms after child row longPressTimeoutMillis so a child item always consumes `down` first.
+                    // Touch on empty folder area (outside rendered items): tap clears selection, long-press opens background menu.
+                    if (state.itemBounds.values.any { it.contains(downRoot) }) return@awaitEachGesture
+                    val initFinal = awaitPointerEvent(PointerEventPass.Final)
+                    if (initFinal.changes.any { it.isConsumed }) return@awaitEachGesture
                     val deadlineMs = down.uptimeMillis + vc.longPressTimeoutMillis + 16L
                     while (true) {
-                        if (down.isConsumed || currentEvent.changes.any { it.isConsumed }) return@awaitEachGesture
+                        if (down.isConsumed || currentEvent.changes.any { it.isConsumed } || menu.openingGestureActive) return@awaitEachGesture
                         val now = currentEvent.changes.firstOrNull { it.id == down.id }?.uptimeMillis ?: down.uptimeMillis
                         val remaining = deadlineMs - now
                         if (remaining <= 0L) {
-                            if (down.isConsumed || currentEvent.changes.any { it.isConsumed }) return@awaitEachGesture
+                            if (down.isConsumed || currentEvent.changes.any { it.isConsumed } || menu.openingGestureActive) return@awaitEachGesture
                             try {
                                 menu.openingGestureActive = true
-                                lp(origin + down.position)
+                                lp(downRoot)
                                 waitForUpOrCancellation()?.consume()
                             } finally {
                                 menu.openingGestureActive = false
                             }
                             return@awaitEachGesture
                         }
-                        val nextEvent = withTimeoutOrNull(remaining) { awaitPointerEvent(PointerEventPass.Main) }
+                        val nextEvent = withTimeoutOrNull(remaining) { awaitPointerEvent(PointerEventPass.Final) }
                         if (nextEvent == null) {
-                            if (down.isConsumed || currentEvent.changes.any { it.isConsumed }) return@awaitEachGesture
+                            if (down.isConsumed || currentEvent.changes.any { it.isConsumed } || menu.openingGestureActive) return@awaitEachGesture
                             try {
                                 menu.openingGestureActive = true
-                                lp(origin + down.position)
+                                lp(downRoot)
                                 waitForUpOrCancellation()?.consume()
                             } finally {
                                 menu.openingGestureActive = false
@@ -472,17 +583,16 @@ fun Modifier.rubberBand(
                         }
                         if (nextEvent.buttons.isSecondaryPressed) {
                             nextEvent.changes.forEach { it.consume() }
-                            sec(origin + down.position)
+                            sec(downRoot)
                             waitForUpOrCancellation()?.consume()
                             return@awaitEachGesture
                         }
                         val ch = nextEvent.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
-                        if (ch.isConsumed || (ch.position - down.position).getDistance() > vc.touchSlop) {
+                        if (ch.isConsumed || menu.openingGestureActive || (ch.position - down.position).getDistance() > vc.touchSlop) {
                             return@awaitEachGesture
                         }
                         if (ch.uptimeMillis >= deadlineMs) {
-                            val stillDown = ch.pressed
-                            if (!stillDown) {
+                            if (!ch.pressed) {
                                 ch.consume()
                                 lp(origin + ch.position)
                             } else {
@@ -503,24 +613,158 @@ fun Modifier.rubberBand(
                         }
                     }
                 }
-                if (!currentEvent.buttons.isPrimaryPressed) return@awaitEachGesture
-                val additive = currentEvent.keyboardModifiers.isCtrlPressed
-                val slop = awaitTouchSlopOrCancellation(down.id) { c, _ -> c.consume() }
-                if (slop == null) {
-                    // A child (row / grid cell / drag source) already handled this click or drag.
-                    val handledByChild = currentEvent.changes.any { it.isConsumed }
-                    if (!additive && !handledByChild) empty()
+
+                if (currentEvent.buttons.isSecondaryPressed) {
+                    val finalEvent = awaitPointerEvent(PointerEventPass.Final)
+                    val finalDown = finalEvent.changes.firstOrNull { it.id == down.id }
+                    if (finalDown != null && !finalDown.isConsumed) {
+                        finalDown.consume()
+                        sec(downRoot)
+                        waitForUpOrCancellation()?.consume()
+                    }
                     return@awaitEachGesture
                 }
-                state.start = origin + down.position
-                state.current = origin + slop.position
-                drag(slop.id) { c ->
-                    state.current = origin + c.position
-                    val r = state.rect!!
-                    select(state.itemBounds.filterValues { it.overlaps(r) }.keys, additive)
-                    c.consume()
+                if (!currentEvent.isPrimaryMouseAction()) return@awaitEachGesture
+
+                val initialSelection = selectionProvider()
+                if (state.isDraggableHit(downRoot, initialSelection, canDragProvider)) {
+                    return@awaitEachGesture
                 }
-                state.start = null
+
+                val mods = currentEvent.keyboardModifiers
+                val mode = when {
+                    mods.isCtrlPressed || mods.isMetaPressed -> MarqueeMode.Toggle
+                    mods.isShiftPressed -> MarqueeMode.Add
+                    else -> MarqueeMode.Replace
+                }
+                val slopPx = minOf(viewConfiguration.touchSlop, 4.dp.toPx())
+                val edgeZonePx = 36.dp.toPx()
+                val maxSpeedPxPerSec = 720.dp.toPx()
+
+                var dragging = false
+                var session: MarqueeSession? = null
+                var autoScrollJob: Job? = null
+                var pendingLayout = false
+                var lastPointerLocal = down.position
+
+                fun syncSelection(sess: MarqueeSession, ingestVisible: Boolean) {
+                    val coords = holder[0]
+                    val curOrigin = coords?.positionInRoot() ?: origin
+                    val vpSize = coords?.size ?: size
+                    if (ingestVisible) {
+                        val visibleLocal = HashMap<String, MarqueeRect>(state.itemBounds.size)
+                        for ((path, rootRect) in state.itemBounds) {
+                            visibleLocal[path] = MarqueeRect(
+                                left = rootRect.left - curOrigin.x,
+                                top = rootRect.top - curOrigin.y,
+                                right = rootRect.right - curOrigin.x,
+                                bottom = rootRect.bottom - curOrigin.y,
+                            )
+                        }
+                        sess.updateVisibleItems(visibleLocal)
+                    }
+                    state.overlayRect = sess.overlayRect(vpSize.width.toFloat(), vpSize.height.toFloat())
+                    select(sess.computeSelection(validPathsProvider()))
+                }
+
+                fun ensureAutoScrollLoop(sess: MarqueeSession) {
+                    if (autoScrollJob?.isActive == true) return
+                    val vpHeight = (holder[0]?.size?.height ?: size.height).toFloat()
+                    val speed = marqueeAutoScrollSpeedPxPerSec(lastPointerLocal.y, vpHeight, edgeZonePx, maxSpeedPxPerSec)
+                    val shouldScroll = (speed < 0f && canScrollUpProvider()) || (speed > 0f && canScrollDownProvider())
+                    if (!shouldScroll && !pendingLayout) return
+                    autoScrollJob = scope.launch {
+                        var lastFrameNanos = withFrameNanos { it }
+                        while (isActive) {
+                            val curVpHeight = (holder[0]?.size?.height ?: size.height).toFloat()
+                            val curSpeed = marqueeAutoScrollSpeedPxPerSec(lastPointerLocal.y, curVpHeight, edgeZonePx, maxSpeedPxPerSec)
+                            val canStep = (curSpeed < 0f && canScrollUpProvider()) || (curSpeed > 0f && canScrollDownProvider())
+                            if (!canStep && !pendingLayout) break
+                            val nowNanos = withFrameNanos { it }
+                            val dtSec = ((nowNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
+                            lastFrameNanos = nowNanos
+                            if (pendingLayout) {
+                                pendingLayout = false
+                                syncSelection(sess, ingestVisible = true)
+                            }
+                            val stepVpHeight = (holder[0]?.size?.height ?: size.height).toFloat()
+                            val stepSpeed = marqueeAutoScrollSpeedPxPerSec(lastPointerLocal.y, stepVpHeight, edgeZonePx, maxSpeedPxPerSec)
+                            val stepCanScroll = (stepSpeed < 0f && canScrollUpProvider()) || (stepSpeed > 0f && canScrollDownProvider())
+                            if (!stepCanScroll) break
+                            if (dtSec > 0f) {
+                                val consumed = scrollByProvider(stepSpeed * dtSec)
+                                if (consumed == 0f) break
+                                sess.onScrolled(consumed)
+                                pendingLayout = true
+                                syncSelection(sess, ingestVisible = false)
+                            }
+                        }
+                    }
+                }
+
+                try {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (dragging && event.type == PointerEventType.Scroll) {
+                            val sess = session
+                            val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
+                            if (sess != null && dy != 0f) {
+                                event.changes.forEach { it.consume() }
+                                val stepPx = dy * 64.dp.toPx()
+                                scope.launch {
+                                    val consumed = scrollByProvider(stepPx)
+                                    if (consumed != 0f && state.active) {
+                                        sess.onScrolled(consumed)
+                                        pendingLayout = true
+                                        syncSelection(sess, ingestVisible = false)
+                                        ensureAutoScrollLoop(sess)
+                                    }
+                                }
+                            }
+                            continue
+                        }
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) {
+                            if (dragging) {
+                                change.consume()
+                            } else {
+                                val finalEvent = awaitPointerEvent(PointerEventPass.Final)
+                                val finalUp = finalEvent.changes.firstOrNull { it.id == down.id }
+                                val handledByChild = finalUp?.isConsumed == true
+                                if (!handledByChild && mode == MarqueeMode.Replace) {
+                                    empty()
+                                }
+                            }
+                            break
+                        }
+                        lastPointerLocal = change.position
+                        if (!dragging) {
+                            if ((change.position - down.position).getDistance() >= slopPx) {
+                                dragging = true
+                                val sess = MarqueeSession(
+                                    startContentX = down.position.x,
+                                    startContentY = down.position.y,
+                                    initialSelection = initialSelection,
+                                    mode = mode,
+                                )
+                                sess.moveTo(change.position.x, change.position.y)
+                                session = sess
+                                change.consume()
+                                syncSelection(sess, ingestVisible = true)
+                                ensureAutoScrollLoop(sess)
+                            }
+                        } else {
+                            change.consume()
+                            val sess = session!!
+                            sess.moveTo(change.position.x, change.position.y)
+                            syncSelection(sess, ingestVisible = !pendingLayout)
+                            ensureAutoScrollLoop(sess)
+                        }
+                    }
+                } finally {
+                    autoScrollJob?.cancel()
+                    state.clear()
+                }
             }
         }
 }

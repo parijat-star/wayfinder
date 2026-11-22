@@ -1353,10 +1353,17 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun click(path: String, ctrl: Boolean, shift: Boolean) =
         updateTab(tab.id) { it.clicked(path, ctrl, shift, hidden) }
 
-    fun clearSelection() = updateTab(tab.id) { it.copy(selection = emptySet()) }
+    fun clearSelection(tabId: Long = tab.id) = updateTab(tabId) { it.copy(selection = emptySet()) }
     fun selectAll() = updateTab(tab.id) { it.selectAll(hidden) }
     fun invertSelection() = updateTab(tab.id) { it.invertSelection(hidden) }
-    fun setSelection(paths: Set<String>) = updateTab(tab.id) { it.copy(selection = paths, anchor = paths.firstOrNull() ?: it.anchor) }
+    fun setSelection(paths: Set<String>, tabId: Long = tab.id) = updateTab(tabId) { t ->
+        val orderedAnchor = when {
+            paths.isEmpty() -> t.anchor
+            t.anchor != null && t.anchor in paths -> t.anchor
+            else -> t.visible(hidden).firstOrNull { it.path in paths }?.path ?: paths.first()
+        }
+        t.copy(selection = paths, anchor = orderedAnchor)
+    }
     fun setSelectionIfNotSelected(path: String) { if (path !in tab.selection) updateTab(tab.id) { it.copy(selection = setOf(path), anchor = path, focused = path) } }
 
     fun moveFocus(delta: Int, extend: Boolean = false, keepSelection: Boolean = false) =

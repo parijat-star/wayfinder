@@ -40,6 +40,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -54,7 +55,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
@@ -615,12 +615,11 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
     val menu = LocalMenu.current
     val density = LocalDensity.current
     val focusCoord = LocalFocusCoordinator.current
-    val rb = remember(tab.id) { RubberBandState() }
+    val rb = remember(tab.id, tab.viewMode) { RubberBandState() }
     val scrolls = remember { ScrollStates() }
     val listState = scrolls.lists.getOrPut(tab.id) { LazyListState() }
     val gridState = scrolls.grids.getOrPut(tab.id) { LazyGridState() }
-    var origin by remember { androidx.compose.runtime.mutableStateOf(Offset.Zero) }
-    val cs = MaterialTheme.colorScheme
+    val visiblePaths = remember(entries) { entries.mapTo(HashSet(entries.size)) { it.path } }
 
     val rovingPath = remember(entries, tab.focused) {
         tab.focused?.takeIf { f -> entries.any { it.path == f } } ?: entries.firstOrNull()?.path
@@ -634,6 +633,7 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
 
     // Reset scroll when navigating within a tab (but not when switching tabs).
     LaunchedEffect(tab.id, tab.path) {
+        rb.clear()
         if (scrolls.lastPath[tab.id] != tab.path) {
             scrolls.lastPath[tab.id] = tab.path
             listState.scrollToItem(0); gridState.scrollToItem(0)
@@ -660,7 +660,6 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
 
     BoxWithConstraints(
         Modifier.fillMaxSize()
-            .onGloballyPositioned { origin = it.positionInRoot() }
             .pointerInput(Unit) {
                 // Ctrl + scroll zooms the grid.
                 awaitPointerEventScope {
@@ -673,13 +672,7 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
                         }
                     }
                 }
-            }
-            .rubberBand(
-                rb,
-                onSelect = { set, additive -> vm.setSelection(if (additive) tab.selection + set else set) },
-                onEmptyClick = { vm.clearSelection() },
-                onSecondary = { vm.clearSelection(); menu.show(it, backgroundMenu(vm, vm.state.value)) },
-            ),
+            },
     ) {
         val width = maxWidth
         when (tab.viewMode) {
@@ -688,11 +681,27 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
                 val cols = (with(density) { constraints.maxWidth.toDp() } / cell).toInt().coerceAtLeast(1)
                 LaunchedEffect(cols, constraints.maxHeight, active) { if (active) vm.setGridColumns(cols, (constraints.maxHeight / density.density / 120f).toInt().coerceAtLeast(3)) }
                 Box(Modifier.fillMaxSize()) {
-                    LazyVerticalGrid(
-                        GridCells.Adaptive(cell), Modifier.fillMaxSize(), gridState,
-                        contentPadding = PaddingValues(12.dp),
+                    Box(
+                        Modifier.fillMaxSize().rubberBand(
+                            state = rb,
+                            currentSelection = { vm.state.value.tabById(tab.id)?.selection.orEmpty() },
+                            validPaths = { visiblePaths },
+                            canDragPath = { p -> canDragEntry(vm.state.value.tabById(tab.id) ?: tab, p) },
+                            scrollBy = { delta -> gridState.scrollBy(delta) },
+                            canScrollUp = { gridState.canScrollBackward },
+                            canScrollDown = { gridState.canScrollForward },
+                            onSelect = { set -> vm.setSelection(set, tab.id) },
+                            onEmptyClick = { vm.clearSelection(tab.id) },
+                            onSecondary = { vm.clearSelection(tab.id); menu.show(it, backgroundMenu(vm, vm.state.value)) },
+                        ),
                     ) {
-                        items(entries, key = { it.path }) { e -> GridCell(vm, s, tab, e, rb, isRovingTarget = active && e.path == rovingPath) }
+                        LazyVerticalGrid(
+                            GridCells.Adaptive(cell), Modifier.fillMaxSize(), gridState,
+                            contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 16.dp, bottom = 96.dp),
+                        ) {
+                            items(entries, key = { it.path }) { e -> GridCell(vm, s, tab, e, rb, isRovingTarget = active && e.path == rovingPath) }
+                        }
+                        MarqueeOverlay(rb)
                     }
                     LazyGridScrollbar(gridState, Modifier.align(Alignment.CenterEnd))
                 }
@@ -703,23 +712,30 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
                 Column(Modifier.fillMaxSize()) {
                     if (details) DetailsHeader(vm, s, tab, width)
                     Box(Modifier.weight(1f).fillMaxWidth()) {
-                        LazyColumn(Modifier.fillMaxSize(), listState, contentPadding = PaddingValues(vertical = 4.dp)) {
-                            items(entries, key = { it.path }) { e -> EntryRow(vm, s, tab, e, rb, details, width, isRovingTarget = active && e.path == rovingPath) }
-                            item("filler") { Box(Modifier.fillParentMaxHeightCompat().fillMaxWidth()) }
+                        Box(
+                            Modifier.fillMaxSize().rubberBand(
+                                state = rb,
+                                currentSelection = { vm.state.value.tabById(tab.id)?.selection.orEmpty() },
+                                validPaths = { visiblePaths },
+                                canDragPath = { p -> canDragEntry(vm.state.value.tabById(tab.id) ?: tab, p) },
+                                scrollBy = { delta -> listState.scrollBy(delta) },
+                                canScrollUp = { listState.canScrollBackward },
+                                canScrollDown = { listState.canScrollForward },
+                                onSelect = { set -> vm.setSelection(set, tab.id) },
+                                onEmptyClick = { vm.clearSelection(tab.id) },
+                                onSecondary = { vm.clearSelection(tab.id); menu.show(it, backgroundMenu(vm, vm.state.value)) },
+                            ),
+                        ) {
+                            LazyColumn(Modifier.fillMaxSize(), listState, contentPadding = PaddingValues(vertical = 4.dp)) {
+                                items(entries, key = { it.path }) { e -> EntryRow(vm, s, tab, e, rb, details, width, isRovingTarget = active && e.path == rovingPath) }
+                                item("filler") { Box(Modifier.fillParentMaxHeightCompat().fillMaxWidth()) }
+                            }
+                            MarqueeOverlay(rb)
                         }
                         LazyListScrollbar(listState, Modifier.align(Alignment.CenterEnd))
                     }
                 }
             }
-        }
-        val r = rb.rect
-        if (r != null) {
-            val tl = r.topLeft - origin
-            Box(
-                Modifier.offset { androidx.compose.ui.unit.IntOffset(tl.x.toInt(), tl.y.toInt()) }
-                    .size(with(density) { r.width.toDp() }, with(density) { r.height.toDp() })
-                    .background(cs.primary.copy(alpha = 0.14f)).border(1.dp, cs.primary.copy(alpha = 0.6f)),
-            )
         }
     }
 }
@@ -1039,6 +1055,34 @@ private fun ColumnDividerHandle(
 
 private fun Modifier.fillMaxHeightCompat(): Modifier = this.heightIn(min = 48.dp)
 
+private fun canDragEntry(tab: TabState, path: String): Boolean =
+    !FsPath.isVirtual(path) && tab.path != FsPath.SMB_ROOT
+
+/** Tracks icon + name (+ optional subtitle) bounds in root coordinates so row whitespace can start marquee selection. */
+private class RowHandleTracker(private val rb: RubberBandState, private val path: String) {
+    private var row: androidx.compose.ui.geometry.Rect? = null
+    private var icon: androidx.compose.ui.geometry.Rect? = null
+    private var name: androidx.compose.ui.geometry.Rect? = null
+    private var sub: androidx.compose.ui.geometry.Rect? = null
+
+    fun onRow(r: androidx.compose.ui.geometry.Rect) { row = r; sync() }
+    fun onIcon(r: androidx.compose.ui.geometry.Rect) { icon = r; sync() }
+    fun onName(r: androidx.compose.ui.geometry.Rect) { name = r; sync() }
+    fun onSub(r: androidx.compose.ui.geometry.Rect?) { sub = r; sync() }
+
+    private fun sync() {
+        val r = row ?: return
+        val parts = listOfNotNull(icon, name, sub)
+        if (parts.isEmpty()) {
+            rb.dragHandleBounds.remove(path)
+            return
+        }
+        val left = parts.minOf { it.left }.coerceAtLeast(r.left)
+        val right = parts.maxOf { it.right }.coerceAtMost(r.right)
+        rb.dragHandleBounds[path] = androidx.compose.ui.geometry.Rect(left, r.top, right, r.bottom)
+    }
+}
+
 /** Selection, drag-and-drop, click, keyboard focus, and context-menu behaviour shared by rows and grid cells. */
 @Composable
 private fun Modifier.entryInteractions(
@@ -1048,12 +1092,18 @@ private fun Modifier.entryInteractions(
     rb: RubberBandState,
     focusShape: Shape,
     isRovingTarget: Boolean,
+    handleTracker: RowHandleTracker? = null,
 ): Modifier {
     val menu = LocalMenu.current
     val focusCoord = LocalFocusCoordinator.current
     val itemFocusRequester = remember { FocusRequester() }
     val selected = e.path in tab.selection
-    DisposableEffect(e.path) { onDispose { rb.itemBounds.remove(e.path) } }
+    DisposableEffect(rb, e.path) {
+        onDispose {
+            rb.itemBounds.remove(e.path)
+            rb.dragHandleBounds.remove(e.path)
+        }
+    }
     DisposableEffect(isRovingTarget, itemFocusRequester) {
         if (isRovingTarget) focusCoord.activeFileListRequester = itemFocusRequester
         onDispose {
@@ -1070,7 +1120,11 @@ private fun Modifier.entryInteractions(
     }
     val dropPath = if (e.isDir && !selected && !e.isServer) e.path else null
     return this
-        .onGloballyPositioned { rb.itemBounds[e.path] = it.boundsInRoot() }
+        .onGloballyPositioned {
+            val bounds = it.boundsInRoot()
+            rb.itemBounds[e.path] = bounds
+            handleTracker?.onRow(bounds)
+        }
         .keyboardFocusableItem(
             shape = focusShape,
             canFocus = isRovingTarget,
@@ -1085,8 +1139,15 @@ private fun Modifier.entryInteractions(
         .dropTarget(dropPath)
         .dragSource(
             e.path,
-            paths = { vm.state.value.active.let { t -> if (e.path in t.selection) t.selection.toList() else listOf(e.path) }.filter { !FsPath.isVirtual(it) && !(vm.state.value.active.path == FsPath.SMB_ROOT) } },
+            paths = {
+                val t = vm.state.value.tabById(tab.id) ?: vm.state.value.active
+                (if (e.path in t.selection) t.selection.toList() else listOf(e.path)).filter { canDragEntry(t, it) }
+            },
             onStart = { vm.setSelectionIfNotSelected(e.path) },
+            canDrag = { rootPos ->
+                val t = vm.state.value.tabById(tab.id) ?: vm.state.value.active
+                canDragEntry(t, e.path) && (e.path in t.selection || rb.isOnDragHandle(e.path, rootPos))
+            },
         )
         .mouseGestures(
             e.path,
@@ -1121,6 +1182,9 @@ private fun EntryRow(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEn
     val drag = LocalDrag.current
     val dropHover = drag.active && drag.hover == e.path
     val cut = s.clipboard?.cut == true && e.path in s.clipboard.paths
+    val tracker = remember(rb, e.path) { RowHandleTracker(rb, e.path) }
+    val sub = e.subtitle ?: if (tab.searchResults != null || (FsPath.isCollection(tab.path) && tab.path != FsPath.RECENTS_ROOT)) FsPath.parent(e.path) else null
+    LaunchedEffect(tracker, sub == null) { if (sub == null) tracker.onSub(null) }
     val bg = when {
         dropHover -> cs.primaryContainer
         selected -> cs.secondaryContainer
@@ -1134,21 +1198,29 @@ private fun EntryRow(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEn
             .alpha(if (cut) 0.5f else 1f)
             .clip(shape).background(bg)
             .then(if (focused && keyboardMode) Modifier.border(2.dp, cs.primary.copy(alpha = 0.7f), shape) else Modifier)
-            .hoverable(hover).entryInteractions(vm, tab, e, rb, focusShape = shape, isRovingTarget = isRovingTarget)
+            .hoverable(hover).entryInteractions(vm, tab, e, rb, focusShape = shape, isRovingTarget = isRovingTarget, handleTracker = tracker)
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(e.icon(), null, Modifier.size(22.dp), tint = e.tint())
+        Icon(e.icon(), null, Modifier.size(22.dp).onGloballyPositioned { tracker.onIcon(it.boundsInRoot()) }, tint = e.tint())
         val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.35f)
         val visibleCols = if (details) visibleColumnsForWidth(s, width, fontScale) else emptyList()
         val tagsColVisible = details && SortKey.Tags in visibleCols
         Column(Modifier.weight(1f).widthIn(min = MIN_NAME_COLUMN_WIDTH_DP.dp).padding(start = 12.dp, end = COLUMN_END_PAD)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(e.name, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (selected) cs.onSecondaryContainer else cs.onSurface)
+                Text(
+                    e.name,
+                    Modifier.weight(1f, fill = false).onGloballyPositioned { tracker.onName(it.boundsInRoot()) },
+                    style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = if (selected) cs.onSecondaryContainer else cs.onSurface,
+                )
                 MarkBadges(s, e.path, Modifier.padding(start = 8.dp), showTags = !tagsColVisible)
             }
-            val sub = e.subtitle ?: if (tab.searchResults != null || (FsPath.isCollection(tab.path) && tab.path != FsPath.RECENTS_ROOT)) FsPath.parent(e.path) else null
-            if (sub != null) Text(sub, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (sub != null) Text(
+                sub,
+                Modifier.onGloballyPositioned { tracker.onSub(it.boundsInRoot()) },
+                style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
         if (details) {
             for (col in visibleCols) {
@@ -1371,17 +1443,19 @@ private fun AncestorColumn(vm: BrowserViewModel, s: AppState, tab: TabState, dir
 @Composable
 private fun CurrentColumn(vm: BrowserViewModel, s: AppState, tab: TabState, entries: List<FileEntry>) {
     val menu = LocalMenu.current
-    val density = LocalDensity.current
     val focusCoord = LocalFocusCoordinator.current
     val cs = MaterialTheme.colorScheme
     val active = s.active.id == tab.id
     val rb = remember(tab.id) { RubberBandState() }
     val state = rememberLazyListState()
-    var origin by remember { androidx.compose.runtime.mutableStateOf(Offset.Zero) }
+    val visiblePaths = remember(entries) { entries.mapTo(HashSet(entries.size)) { it.path } }
     val rovingPath = remember(entries, tab.focused) {
         tab.focused?.takeIf { f -> entries.any { it.path == f } } ?: entries.firstOrNull()?.path
     }
-    LaunchedEffect(tab.path) { state.scrollToItem(0) }
+    LaunchedEffect(tab.id, tab.path) {
+        rb.clear()
+        state.scrollToItem(0)
+    }
     LaunchedEffect(active, tab.id, tab.path, rovingPath) {
         if (active && rovingPath != null && !focusCoord.nonListZoneFocused && s.dialog == null && !s.addressEditing && !s.paletteOpen && !s.textFocus) {
             withFrameNanos { }
@@ -1393,96 +1467,122 @@ private fun CurrentColumn(vm: BrowserViewModel, s: AppState, tab: TabState, entr
         val info = state.layoutInfo.visibleItemsInfo
         if (idx >= 0 && info.isNotEmpty() && (idx <= info.first().index || idx >= info.last().index)) state.animateScrollToItem((idx - 3).coerceAtLeast(0))
     }
-    Box(
-        Modifier.width(MILLER_W + 20.dp).fillMaxHeight()
-            .onGloballyPositioned { origin = it.positionInRoot() }
-            .rubberBand(
-                rb,
-                onSelect = { set, additive -> vm.setSelection(if (additive) tab.selection + set else set) },
-                onEmptyClick = { vm.clearSelection() },
-                onSecondary = { vm.clearSelection(); menu.show(it, backgroundMenu(vm, vm.state.value)) },
+    Box(Modifier.width(MILLER_W + 20.dp).fillMaxHeight()) {
+        Box(
+            Modifier.fillMaxSize().rubberBand(
+                state = rb,
+                currentSelection = { vm.state.value.tabById(tab.id)?.selection.orEmpty() },
+                validPaths = { visiblePaths },
+                canDragPath = { p -> canDragEntry(vm.state.value.tabById(tab.id) ?: tab, p) },
+                scrollBy = { delta -> state.scrollBy(delta) },
+                canScrollUp = { state.canScrollBackward },
+                canScrollDown = { state.canScrollForward },
+                onSelect = { set -> vm.setSelection(set, tab.id) },
+                onEmptyClick = { vm.clearSelection(tab.id) },
+                onSecondary = { vm.clearSelection(tab.id); menu.show(it, backgroundMenu(vm, vm.state.value)) },
             ),
-    ) {
-        when {
-            tab.loading && tab.entries.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center).size(28.dp))
-            entries.isEmpty() -> Text("Empty folder", Modifier.align(Alignment.Center), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
-            else -> Box(Modifier.fillMaxSize()) {
-                LazyColumn(Modifier.fillMaxSize(), state, contentPadding = PaddingValues(vertical = 4.dp)) {
-                    items(entries, key = { it.path }) { e ->
-                        val selected = e.path in tab.selection
-                        val isRoving = active && e.path == rovingPath
-                        val millerFocusRequester = remember { FocusRequester() }
-                        DisposableEffect(e.path) { onDispose { rb.itemBounds.remove(e.path) } }
-                        DisposableEffect(isRoving, millerFocusRequester) {
-                            if (isRoving) focusCoord.activeFileListRequester = millerFocusRequester
-                            onDispose {
-                                if (focusCoord.activeFileListRequester === millerFocusRequester) {
-                                    focusCoord.activeFileListRequester = null
+        ) {
+            when {
+                tab.loading && tab.entries.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center).size(28.dp))
+                entries.isEmpty() -> Text("Empty folder", Modifier.align(Alignment.Center), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                else -> {
+                    LazyColumn(Modifier.fillMaxSize(), state, contentPadding = PaddingValues(vertical = 4.dp)) {
+                        items(entries, key = { it.path }) { e ->
+                            val selected = e.path in tab.selection
+                            val isRoving = active && e.path == rovingPath
+                            val millerFocusRequester = remember { FocusRequester() }
+                            val tracker = remember(rb, e.path) { RowHandleTracker(rb, e.path) }
+                            DisposableEffect(rb, e.path) {
+                                onDispose {
+                                    rb.itemBounds.remove(e.path)
+                                    rb.dragHandleBounds.remove(e.path)
                                 }
                             }
-                        }
-                        LaunchedEffect(isRoving) {
-                            val st = vm.state.value
-                            if (isRoving && !focusCoord.nonListZoneFocused && st.dialog == null && !st.addressEditing && !st.paletteOpen && !st.textFocus) {
-                                runCatching { millerFocusRequester.requestFocus() }
+                            DisposableEffect(isRoving, millerFocusRequester) {
+                                if (isRoving) focusCoord.activeFileListRequester = millerFocusRequester
+                                onDispose {
+                                    if (focusCoord.activeFileListRequester === millerFocusRequester) {
+                                        focusCoord.activeFileListRequester = null
+                                    }
+                                }
                             }
+                            LaunchedEffect(isRoving) {
+                                val st = vm.state.value
+                                if (isRoving && !focusCoord.nonListZoneFocused && st.dialog == null && !st.addressEditing && !st.paletteOpen && !st.textFocus) {
+                                    runCatching { millerFocusRequester.requestFocus() }
+                                }
+                            }
+                            MillerRow(
+                                s, e, highlighted = false, selected = selected, focused = e.path == tab.focused,
+                                Modifier.onGloballyPositioned {
+                                    val bounds = it.boundsInRoot()
+                                    rb.itemBounds[e.path] = bounds
+                                    tracker.onRow(bounds)
+                                }
+                                    .keyboardFocusableItem(
+                                        shape = RoundedCornerShape(10.dp),
+                                        canFocus = isRoving,
+                                        allowSpacebar = false,
+                                        focusRequester = if (isRoving) millerFocusRequester else null,
+                                        onActivate = { _, _ -> vm.open(e) },
+                                        onContextMenu = { off -> vm.setSelectionIfNotSelected(e.path); menu.show(off, fileMenu(vm, vm.state.value, e)) },
+                                    )
+                                    .dropTarget(if (e.isDir && !selected && !e.isServer) e.path else null)
+                                    .dragSource(
+                                        e.path,
+                                        paths = {
+                                            val t = vm.state.value.tabById(tab.id) ?: vm.state.value.active
+                                            (if (e.path in t.selection) t.selection.toList() else listOf(e.path)).filter { canDragEntry(t, it) }
+                                        },
+                                        onStart = { vm.setSelectionIfNotSelected(e.path) },
+                                        canDrag = { rootPos ->
+                                            val t = vm.state.value.tabById(tab.id) ?: vm.state.value.active
+                                            canDragEntry(t, e.path) && (e.path in t.selection || rb.isOnDragHandle(e.path, rootPos))
+                                        },
+                                    )
+                                    .mouseGestures(
+                                        e.path,
+                                        role = Role.Button,
+                                        selected = selected,
+                                        onClickLabel = "Open ${e.name}",
+                                        onClick = { ctrl, shift, touch ->
+                                            when {
+                                                touch && vm.state.value.active.selection.isNotEmpty() -> vm.click(e.path, ctrl = true, shift = false)
+                                                e.isDir && !ctrl && !shift -> vm.navigate(e.path)
+                                                touch -> vm.open(e)
+                                                else -> vm.click(e.path, ctrl, shift)
+                                            }
+                                        },
+                                        onDoubleClick = { if (!e.isDir) vm.open(e) },
+                                        onSecondary = { off -> vm.setSelectionIfNotSelected(e.path); menu.show(off, fileMenu(vm, vm.state.value, e)) },
+                                        onMiddle = { if (e.isDir) vm.open(e, newTab = true) },
+                                        onLongPress = { off -> vm.setSelectionIfNotSelected(e.path); menu.show(off, fileMenu(vm, vm.state.value, e)) },
+                                    ),
+                                handleTracker = tracker,
+                            )
                         }
-                        MillerRow(
-                            s, e, highlighted = false, selected = selected, focused = e.path == tab.focused,
-                            Modifier.onGloballyPositioned { rb.itemBounds[e.path] = it.boundsInRoot() }
-                                .keyboardFocusableItem(
-                                    shape = RoundedCornerShape(10.dp),
-                                    canFocus = isRoving,
-                                    allowSpacebar = false,
-                                    focusRequester = if (isRoving) millerFocusRequester else null,
-                                    onActivate = { _, _ -> vm.open(e) },
-                                    onContextMenu = { off -> vm.setSelectionIfNotSelected(e.path); menu.show(off, fileMenu(vm, vm.state.value, e)) },
-                                )
-                                .dropTarget(if (e.isDir && !selected && !e.isServer) e.path else null)
-                                .dragSource(
-                                    e.path,
-                                    paths = { vm.state.value.active.let { t -> if (e.path in t.selection) t.selection.toList() else listOf(e.path) }.filter { !FsPath.isVirtual(it) && vm.state.value.active.path != FsPath.SMB_ROOT } },
-                                    onStart = { vm.setSelectionIfNotSelected(e.path) },
-                                )
-                                .mouseGestures(
-                                    e.path,
-                                    role = Role.Button,
-                                    selected = selected,
-                                    onClickLabel = "Open ${e.name}",
-                                    onClick = { ctrl, shift, touch ->
-                                        when {
-                                            touch && vm.state.value.active.selection.isNotEmpty() -> vm.click(e.path, ctrl = true, shift = false)
-                                            e.isDir && !ctrl && !shift -> vm.navigate(e.path)
-                                            touch -> vm.open(e)
-                                            else -> vm.click(e.path, ctrl, shift)
-                                        }
-                                    },
-                                    onDoubleClick = { if (!e.isDir) vm.open(e) },
-                                    onSecondary = { off -> vm.setSelectionIfNotSelected(e.path); menu.show(off, fileMenu(vm, vm.state.value, e)) },
-                                    onMiddle = { if (e.isDir) vm.open(e, newTab = true) },
-                                    onLongPress = { off -> vm.setSelectionIfNotSelected(e.path); menu.show(off, fileMenu(vm, vm.state.value, e)) },
-                                ),
-                        )
+                        item("filler") { Box(Modifier.fillParentMaxHeightCompat().fillMaxWidth()) }
                     }
-                    item("filler") { Box(Modifier.fillParentMaxHeightCompat().fillMaxWidth()) }
+                    MarqueeOverlay(rb)
                 }
-                LazyListScrollbar(state, Modifier.align(Alignment.CenterEnd))
             }
         }
-        val r = rb.rect
-        if (r != null) {
-            val tl = r.topLeft - origin
-            Box(
-                Modifier.offset { androidx.compose.ui.unit.IntOffset(tl.x.toInt(), tl.y.toInt()) }
-                    .size(with(density) { r.width.toDp() }, with(density) { r.height.toDp() })
-                    .background(cs.primary.copy(alpha = 0.14f)).border(1.dp, cs.primary.copy(alpha = 0.6f)),
-            )
+        if (entries.isNotEmpty()) {
+            LazyListScrollbar(state, Modifier.align(Alignment.CenterEnd))
         }
     }
 }
 
 @Composable
-private fun MillerRow(s: AppState, e: FileEntry, highlighted: Boolean, selected: Boolean, focused: Boolean, modifier: Modifier) {
+private fun MillerRow(
+    s: AppState,
+    e: FileEntry,
+    highlighted: Boolean,
+    selected: Boolean,
+    focused: Boolean,
+    modifier: Modifier,
+    handleTracker: RowHandleTracker? = null,
+) {
     val cs = MaterialTheme.colorScheme
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
@@ -1504,11 +1604,22 @@ private fun MillerRow(s: AppState, e: FileEntry, highlighted: Boolean, selected:
             .hoverable(hover).then(modifier).padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(e.icon(), null, Modifier.size(18.dp), tint = e.tint())
-        Text(
-            e.name, Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium, maxLines = 1,
-            overflow = TextOverflow.Ellipsis, color = if (selected) cs.onSecondaryContainer else cs.onSurface,
+        Icon(
+            e.icon(),
+            null,
+            Modifier.size(18.dp).then(
+                if (handleTracker != null) Modifier.onGloballyPositioned { handleTracker.onIcon(it.boundsInRoot()) } else Modifier,
+            ),
+            tint = e.tint(),
         )
+        Box(Modifier.weight(1f).padding(start = 8.dp)) {
+            Text(
+                e.name,
+                if (handleTracker != null) Modifier.onGloballyPositioned { handleTracker.onName(it.boundsInRoot()) } else Modifier,
+                style = MaterialTheme.typography.bodyMedium, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, color = if (selected) cs.onSecondaryContainer else cs.onSurface,
+            )
+        }
         MarkBadges(s, e.path, Modifier.padding(horizontal = 4.dp), dot = 7.dp)
         if (e.isDir) Icon(Icons.Outlined.ChevronRight, null, Modifier.size(16.dp), tint = cs.onSurfaceVariant)
     }
