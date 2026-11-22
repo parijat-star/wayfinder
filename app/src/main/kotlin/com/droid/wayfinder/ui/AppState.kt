@@ -78,7 +78,12 @@ sealed interface UiEvent {
      */
     data class OpenFile(val path: String, val chooser: Boolean = false, val uri: android.net.Uri? = null) : UiEvent
     data class Share(val paths: List<String>) : UiEvent
-    data class Toast(val message: String, val undo: Boolean = false) : UiEvent
+    data class Toast(
+        val message: String,
+        val undo: Boolean = false,
+        val key: String? = null,
+        val durationMs: Long? = null,
+    ) : UiEvent
     /** [what] names the copied value in the confirmation ("Path copied", "SHA-256 copied"). */
     data class CopyText(val text: String, val what: String = "Path") : UiEvent
     data object Finish : UiEvent

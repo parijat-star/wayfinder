@@ -16,6 +16,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.background
@@ -44,6 +45,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -55,12 +57,15 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDefaults
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SnackbarVisuals
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -92,6 +97,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.utf16CodePoint
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -106,6 +112,97 @@ import com.droid.wayfinder.R
 import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.ViewMode
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+internal class LiveSnackbarVisuals(
+    initialMessage: String,
+    override val actionLabel: String? = null,
+    override val withDismissAction: Boolean = false,
+    override val duration: SnackbarDuration = SnackbarDuration.Short,
+    val key: String? = null,
+) : SnackbarVisuals {
+    var liveMessage by mutableStateOf(initialMessage)
+    override val message: String get() = liveMessage
+}
+
+/**
+ * Coordinates snackbar presentation without blocking the `UiEvent` collector.
+ *
+ * When a new toast shares a non-null [key] and [actionLabel] with the currently active snackbar,
+ * its message is updated in place and its auto-dismiss timer is reset—preventing queueing and
+ * crossfade flicker during rapid updates such as repeated zoom changes.
+ */
+internal class TransientSnackbarController(
+    private val hostState: SnackbarHostState,
+    private val scope: CoroutineScope,
+    private val resolveTimeoutMs: (durationMs: Long, hasAction: Boolean) -> Long = { ms, _ -> ms },
+) {
+    private var snackbarJob: Job? = null
+    private var dismissJob: Job? = null
+    private var activeVisuals: LiveSnackbarVisuals? = null
+
+    fun show(
+        message: String,
+        actionLabel: String? = null,
+        key: String? = null,
+        durationMs: Long? = null,
+        onAction: (() -> Unit)? = null,
+    ) {
+        val current = activeVisuals
+        if (key != null &&
+            current != null &&
+            current.key == key &&
+            current.actionLabel == actionLabel &&
+            snackbarJob?.isActive == true
+        ) {
+            current.liveMessage = message
+            scheduleDismiss(current, durationMs)
+            return
+        }
+
+        dismissJob?.cancel()
+        snackbarJob?.cancel()
+        hostState.currentSnackbarData?.dismiss()
+
+        val visuals = LiveSnackbarVisuals(
+            initialMessage = message,
+            actionLabel = actionLabel,
+            duration = if (durationMs != null) SnackbarDuration.Indefinite else SnackbarDuration.Short,
+            key = key,
+        )
+        activeVisuals = visuals
+        snackbarJob = scope.launch {
+            try {
+                val result = hostState.showSnackbar(visuals)
+                if (result == SnackbarResult.ActionPerformed) onAction?.invoke()
+            } finally {
+                if (activeVisuals === visuals) {
+                    activeVisuals = null
+                    dismissJob?.cancel()
+                    dismissJob = null
+                }
+            }
+        }
+        scheduleDismiss(visuals, durationMs)
+    }
+
+    private fun scheduleDismiss(visuals: LiveSnackbarVisuals, durationMs: Long?) {
+        dismissJob?.cancel()
+        dismissJob = if (durationMs != null) {
+            scope.launch {
+                delay(resolveTimeoutMs(durationMs, visuals.actionLabel != null))
+                if (hostState.currentSnackbarData?.visuals === visuals) {
+                    hostState.currentSnackbarData?.dismiss()
+                }
+            }
+        } else {
+            null
+        }
+    }
+}
 
 private fun Modifier.reclaimFocus(vm: BrowserViewModel, fm: FocusManager, root: FocusRequester): Modifier =
     pointerInput(Unit) {
@@ -126,6 +223,7 @@ fun AppRoot(vm: BrowserViewModel) {
     }
     val drag = remember { DragController() }
     val snackbar = remember { SnackbarHostState() }
+    val accessibilityManager = LocalAccessibilityManager.current
     val rootFocus = remember { FocusRequester() }
     val fm = LocalFocusManager.current
     var lastPointer by remember { mutableStateOf(Offset(400f, 300f)) }
@@ -165,14 +263,22 @@ fun AppRoot(vm: BrowserViewModel) {
     BackHandler(enabled = s.active.canGoBack) { vm.back() }
 
     LaunchedEffect(Unit) {
+        val toasts = TransientSnackbarController(snackbar, this) { durationMs, hasAction ->
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = durationMs,
+                containsIcons = false,
+                containsText = true,
+                containsControls = hasAction,
+            ) ?: durationMs
+        }
+
         vm.events.collect { e ->
             when (e) {
                 is UiEvent.OpenFile -> openWithSystem(ctx, e.path, e.chooser, e.uri)
                 is UiEvent.Share -> shareFiles(ctx, e.paths)
                 is UiEvent.CopyText -> {
                     ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(e.what, e.text))
-                    snackbar.currentSnackbarData?.dismiss()
-                    snackbar.showSnackbar("${e.what} copied", duration = SnackbarDuration.Short)
+                    toasts.show("${e.what} copied")
                 }
                 is UiEvent.NewWindow -> openNewWindow(ctx, e.path)
                 is UiEvent.OpenExternalUrl -> {
@@ -182,7 +288,7 @@ fun AppRoot(vm: BrowserViewModel) {
                         try {
                             ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         } catch (_: Exception) {
-                            snackbar.showSnackbar("No browser available to open ${e.url}", duration = SnackbarDuration.Short)
+                            toasts.show("No browser available to open ${e.url}")
                         }
                     }
                 }
@@ -192,9 +298,13 @@ fun AppRoot(vm: BrowserViewModel) {
                     vm.onBluetoothPermissionResult(true)
                 }
                 is UiEvent.Toast -> {
-                    snackbar.currentSnackbarData?.dismiss()
-                    val r = snackbar.showSnackbar(e.message, if (e.undo) "Undo" else null, duration = SnackbarDuration.Short)
-                    if (r == SnackbarResult.ActionPerformed) vm.undo()
+                    toasts.show(
+                        message = e.message,
+                        actionLabel = if (e.undo) "Undo" else null,
+                        key = e.key,
+                        durationMs = e.durationMs,
+                        onAction = if (e.undo) vm::undo else null,
+                    )
                 }
                 is UiEvent.PickDocumentTree -> try {
                     launchSystemDocumentTreePicker(
@@ -204,7 +314,7 @@ fun AppRoot(vm: BrowserViewModel) {
                         fallbackLaunch = { treeLauncher.launch(e.initialUri) },
                     )
                 } catch (_: ActivityNotFoundException) {
-                    snackbar.showSnackbar("No document provider is available", duration = SnackbarDuration.Short)
+                    toasts.show("No document provider is available")
                 }
                 UiEvent.PickGoogleAccount -> try {
                     @Suppress("DEPRECATION")
@@ -218,7 +328,7 @@ fun AppRoot(vm: BrowserViewModel) {
                 is UiEvent.ImportPhoneDocuments -> try {
                     phoneImportLauncher.launch(buildSystemDocumentOpenFilePickerIntent(ctx, e.initialUri))
                 } catch (_: ActivityNotFoundException) {
-                    snackbar.showSnackbar("No document provider is available", duration = SnackbarDuration.Short)
+                    toasts.show("No document provider is available")
                 }
                 UiEvent.OpenSystemPhoneFiles -> {
                     val sysIntent = buildSystemPhoneFilesWindowIntent(ctx)
@@ -460,7 +570,46 @@ fun AppRoot(vm: BrowserViewModel) {
             if (s.paletteOpen) CommandPalette(vm, s)
             MenuHost(menu)
             Dialogs(vm, s)
-            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp))
+            SnackbarHost(
+                hostState = snackbar,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(start = 16.dp, end = 16.dp, bottom = 48.dp),
+            ) { data ->
+                val hasAction = data.visuals.actionLabel != null
+                Surface(
+                    shape = SnackbarDefaults.shape,
+                    color = SnackbarDefaults.color,
+                    contentColor = SnackbarDefaults.contentColor,
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.widthIn(max = 420.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(
+                            start = 16.dp,
+                            end = if (hasAction) 8.dp else 16.dp,
+                            top = if (hasAction) 4.dp else 12.dp,
+                            bottom = if (hasAction) 4.dp else 12.dp,
+                        ),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = data.visuals.message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        data.visuals.actionLabel?.let { label ->
+                            TextButton(
+                                onClick = { data.performAction() },
+                                colors = ButtonDefaults.textButtonColors(contentColor = SnackbarDefaults.actionColor),
+                            ) {
+                                Text(label)
+                            }
+                        }
+                    }
+                }
+            }
             if (drag.active) DragGhost(drag)
         }
     }
