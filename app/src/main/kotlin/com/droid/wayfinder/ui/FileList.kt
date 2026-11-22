@@ -19,6 +19,8 @@ import androidx.compose.ui.res.stringResource
 import com.droid.wayfinder.R
 import com.droid.wayfinder.data.sortEntries
 import android.app.Activity
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.PushPin
@@ -326,18 +328,24 @@ internal fun PhoneQuickAccessBanner(
 @Composable
 private fun Modifier.externalDrop(vm: BrowserViewModel, dest: String): Modifier {
     val activity = LocalContext.current.findActivity()
+    val windowDragId = LocalWindowDragId.current
     val cs = MaterialTheme.colorScheme
     val hovering = remember { mutableStateOf(false) }
-    val target = remember(dest, activity) {
+    val target = remember(dest, activity, windowDragId) {
         object : DragAndDropTarget {
             override fun onDrop(event: DragAndDropEvent): Boolean {
                 hovering.value = false
                 val de = event.toAndroidDragEvent()
+                val sameWinState = de.localState as? WayfinderDragLocalState
+                if (sameWinState != null && sameWinState.windowId == windowDragId) {
+                    return false
+                }
                 @Suppress("UNCHECKED_CAST")
-                val localPaths = de.localState as? List<String>
+                val localPaths = sameWinState?.paths ?: (de.localState as? List<String>)
                 if (!localPaths.isNullOrEmpty()) {
-                    if (dest !in localPaths && localPaths.any { FsPath.parent(it) != dest }) {
-                        vm.dropOn(dest, localPaths, copy = false)
+                    val copy = sameWinState?.initialCopyMode ?: false
+                    if (dest !in localPaths && (copy || localPaths.any { FsPath.parent(it) != dest })) {
+                        vm.dropOn(dest, localPaths, copy = copy)
                     }
                     return true
                 }
@@ -355,7 +363,14 @@ private fun Modifier.externalDrop(vm: BrowserViewModel, dest: String): Modifier 
     }
     return this
         .dragAndDropTarget(
-            shouldStartDragAndDrop = { e -> (!FsPath.isReadOnly(dest) || dest == FsPath.PHONE_ROOT) && e.mimeTypes().isNotEmpty() },
+            shouldStartDragAndDrop = { e ->
+                val local = runCatching { e.toAndroidDragEvent().localState as? WayfinderDragLocalState }.getOrNull()
+                if (local != null && local.windowId == windowDragId) {
+                    false
+                } else {
+                    (!FsPath.isReadOnly(dest) || dest == FsPath.PHONE_ROOT) && e.mimeTypes().isNotEmpty()
+                }
+            },
             target = target,
         )
         .then(if (hovering.value) Modifier.border(2.dp, cs.primary, RoundedCornerShape(12.dp)).background(cs.primary.copy(alpha = 0.06f)) else Modifier)
@@ -426,13 +441,64 @@ private fun ErrorView(vm: BrowserViewModel, tab: TabState) {
 @Composable
 private fun EmptyView(vm: BrowserViewModel, s: AppState, tab: TabState) {
     val menu = LocalMenu.current
+    val vc = LocalViewConfiguration.current
     var origin by remember { androidx.compose.runtime.mutableStateOf(Offset.Zero) }
     Box(
         Modifier.fillMaxSize().onGloballyPositioned { origin = it.positionInRoot() }.pointerInput(Unit) {
             awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = false)
+                val down = awaitFirstDown(requireUnconsumed = true)
                 if (currentEvent.buttons.isSecondaryPressed) {
-                    down.consume(); menu.show(origin + down.position, backgroundMenu(vm, vm.state.value))
+                    down.consume()
+                    menu.show(origin + down.position, backgroundMenu(vm, vm.state.value))
+                    waitForUpOrCancellation()?.consume()
+                    return@awaitEachGesture
+                }
+                if (!down.isPrecise()) {
+                    val deadline = down.uptimeMillis + vc.longPressTimeoutMillis
+                    while (true) {
+                        val now = currentEvent.changes.firstOrNull { it.id == down.id }?.uptimeMillis ?: down.uptimeMillis
+                        val rem = deadline - now
+                        if (rem <= 0L) {
+                            try {
+                                menu.openingGestureActive = true
+                                menu.show(origin + down.position, backgroundMenu(vm, vm.state.value))
+                                waitForUpOrCancellation()?.consume()
+                            } finally {
+                                menu.openingGestureActive = false
+                            }
+                            break
+                        }
+                        val ev = withTimeoutOrNull(rem) { awaitPointerEvent(PointerEventPass.Main) }
+                        if (ev == null) {
+                            try {
+                                menu.openingGestureActive = true
+                                menu.show(origin + down.position, backgroundMenu(vm, vm.state.value))
+                                waitForUpOrCancellation()?.consume()
+                            } finally {
+                                menu.openingGestureActive = false
+                            }
+                            break
+                        }
+                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                        if (ch.isConsumed || (ch.position - down.position).getDistance() > vc.touchSlop) break
+                        if (ch.uptimeMillis >= deadline) {
+                            val stillDown = ch.pressed
+                            if (!stillDown) {
+                                ch.consume()
+                                menu.show(origin + ch.position, backgroundMenu(vm, vm.state.value))
+                            } else {
+                                try {
+                                    menu.openingGestureActive = true
+                                    menu.show(origin + ch.position, backgroundMenu(vm, vm.state.value))
+                                    waitForUpOrCancellation()?.consume()
+                                } finally {
+                                    menu.openingGestureActive = false
+                                }
+                            }
+                            break
+                        }
+                        if (!ch.pressed) break
+                    }
                 }
             }
         },
@@ -1179,16 +1245,19 @@ private fun MillerColumns(vm: BrowserViewModel, s: AppState, tab: TabState, entr
     val preview = tab.selectedEntries(s.showHidden).singleOrNull()?.takeIf { !it.isDir }
     LaunchedEffect(tab.path, preview?.path) { withFrameNanos { }; scroll.animateScrollTo(scroll.maxValue) }
     LaunchedEffect(active) { if (active) vm.setGridColumns(1, 12) }
-    Row(Modifier.fillMaxSize().horizontalScroll(scroll)) {
-        chain.dropLast(1).forEachIndexed { i, dir ->
-            AncestorColumn(vm, s, tab, dir, chain[i + 1], cache)
-            VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.5f))
+    Box(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxSize().horizontalScroll(scroll)) {
+            chain.dropLast(1).forEachIndexed { i, dir ->
+                AncestorColumn(vm, s, tab, dir, chain[i + 1], cache)
+                VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.5f))
+            }
+            CurrentColumn(vm, s, tab, entries)
+            if (preview != null) {
+                VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.5f))
+                MillerPreview(vm, preview)
+            }
         }
-        CurrentColumn(vm, s, tab, entries)
-        if (preview != null) {
-            VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.5f))
-            MillerPreview(vm, preview)
-        }
+        HorizontalScrollbar(scroll, Modifier.align(Alignment.BottomCenter), tag = "miller_h")
     }
 }
 
