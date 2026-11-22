@@ -5,8 +5,12 @@ package com.droid.wayfinder.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -151,7 +155,7 @@ fun Toolbar(
                             focusManager.clearFocus()
                             compactSearchOpen = false
                         },
-                        Modifier.size(48.dp),
+                        Modifier.size(48.dp).focusRing(CircleShape),
                         colors = iconBtnColors,
                     ) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.action_close_search))
@@ -178,7 +182,7 @@ fun Toolbar(
                     ActionTooltip(stringResource(R.string.nav_open_sidebar)) {
                         IconButton(
                             { vm.toggleCompactSidebar() },
-                            Modifier.size(48.dp),
+                            Modifier.size(48.dp).focusRing(CircleShape),
                             colors = iconBtnColors,
                         ) {
                             Icon(Icons.Outlined.Menu, stringResource(R.string.nav_open_sidebar))
@@ -210,19 +214,19 @@ fun Toolbar(
                     val refreshTooltip = stringResource(if (s.dualPane) R.string.tooltip_refresh_ctrl_r else R.string.tooltip_refresh_f5)
                     val refreshDesc = stringResource(R.string.action_refresh)
                     ActionTooltip(refreshTooltip) {
-                        IconButton({ vm.refresh() }, Modifier.size(48.dp), colors = iconBtnColors) {
+                        IconButton({ vm.refresh() }, Modifier.size(48.dp).focusRing(CircleShape), colors = iconBtnColors) {
                             Icon(Icons.Outlined.Refresh, refreshDesc)
                         }
                     }
                 }
                 if (wide > 1120.dp) {
                     ActionTooltip(stringResource(R.string.tooltip_undo)) {
-                        IconButton({ vm.undo() }, Modifier.size(48.dp), enabled = s.canUndo, colors = iconBtnColors) {
+                        IconButton({ vm.undo() }, Modifier.size(48.dp).focusRing(CircleShape), enabled = s.canUndo, colors = iconBtnColors) {
                             Icon(Icons.AutoMirrored.Outlined.Undo, stringResource(R.string.action_undo))
                         }
                     }
                     ActionTooltip(stringResource(R.string.tooltip_redo)) {
-                        IconButton({ vm.redo() }, Modifier.size(48.dp), enabled = s.canRedo, colors = iconBtnColors) {
+                        IconButton({ vm.redo() }, Modifier.size(48.dp).focusRing(CircleShape), enabled = s.canRedo, colors = iconBtnColors) {
                             Icon(Icons.AutoMirrored.Outlined.Redo, stringResource(R.string.action_redo))
                         }
                     }
@@ -234,7 +238,7 @@ fun Toolbar(
                                 compactSearchOpen = true
                                 vm.requestSearchFocus()
                             },
-                            Modifier.size(48.dp),
+                            Modifier.size(48.dp).focusRing(CircleShape),
                             colors = iconBtnColors,
                         ) {
                             Icon(Icons.Outlined.Search, stringResource(R.string.search_placeholder))
@@ -267,7 +271,7 @@ fun Toolbar(
 @Composable
 private fun NavButton(icon: ImageVector, tooltip: String, contentDesc: String, enabled: Boolean, onClick: () -> Unit) {
     ActionTooltip(tooltip) {
-        FilledTonalIconButton(onClick, Modifier.size(48.dp), enabled = enabled) { Icon(icon, contentDesc, Modifier.size(20.dp)) }
+        FilledTonalIconButton(onClick, Modifier.size(48.dp).focusRing(CircleShape), enabled = enabled) { Icon(icon, contentDesc, Modifier.size(20.dp)) }
     }
 }
 
@@ -357,7 +361,7 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         val scroll = rememberScrollState()
         LaunchedEffect(tab.path, crumbs.size) { scroll.scrollTo(scroll.maxValue) }
         Row(
-            modifier.heightIn(min = 48.dp).clip(shape).background(cs.surfaceContainerHigh)
+            modifier.heightIn(min = 48.dp).focusRing(shape).clip(shape).background(cs.surfaceContainerHigh)
                 .semantics { contentDescription = "Address bar" }
                 .clickable { vm.setAddressEditing(true) }.padding(horizontal = 4.dp).horizontalScroll(scroll),
             verticalAlignment = Alignment.CenterVertically,
@@ -366,7 +370,7 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                 if (i > 0) Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
                 val last = i == crumbs.lastIndex
                 Box(
-                    Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(24.dp)).dropTarget(path)
+                    Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRing(RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp)).dropTarget(path)
                         .clickable { if (!last) vm.navigate(path) else vm.setAddressEditing(true) }.padding(horizontal = 10.dp, vertical = 2.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -411,13 +415,17 @@ private fun SearchField(
     val tab = s.active
     val fr = remember { FocusRequester() }
     val focus = LocalFocusManager.current
+    val focusCoord = LocalFocusCoordinator.current
     val searchA11yLabel = stringResource(R.string.search_placeholder)
     val clearSearchLabel = stringResource(R.string.tooltip_clear_search)
+    var fieldFocused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(24.dp)
     LaunchedEffect(s.focusSearch, autoFocusOnMount) {
         if (s.focusSearch > 0 || autoFocusOnMount) fr.requestFocus()
     }
     Row(
-        modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).background(cs.surfaceContainerLowest)
+        modifier.heightIn(min = 48.dp).clip(shape).background(cs.surfaceContainerLowest)
+            .then(if (fieldFocused) Modifier.border(2.dp, cs.primary, shape) else Modifier)
             .padding(start = 12.dp, end = if (tab.query.isNotEmpty()) 0.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -430,21 +438,30 @@ private fun SearchField(
                 tab.query, { vm.setQuery(it) },
                 Modifier.fillMaxWidth().sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRequester(fr)
                     .semantics { contentDescription = searchA11yLabel }
-                    .onFocusChanged { vm.setTextFocus(it.isFocused) }
+                    .onFocusChanged {
+                        fieldFocused = it.isFocused
+                        vm.setTextFocus(it.isFocused)
+                    }
                     .onPreviewKeyEvent { e ->
                         if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) {
                             vm.setQuery("")
                             focus.clearFocus()
                             onEscapeCollapse?.invoke()
+                            focusCoord.focusFileList()
                             true
                         }
-                        else if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) { focus.clearFocus(); vm.moveFocus(1); true }
+                        else if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) {
+                            focus.clearFocus()
+                            vm.moveFocus(1)
+                            focusCoord.focusFileList()
+                            true
+                        }
                         else false
                     },
                 singleLine = true, textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
                 cursorBrush = SolidColor(cs.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
+                keyboardActions = KeyboardActions(onSearch = { focus.clearFocus(); focusCoord.focusFileList() }),
                 decorationBox = { innerTextField ->
                     Box(Modifier.fillMaxWidth().heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {
                         if (tab.query.isEmpty()) {
@@ -464,7 +481,7 @@ private fun SearchField(
         if (tab.query.isNotEmpty()) {
             ActionTooltip(clearSearchLabel) {
                 Box(
-                    Modifier.size(48.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = clearSearchLabel) { vm.setQuery("") },
+                    Modifier.size(48.dp).focusRing(CircleShape).clip(CircleShape).clickable(role = Role.Button, onClickLabel = clearSearchLabel) { vm.setQuery("") },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Outlined.Clear, clearSearchLabel, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
@@ -488,7 +505,7 @@ private fun SearchFilterRow(vm: BrowserViewModel, tab: TabState) {
                 selected = f.scope == sc,
                 onClick = { vm.setSearchFilter(f.copy(scope = sc)) },
                 label = { Text(sc.label) },
-                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRing(RoundedCornerShape(8.dp)),
             )
         }
         VerticalDivider(Modifier.height(20.dp), color = cs.outlineVariant)
@@ -497,7 +514,7 @@ private fun SearchFilterRow(vm: BrowserViewModel, tab: TabState) {
         if (f.category != SearchCategory.All || f.modified != ModifiedRange.Any) {
             TextButton(
                 onClick = { vm.setSearchFilter(f.copy(category = SearchCategory.All, modified = ModifiedRange.Any)) },
-                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRing(RoundedCornerShape(20.dp)),
             ) { Text("Clear filters") }
         }
         val n = tab.searchResults?.size
@@ -517,7 +534,7 @@ private fun <T> ChipMenu(options: List<T>, selected: T, label: (T) -> String, ac
             onClick = { open = true },
             label = { Text(label(selected)) },
             trailingIcon = { Icon(Icons.Outlined.ArrowDropDown, null, Modifier.size(18.dp)) },
-            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRing(RoundedCornerShape(8.dp)),
         )
         DropdownMenu(open, { open = false }) {
             options.forEach { o ->
@@ -554,6 +571,7 @@ private fun ViewToggle(vm: BrowserViewModel, mode: ViewMode, dual: Boolean) {
             ActionTooltip(opt.tooltip) {
                 Box(
                     Modifier.size(width = 48.dp, height = 48.dp)
+                        .focusRing(RoundedCornerShape(24.dp))
                         .semantics {
                             role = Role.Tab
                             this.selected = sel
@@ -568,6 +586,7 @@ private fun ViewToggle(vm: BrowserViewModel, mode: ViewMode, dual: Boolean) {
         ActionTooltip(dualTooltip) {
             Box(
                 Modifier.size(width = 48.dp, height = 48.dp)
+                    .focusRing(RoundedCornerShape(24.dp))
                     .semantics {
                         role = Role.Checkbox
                         this.selected = dual
@@ -589,7 +608,7 @@ private fun SortButton(vm: BrowserViewModel, s: AppState) {
     Box {
         ActionTooltip(stringResource(R.string.sort_button_label)) {
             Row(
-                Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(24.dp)).background(cs.surfaceContainerHigh)
+                Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRing(RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp)).background(cs.surfaceContainerHigh)
                     .clickable { open = true }.padding(horizontal = 14.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -634,13 +653,24 @@ private fun OverflowMenu(
     val cs = MaterialTheme.colorScheme
     var open by remember { mutableStateOf(false) }
     val virtual = FsPath.isReadOnly(s.active.path)
+    val moreTooltip = stringResource(R.string.tooltip_more_options)
     val moreDesc = stringResource(R.string.action_more_options)
+    val focusCoord = LocalFocusCoordinator.current
+    val moreRequester = remember { FocusRequester() }
+    androidx.compose.runtime.DisposableEffect(moreRequester) {
+        focusCoord.activeToolbarLastRequester = moreRequester
+        onDispose {
+            if (focusCoord.activeToolbarLastRequester === moreRequester) {
+                focusCoord.activeToolbarLastRequester = null
+            }
+        }
+    }
     fun check(on: Boolean): @Composable () -> Unit = { if (on) Icon(Icons.Filled.Check, null, Modifier.size(18.dp)) else Box(Modifier.size(18.dp)) }
     Box {
-        ActionTooltip(moreDesc) {
+        ActionTooltip(moreTooltip) {
             IconButton(
                 { open = true },
-                Modifier.size(48.dp),
+                Modifier.size(48.dp).focusRequester(moreRequester).focusRing(CircleShape),
                 colors = IconButtonDefaults.iconButtonColors(contentColor = cs.onSurfaceVariant),
             ) { Icon(Icons.Outlined.MoreVert, moreDesc) }
         }

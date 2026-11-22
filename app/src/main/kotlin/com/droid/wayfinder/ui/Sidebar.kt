@@ -5,12 +5,10 @@ package com.droid.wayfinder.ui
 
 import android.view.PointerIcon as AndroidPointerIcon
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.MyLocation
@@ -35,9 +34,11 @@ import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.UnfoldLess
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import com.droid.wayfinder.data.ColorTag
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -50,7 +51,6 @@ import androidx.compose.material.icons.outlined.FolderShared
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.AddToDrive
 import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Eject
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,22 +64,28 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.droid.wayfinder.R
@@ -117,6 +123,9 @@ private fun flatten(
 fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
     val cs = MaterialTheme.colorScheme
     val menu = LocalMenu.current
+    val fm = LocalFocusManager.current
+    val focusCoord = LocalFocusCoordinator.current
+    val scope = rememberCoroutineScope()
     val activePath = s.active.path
     // Inside an archive the tree highlights the folder that holds the .zip.
     val treePath = FsPath.zipSplit(activePath)?.first?.let { FsPath.parent(it) } ?: activePath
@@ -211,13 +220,55 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             delay(100)
         }
     }
-    Box(modifier) {
+    Box(
+        modifier.onPreviewKeyEvent { e ->
+            if (e.type != KeyEventType.KeyDown || e.isCtrlPressed || e.isAltPressed || e.isMetaPressed) return@onPreviewKeyEvent false
+            when (e.key) {
+                Key.DirectionDown -> {
+                    val moved = fm.moveFocus(FocusDirection.Down)
+                    if (!moved && listState.canScrollForward) {
+                        scope.launch {
+                            listState.scrollBy(96f)
+                            fm.moveFocus(FocusDirection.Down)
+                        }
+                    }
+                    true
+                }
+                Key.DirectionUp -> {
+                    if (focusCoord.firstSidebarItemFocused) {
+                        true
+                    } else {
+                        val moved = fm.moveFocus(FocusDirection.Up)
+                        if (!moved && listState.canScrollBackward) {
+                            scope.launch {
+                                listState.scrollBy(-96f)
+                                fm.moveFocus(FocusDirection.Up)
+                            }
+                        }
+                        true
+                    }
+                }
+                else -> false
+            }
+        },
+    ) {
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 8.dp), listState, verticalArrangement = Arrangement.spacedBy(1.dp)) {
         var n = 0
         item { SectionTitle(stringResource(R.string.quick_access_section)) }; n++
         item {
+            val recentsFocus = remember { FocusRequester() }
+            androidx.compose.runtime.DisposableEffect(recentsFocus) {
+                focusCoord.activeSidebarRequester = recentsFocus
+                onDispose {
+                    if (focusCoord.activeSidebarRequester === recentsFocus) {
+                        focusCoord.activeSidebarRequester = null
+                    }
+                }
+            }
             SidebarItem(
                 stringResource(R.string.nav_recents), Icons.Outlined.History, 0, activePath == FsPath.RECENTS_ROOT, null,
+                focusRequester = recentsFocus,
+                onFocusChanged = { focusCoord.firstSidebarItemFocused = it },
                 onClick = { vm.navigate(FsPath.RECENTS_ROOT) }, onMiddle = { vm.newTab(FsPath.RECENTS_ROOT, activate = false) },
                 onSecondary = { menu.show(it, sidebarMenu(vm, s, FsPath.RECENTS_ROOT, false)) },
             )
@@ -412,22 +463,15 @@ private fun HeaderAction(
     onClick: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val focused by interaction.collectIsFocusedAsState()
+    val hover = remember { MutableInteractionSource() }
+    val hovered by hover.collectIsHoveredAsState()
     ActionTooltip(tooltip) {
         Box(
             Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                .keyboardFocusableItem(shape = CircleShape, onActivate = { _, _ -> onClick() })
                 .clip(RoundedCornerShape(24.dp))
                 .background(if (hovered) cs.onSurface.copy(alpha = 0.08f) else Color.Transparent)
-                .then(if (focused) Modifier.border(2.dp, cs.primary, RoundedCornerShape(24.dp)) else Modifier)
-                .hoverable(interaction)
-                .focusable(interactionSource = interaction)
-                .onPreviewKeyEvent { ev ->
-                    if (ev.type == KeyEventType.KeyDown && (ev.key == Key.Enter || ev.key == Key.NumPadEnter || ev.key == Key.Spacebar)) {
-                        onClick(); true
-                    } else false
-                }
+                .hoverable(hover)
                 .mouseGestures(contentDesc, role = Role.Button, contentDescription = contentDesc, onClickLabel = contentDesc, onClick = { _, _, _ -> onClick() }),
             contentAlignment = Alignment.Center,
         ) { Icon(icon, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant) }
@@ -537,42 +581,52 @@ private fun SidebarItem(
     expanded: Boolean = false,
     loading: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
+    focusRequester: FocusRequester? = null,
+    onFocusChanged: ((Boolean) -> Unit)? = null,
     onToggle: () -> Unit = {},
     onClick: () -> Unit,
     onMiddle: () -> Unit = {},
-    onSecondary: (androidx.compose.ui.geometry.Offset) -> Unit = {},
+    onSecondary: ((androidx.compose.ui.geometry.Offset) -> Unit)? = null,
 ) {
     val cs = MaterialTheme.colorScheme
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val focused by interaction.collectIsFocusedAsState()
+    val focusCoord = LocalFocusCoordinator.current
+    val effectiveRequester = focusRequester ?: remember { FocusRequester() }
+    androidx.compose.runtime.DisposableEffect(effectiveRequester) {
+        onDispose { focusCoord.removeSidebarItem(effectiveRequester) }
+    }
+    val hover = remember { MutableInteractionSource() }
+    val hovered by hover.collectIsHoveredAsState()
     val drag = LocalDrag.current
     val dropHover = drag.active && dropPath != null && drag.hover == dropPath
     val bg = when {
         dropHover -> cs.primaryContainer
         selected -> cs.secondaryContainer
-        focused -> cs.primary.copy(alpha = 0.12f)
         hovered -> cs.onSurface.copy(alpha = 0.07f)
         else -> Color.Transparent
     }
     val itemHeight = 48.dp
+    val shape = RoundedCornerShape(18.dp)
     Row(
-        Modifier.fillMaxWidth().heightIn(min = itemHeight).clip(RoundedCornerShape(18.dp)).background(bg)
-            .then(if (focused) Modifier.border(2.dp, cs.primary, RoundedCornerShape(18.dp)) else Modifier)
-            .hoverable(interaction)
-            .focusable(interactionSource = interaction)
-            .onPreviewKeyEvent { ev ->
-                if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when {
-                    ev.key == Key.Enter || ev.key == Key.NumPadEnter || ev.key == Key.Spacebar -> { onClick(); true }
-                    ev.key == Key.DirectionRight && expandable && !expanded -> { onToggle(); true }
-                    ev.key == Key.DirectionLeft && expandable && expanded -> { onToggle(); true }
-                    ev.key == Key.Menu || (ev.key == Key.F10 && ev.isShiftPressed) -> {
-                        onSecondary(androidx.compose.ui.geometry.Offset.Zero); true
-                    }
-                    else -> false
-                }
+        Modifier.fillMaxWidth().heightIn(min = itemHeight)
+            .onGloballyPositioned { coords ->
+                focusCoord.updateSidebarItem(effectiveRequester, coords.boundsInRoot().top)
             }
+            .keyboardFocusableItem(
+                shape = shape,
+                focusRequester = effectiveRequester,
+                onFocusChanged = onFocusChanged,
+                onKeyDown = { e ->
+                    when {
+                        expandable && e.key == Key.DirectionRight && !expanded -> { onToggle(); true }
+                        expandable && e.key == Key.DirectionLeft && expanded -> { onToggle(); true }
+                        else -> false
+                    }
+                },
+                onActivate = { _, _ -> onClick() },
+                onContextMenu = onSecondary,
+            )
+            .clip(shape).background(bg)
+            .hoverable(hover)
             .dropTarget(dropPath)
             .mouseGestures(
                 label + depth + dropPath + subtitle.orEmpty(),
@@ -580,26 +634,19 @@ private fun SidebarItem(
                 selected = selected,
                 onClickLabel = "Open $label",
                 onClick = { _, _, _ -> onClick() }, onMiddle = onMiddle,
-                onSecondary = onSecondary, onLongPress = onSecondary,
+                onSecondary = onSecondary ?: {}, onLongPress = onSecondary ?: {},
             )
             .padding(start = 4.dp + 14.dp * depth, end = 10.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (expandable) {
-            val toggleInteraction = remember { MutableInteractionSource() }
-            val toggleFocused by toggleInteraction.collectIsFocusedAsState()
             val toggleDesc = stringResource(if (expanded) R.string.action_collapse_folder else R.string.action_expand_folder, label)
             val toggleIconDesc = stringResource(if (expanded) R.string.action_collapse else R.string.action_expand)
             ActionTooltip(toggleDesc) {
                 Box(
-                    Modifier.size(48.dp).clip(RoundedCornerShape(24.dp))
-                        .then(if (toggleFocused) Modifier.border(2.dp, cs.primary, RoundedCornerShape(24.dp)) else Modifier)
-                        .focusable(interactionSource = toggleInteraction)
-                        .onPreviewKeyEvent { ev ->
-                            if (ev.type == KeyEventType.KeyDown && (ev.key == Key.Enter || ev.key == Key.NumPadEnter || ev.key == Key.Spacebar)) {
-                                onToggle(); true
-                            } else false
-                        }
+                    Modifier.size(48.dp)
+                        .keyboardFocusableItem(shape = CircleShape, onActivate = { _, _ -> onToggle() })
+                        .clip(RoundedCornerShape(24.dp))
                         .mouseGestures(
                             "toggle$label$depth",
                             role = Role.Button,

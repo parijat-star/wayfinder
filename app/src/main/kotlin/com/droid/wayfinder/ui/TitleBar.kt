@@ -58,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -307,13 +308,23 @@ fun TitleBar(
             // so Android desktop / Googlebook WM Shell treats clicks here as app header gestures
             // rather than pilfering primary mouse-down events for caption drag/maximize, while
             // leaving empty titlebar space to the right un-excluded for window drag-to-move.
+            val focusCoord = LocalFocusCoordinator.current
+            val addTabRequester = remember { FocusRequester() }
+            DisposableEffect(addTabRequester) {
+                focusCoord.activeTitleBarLastRequester = addTabRequester
+                onDispose {
+                    if (focusCoord.activeTitleBarLastRequester === addTabRequester) {
+                        focusCoord.activeTitleBarLastRequester = null
+                    }
+                }
+            }
             Row(
                 Modifier.widthIn(max = stripMaxWidth).systemGestureExclusion().fillMaxHeight().horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                s.tabs.forEach { tab ->
+                s.tabs.forEachIndexed { idx, tab ->
                     androidx.compose.runtime.key(tab.id) {
-                        TabItem(vm, s, tab, tabW, onShowMenu)
+                        TabItem(vm, s, tab, tabW, isFirstTab = idx == 0, onShowMenu = onShowMenu)
                     }
                 }
                 val addHover = remember { MutableInteractionSource() }
@@ -322,7 +333,13 @@ fun TitleBar(
                 val newTabTooltip = stringResource(R.string.tooltip_new_tab)
                 ActionTooltip(newTabTooltip) {
                     Box(
-                        Modifier.size(48.dp).clip(CircleShape)
+                        Modifier.size(48.dp)
+                            .keyboardFocusableItem(
+                                shape = CircleShape,
+                                focusRequester = addTabRequester,
+                                onActivate = { _, _ -> vm.newTab() },
+                            )
+                            .clip(CircleShape)
                             .hoverable(addHover)
                             .mouseGestures(
                                 "add",
@@ -349,10 +366,24 @@ fun TitleBar(
 
 @Composable
 private fun TabItem(
-    vm: BrowserViewModel, s: AppState, tab: TabState, width: Dp,
+    vm: BrowserViewModel,
+    s: AppState,
+    tab: TabState,
+    width: Dp,
+    isFirstTab: Boolean = false,
     onShowMenu: (androidx.compose.ui.geometry.Offset, List<MenuEntry>) -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
+    val focusCoord = LocalFocusCoordinator.current
+    val tabRequester = remember { FocusRequester() }
+    DisposableEffect(isFirstTab, tabRequester) {
+        if (isFirstTab) focusCoord.activeTitleBarRequester = tabRequester
+        onDispose {
+            if (focusCoord.activeTitleBarRequester === tabRequester) {
+                focusCoord.activeTitleBarRequester = null
+            }
+        }
+    }
     val selected = tab.id == s.activeId
     val hover = remember { MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
@@ -377,6 +408,12 @@ private fun TabItem(
     val closeTabNamedLabel = stringResource(R.string.action_close_tab_named, tabTitle)
     Box(
         Modifier.width(width).heightIn(min = 48.dp).fillMaxHeight()
+            .keyboardFocusableItem(
+                shape = shape,
+                focusRequester = if (isFirstTab) tabRequester else null,
+                onActivate = { _, _ -> vm.selectTab(tab.id) },
+                onContextMenu = { off -> onShowMenu(off, tabMenu(vm, tab.id)) },
+            )
             .hoverable(hover)
             .dropTarget(tab.path)
             .pointerInput(tab.id) {
@@ -438,7 +475,12 @@ private fun TabItem(
                 val closeHovered by closeHover.collectIsHoveredAsState()
                 ActionTooltip(closeTabTooltip) {
                     Box(
-                        Modifier.size(48.dp).clip(CircleShape)
+                        Modifier.size(48.dp)
+                            .keyboardFocusableItem(
+                                shape = CircleShape,
+                                onActivate = { _, _ -> vm.closeTab(tab.id) },
+                            )
+                            .clip(CircleShape)
                             .hoverable(closeHover)
                             .mouseGestures(
                                 "close${tab.id}",

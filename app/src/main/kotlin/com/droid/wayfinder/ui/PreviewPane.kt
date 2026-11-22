@@ -35,6 +35,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -73,6 +75,16 @@ import java.io.File
 @Composable
 fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
     val cs = MaterialTheme.colorScheme
+    val focusCoord = LocalFocusCoordinator.current
+    val closeRequester = remember { FocusRequester() }
+    androidx.compose.runtime.DisposableEffect(closeRequester) {
+        focusCoord.activePreviewFirstRequester = closeRequester
+        onDispose {
+            if (focusCoord.activePreviewFirstRequester === closeRequester) {
+                focusCoord.activePreviewFirstRequester = null
+            }
+        }
+    }
     val tab = s.active
     val sel = tab.selectedEntries(s.showHidden)
     Surface(modifier, shape = RoundedCornerShape(16.dp), color = cs.surfaceContainerLowest) {
@@ -83,7 +95,10 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                     Text(stringResource(R.string.details_pane_title), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                     val closeDetailsDesc = stringResource(R.string.action_close_details)
                     ActionTooltip(stringResource(R.string.tooltip_close_details)) {
-                        IconButton({ vm.togglePreview() }, Modifier.size(48.dp)) {
+                        IconButton(
+                            { vm.togglePreview() },
+                            Modifier.size(48.dp).focusRequester(closeRequester).focusRing(CircleShape),
+                        ) {
                             Icon(Icons.Outlined.Close, closeDetailsDesc, Modifier.size(18.dp))
                         }
                     }
@@ -105,7 +120,7 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                     if (FsPath.isLocalFile(e.path)) PosixFact(e)
                     if (!e.isServer && !e.isShare) MarksEditor(vm, s, e)
                     val btnPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                    val btnMod = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    val btnMod = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRing(RoundedCornerShape(20.dp))
                     FlowRow(
                         Modifier.padding(top = 16.dp).fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -199,6 +214,7 @@ private fun MarksEditor(vm: BrowserViewModel, s: AppState, e: FileEntry) {
                 ActionTooltip(pinDesc) {
                     Box(
                         Modifier.size(48.dp)
+                            .focusRing(CircleShape)
                             .semantics {
                                 role = Role.Checkbox
                                 this.selected = pinned
@@ -220,6 +236,7 @@ private fun MarksEditor(vm: BrowserViewModel, s: AppState, e: FileEntry) {
             ActionTooltip(starDesc) {
                 Box(
                     Modifier.size(48.dp)
+                        .focusRing(CircleShape)
                         .semantics {
                             role = Role.Checkbox
                             this.selected = starred
@@ -244,6 +261,7 @@ private fun MarksEditor(vm: BrowserViewModel, s: AppState, e: FileEntry) {
                 ActionTooltip(tagTooltip) {
                     Box(
                         Modifier.size(48.dp)
+                            .focusRing(CircleShape)
                             .semantics {
                                 role = Role.Checkbox
                                 this.selected = on

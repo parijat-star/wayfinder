@@ -411,7 +411,11 @@
     <string name="tooltip_quicklook_next" description="Hover tooltip for the Quick Look Next item button showing its keyboard shortcut. [CHAR_LIMIT=30]">Next (→)</string>
     <string name="tooltip_locate_active_folder" description="Hover tooltip for the sidebar button that reveals the active folder in the tree. [CHAR_LIMIT=48]">Locate active folder (Alt+Shift+L)</string>
     <string name="tooltip_clear_search" description="Accessibility label and hover tooltip for the button that clears the search input field. [CHAR_LIMIT=28]">Clear search</string>
+    <string name="tooltip_more_options" description="Hover tooltip for the toolbar overflow menu button. [CHAR_LIMIT=28]">More options</string>
+    <string name="tooltip_cancel_operation" description="Accessibility label and hover tooltip for the status bar button that cancels an in-progress file operation. [CHAR_LIMIT=32]">Cancel operation</string>
     <string name="tooltip_close_tab" description="Hover tooltip for a browser tab close button showing its keyboard shortcut. [CHAR_LIMIT=30]">Close tab (Ctrl+W)</string>
+    <string name="action_play" description="Accessibility label and hover tooltip for the Quick Look button that starts audio or video playback. [CHAR_LIMIT=18]">Play</string>
+    <string name="action_pause" description="Accessibility label and hover tooltip for the Quick Look button that pauses audio playback. [CHAR_LIMIT=18]">Pause</string>
     <string name="tooltip_color_tag" description="Hover tooltip on a color tag chip in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=32]">Tag: %1$s</string>
     <string name="a11y_color_tag" description="Accessibility label on a color tag checkbox in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=32]">Tag %1$s</string>
     <string name="action_add_color_tag" description="Accessibility click action label to apply a color tag in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=36]">Add %1$s tag</string>
