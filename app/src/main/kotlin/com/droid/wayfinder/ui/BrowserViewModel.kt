@@ -154,7 +154,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private val primary: String = Environment.getExternalStorageDirectory().path
     private val trash = TrashManager(File(primary, ".Wayfinder-Trash"))
     private val discovery = NetworkDiscovery(app, viewModelScope)
-    private val repo = FileRepository(
+    internal val repo = FileRepository(
         LocalFileSystem(), smb, trash, networkRoot = { networkEntries() },
         byScheme = mapOf(
             "dav" to dav, "davs" to dav, "ftp" to ftp, "ftps" to ftp,
@@ -1059,6 +1059,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val sources = selectionPaths().filter { !FsPath.isVirtual(it) }
         if (sources.isEmpty()) { toast("Select items to ${if (move) "move" else "copy"}"); return }
         if (FsPath.isReadOnly(dest) || trash.isInTrash(dest) || dest == tab.path) { toast("Can't ${if (move) "move" else "copy"} there"); return }
+        if (move && sources.any { trash.isInTrash(it) }) { toast("Can't move items out of Trash"); return }
         transferWithPrompt(sources, dest, move && sources.none { FsPath.isZip(it) })
     }
 
@@ -1144,13 +1145,26 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     private fun noteRecent(p: String) {
-        if (FsPath.isVirtual(p)) return
+        if (FsPath.isVirtual(p) || trash.isInTrash(p)) return
         _state.update { s -> s.copy(recentFolders = (listOf(p) + s.recentFolders.filter { it != p }).take(20)) }
     }
 
     fun back() = step { it.goBack() }
     fun forward() = step { it.goForward() }
-    fun up() { FsPath.parent(tab.path)?.let { navigate(it, select = tab.path) } }
+    fun up() {
+        val cur = tab.path
+        val outerRoot = FsPath.zipSplit(cur)?.takeIf { it.second.isEmpty() }?.first ?: cur
+        if (cur != FsPath.TRASH_ROOT && trash.isInTrash(cur)) {
+            if (trash.isTopLevelItem(outerRoot) || !trash.isNestedItem(outerRoot)) {
+                navigate(FsPath.TRASH_ROOT, select = outerRoot.takeIf { trash.isTopLevelItem(it) })
+                return
+            }
+        }
+        FsPath.parent(cur)?.let { parent ->
+            val selectTarget = if (outerRoot != cur && FsPath.parent(outerRoot) == parent) outerRoot else cur
+            navigate(parent, select = selectTarget)
+        }
+    }
 
     private fun step(f: (TabState) -> TabState) {
         val id = tab.id
@@ -1631,20 +1645,22 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     // ---------------------------------------------------------------- stars & color tags
 
-    private fun markTargets(): List<String> = selectionPaths().filter { !FsPath.isVirtual(it) }.ifEmpty {
-        listOf(tab.path).filter { !FsPath.isVirtual(it) }
+    private fun markTargets(): List<String> = selectionPaths().filter { !FsPath.isVirtual(it) && !trash.isInTrash(it) }.ifEmpty {
+        listOf(tab.path).filter { !FsPath.isVirtual(it) && !trash.isInTrash(it) }
     }
 
     /** Stars (or unstars, if all are starred) the selection — the current folder when nothing is selected. */
     fun toggleStar(paths: List<String> = markTargets()) {
-        if (paths.isEmpty()) return
-        val starring = !paths.all { _state.value.marks.isStarred(it) }
-        SharedUi.updateMarks { it.toggleStar(paths) }
+        val valid = paths.filter { !FsPath.isVirtual(it) && !trash.isInTrash(it) }
+        if (valid.isEmpty()) return
+        val starring = !valid.all { _state.value.marks.isStarred(it) }
+        SharedUi.updateMarks { it.toggleStar(valid) }
         toast(if (starring) str(com.droid.wayfinder.R.string.toast_added_to_starred) else str(com.droid.wayfinder.R.string.toast_removed_from_starred))
     }
 
     fun toggleTag(tag: ColorTag, paths: List<String> = markTargets()) {
-        if (paths.isNotEmpty()) SharedUi.updateMarks { it.toggleTag(paths, tag) }
+        val valid = paths.filter { !FsPath.isVirtual(it) && !trash.isInTrash(it) }
+        if (valid.isNotEmpty()) SharedUi.updateMarks { it.toggleTag(valid, tag) }
     }
 
     private fun remapMarks(pairs: List<Pair<String, String>>) {
@@ -1809,7 +1825,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     /** Pins all [paths] unless every one is already pinned, in which case they are all unpinned. */
     fun togglePins(paths: List<String> = markTargets()) {
-        val valid = paths.filter { !FsPath.isVirtual(it) }
+        val valid = paths.filter { !FsPath.isVirtual(it) && !trash.isInTrash(it) }
         if (valid.isEmpty()) return
         if (valid.any { FsPath.isZip(it) }) { toast(str(com.droid.wayfinder.R.string.toast_archive_pin_unsupported)); return }
         val cur = _state.value.pins
@@ -1825,7 +1841,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     fun pin(path: String) {
-        if (path in _state.value.pins || FsPath.isVirtual(path)) return
+        if (path in _state.value.pins || FsPath.isVirtual(path) || trash.isInTrash(path)) return
         if (FsPath.isZip(path)) { toast("Folders inside archives can't be pinned"); return }
         setPins(_state.value.pins + path)
         toast(str(com.droid.wayfinder.R.string.toast_pinned_single, FsPath.name(path)))
@@ -1925,6 +1941,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val p = selectionPaths().filter { !FsPath.isVirtual(it) }
         if (p.isEmpty()) return
         if (cut && p.any { FsPath.isZip(it) }) { toast(str(com.droid.wayfinder.R.string.toast_archive_copy_only)); return }
+        if (cut && p.any { trash.isInTrash(it) }) return
         _state.update { it.copy(clipboard = Clipboard(p, cut)) }
         toast(if (cut) icuStr(com.droid.wayfinder.R.string.toast_clipboard_cut_plural, p.size) else icuStr(com.droid.wayfinder.R.string.toast_clipboard_copy_plural, p.size))
     }
@@ -1941,11 +1958,15 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun dropOn(targetDir: String, paths: List<String>, copy: Boolean) {
         // Dropping onto Starred or a color tag marks the items instead of moving them.
         if (targetDir == FsPath.STARRED_ROOT) {
-            SharedUi.updateMarks { m -> m.copy(starred = m.starred + paths) }
+            val markable = paths.filter { !FsPath.isVirtual(it) && !trash.isInTrash(it) }
+            if (markable.isEmpty()) return
+            SharedUi.updateMarks { m -> m.copy(starred = m.starred + markable) }
             toast(str(com.droid.wayfinder.R.string.toast_added_to_starred)); return
         }
         FsPath.tagOf(targetDir)?.let { t ->
-            SharedUi.updateMarks { m -> m.copy(tags = m.tags + paths.associateWith { p -> m.tagsOf(p) + t }) }
+            val markable = paths.filter { !FsPath.isVirtual(it) && !trash.isInTrash(it) }
+            if (markable.isEmpty()) return
+            SharedUi.updateMarks { m -> m.copy(tags = m.tags + markable.associateWith { p -> m.tagsOf(p) + t }) }
             toast(str(com.droid.wayfinder.R.string.toast_tagged_color, t.label)); return
         }
         if (targetDir == FsPath.TRASH_ROOT) {
@@ -1959,8 +1980,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val real = paths.filter { p -> FsPath.parent(p) != dest && !FsPath.isWithin(p, dest) }
         if (FsPath.isZip(dest)) { toast(str(com.droid.wayfinder.R.string.toast_archives_read_only)); return }
         if (real.isEmpty() || FsPath.isVirtual(dest) || trash.isInTrash(dest)) return
-        // Items dragged out of an archive are always copied.
-        transferWithPrompt(real, dest, move = !copy && real.none { FsPath.isZip(it) })
+        // Items dragged out of an archive or Trash are always copied so slots/archives stay intact.
+        transferWithPrompt(real, dest, move = !copy && real.none { FsPath.isZip(it) || trash.isInTrash(it) })
     }
 
     private fun transferWithPrompt(sources: List<String>, dest: String, move: Boolean) {
@@ -1998,7 +2019,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (paths.any { FsPath.isZip(it) }) { toast(str(com.droid.wayfinder.R.string.toast_archives_read_only)); return }
         val p = tab.path
         // Network and provider items can't go to the local Trash.
-        val mustBePermanent = permanent || FsPath.isRemote(p) || paths.any { FsPath.isRemote(it) } || trash.isInTrash(p)
+        val mustBePermanent = permanent || FsPath.isRemote(p) || paths.any { FsPath.isRemote(it) } || trash.isInTrash(p) || paths.any { trash.isInTrash(it) }
         if (mustBePermanent) showDialog(Dialog.Delete(paths)) else moveToTrash(paths)
     }
 
@@ -2020,8 +2041,14 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         })
     }
 
+    fun isInTrash(path: String): Boolean = trash.isInTrash(path)
+    fun canRestoreFromTrash(path: String): Boolean = trash.originalOf(path) != null
+    internal fun trashBreadcrumbs(path: String): List<Pair<String, String>>? =
+        trash.breadcrumbsOf(path, str(com.droid.wayfinder.R.string.nav_trash))
+
     fun restoreFromTrash() {
-        val paths = selectionPaths()
+        val paths = selectionPaths().filter { trash.originalOf(it) != null }
+        if (paths.isEmpty()) return
         launchOp(str(com.droid.wayfinder.R.string.op_restoring), { _ -> paths.map { trash.restore(it) } }) { toast(icuStr(com.droid.wayfinder.R.string.toast_restored_plural, it.size)) }
     }
 
@@ -2035,6 +2062,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun rename(path: String, newName: String) {
         dismissDialog()
+        if (trash.isInTrash(path) || FsPath.isReadOnly(path)) return
         val name = newName.trim()
         if (name.isEmpty() || name == FsPath.name(path)) return
         FsPath.nameError(name)?.let { toast(it); return }
@@ -2057,6 +2085,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     /** Applies a batch rename plan (old name → new name within [dir]) as one undoable step. */
     fun batchRename(dir: String, plan: List<RenamePlan>) {
         dismissDialog()
+        if (FsPath.isReadOnly(dir) || trash.isInTrash(dir)) return
         if (plan.any { it.changed && (it.conflict != null || FsPath.nameError(it.new) != null || !FsPath.isSafeName(it.old)) }) {
             toast(str(com.droid.wayfinder.R.string.toast_invalid_batch_names)); return
         }
@@ -2110,7 +2139,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     fun requestNewItem(folder: Boolean) {
-        if (FsPath.isReadOnly(tab.path)) { if (FsPath.isZip(tab.path)) toast("Archives are read-only"); return }
+        if (FsPath.isReadOnly(tab.path) || trash.isInTrash(tab.path)) { if (FsPath.isZip(tab.path)) toast("Archives are read-only"); return }
         showDialog(Dialog.NewItem(folder))
     }
 
@@ -2121,6 +2150,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         // Typed names must stay inside the current folder ("../x", "a/b", NUL, ...).
         FsPath.nameError(n)?.let { toast(it); return }
         val dir = tab.path
+        if (FsPath.isReadOnly(dir) || trash.isInTrash(dir)) return
         launchOp("Creating", { _ ->
             val target = FsPath.child(dir, n)
             if (repo.fs(dir).exists(target)) throw java.io.IOException("\"$n\" already exists")
@@ -2134,7 +2164,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun requestCompress() {
         val paths = selectionPaths()
-        if (paths.isEmpty() || FsPath.isReadOnly(tab.path)) return
+        if (paths.isEmpty() || FsPath.isReadOnly(tab.path) || trash.isInTrash(tab.path) || paths.any { trash.isInTrash(it) }) return
         val suggested = if (paths.size == 1) FsPath.name(paths[0]).substringBeforeLast('.', FsPath.name(paths[0])) else FsPath.name(tab.path).ifEmpty { "Archive" }
         showDialog(Dialog.Compress(paths, suggested))
     }
@@ -2142,6 +2172,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun compress(sources: List<String>, name: String) {
         dismissDialog()
         val dir = tab.path
+        if (FsPath.isReadOnly(dir) || trash.isInTrash(dir) || sources.any { trash.isInTrash(it) }) return
         val wanted = name.trim().removeSuffix(".zip") + ".zip"
         FsPath.nameError(wanted)?.let { toast(it); return }
         launchOp("Compressing", { report ->
@@ -2155,7 +2186,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun extractSelection() {
         val z = tab.selectedEntries(hidden).filter { isBrowsableArchive(it) }
-        if (z.isEmpty() || FsPath.isReadOnly(tab.path)) return
+        if (z.isEmpty() || FsPath.isReadOnly(tab.path) || trash.isInTrash(tab.path) || z.any { trash.isInTrash(it.path) }) return
         val dir = tab.path
         launchOp("Extracting", { report -> z.map { ops.extract(it.path, dir, report) } }) { out ->
             record(Undo.Created(out))
@@ -3025,7 +3056,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     /** True when the active folder (or single selected subfolder) can be granted via ACTION_OPEN_DOCUMENT_TREE. */
     fun canPickFolder(folderPath: String = targetTreeFolder()): Boolean {
-        if (FsPath.isVirtual(folderPath) || FsPath.isZip(folderPath)) return false
+        if (FsPath.isVirtual(folderPath) || FsPath.isZip(folderPath) || trash.isInTrash(folderPath)) return false
         if (FsPath.isLocalFile(folderPath) && (FileInfo.isSymlink(folderPath) || isPrivatePath(folderPath))) return false
         return FsPath.isLocalFile(folderPath) || folderPath.startsWith("doc://") || folderPath.startsWith("saf://")
     }

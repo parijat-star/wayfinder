@@ -21,7 +21,47 @@ class TrashManager(
     private val forbiddenRoots: List<String> = emptyList(),
 ) {
 
-    fun isInTrash(path: String) = path == FsPath.TRASH_ROOT || FsPath.isWithin(root.path, path)
+    fun isInTrash(path: String): Boolean {
+        if (path == FsPath.TRASH_ROOT) return true
+        val outer = FsPath.zipSplit(path)?.first ?: path
+        if (outer.split('/').any { it == ".." }) return false
+        return FsPath.isWithin(root.path, outer)
+    }
+
+    /** True when [trashedPath] is a top-level item `<root>/<slot>/<name>` directly inside a Trash slot. */
+    fun isTopLevelItem(trashedPath: String): Boolean = !FsPath.isZip(trashedPath) && slotOf(trashedPath) != null
+
+    /** True when [trashedPath] lies strictly beneath a top-level trashed item (`<root>/<slot>/<dir>/<child>` or inside a trashed archive). */
+    fun isNestedItem(trashedPath: String): Boolean {
+        if (FsPath.isZip(trashedPath)) return isInTrash(trashedPath)
+        if (trashedPath.split('/').any { it == ".." }) return false
+        val normRoot = FsPath.normalize(root.path)
+        val normPath = FsPath.normalize(trashedPath)
+        if (!FsPath.isWithin(normRoot, normPath) || normPath == normRoot) return false
+        val relSegments = normPath.removePrefix(normRoot).trim('/').split('/').filter { it.isNotEmpty() }
+        return relSegments.size >= 3 && relSegments.all { FsPath.isSafeName(it) }
+    }
+
+    /**
+     * Human-friendly `(label, targetPath)` breadcrumbs rooted at [FsPath.TRASH_ROOT] (hiding internal
+     * `.Wayfinder-Trash/<slot>` segments), or null when [path] is outside the Trash.
+     */
+    fun breadcrumbsOf(path: String, trashLabel: String = "Trash"): List<Pair<String, String>>? {
+        if (path == FsPath.TRASH_ROOT) return listOf(trashLabel to FsPath.TRASH_ROOT)
+        if (!isInTrash(path)) return null
+        val normRoot = FsPath.normalize(root.path)
+        val normPath = FsPath.normalize(path)
+        val rel = normPath.removePrefix(normRoot).trim('/').split('/').filter { it.isNotEmpty() }
+        if (rel.size < 2) return listOf(trashLabel to FsPath.TRASH_ROOT)
+        val out = mutableListOf(trashLabel to FsPath.TRASH_ROOT)
+        var cur = "$normRoot/${rel[0]}/${rel[1]}"
+        out += rel[1].removeSuffix("!") to cur
+        for (seg in rel.drop(2)) {
+            cur = "$cur/$seg"
+            out += seg.removeSuffix("!") to cur
+        }
+        return out
+    }
 
     /** The `<root>/<id>` folder holding [trashedPath], or null when it isn't an item directly inside the bin. */
     private fun slotOf(trashedPath: String): File? {
@@ -141,14 +181,27 @@ class TrashManager(
         return dst.path
     }
 
-    /** Deletes an item of the bin for good; paths outside the bin are refused. */
+    /** Deletes an item of the bin for good; paths outside the bin or through symlinks are refused. */
     fun deletePermanently(trashedPath: String) {
+        if (FsPath.isZip(trashedPath) || trashedPath.split('/').any { it == ".." }) {
+            throw IOException("Not an item in the Trash")
+        }
         val slot = slotOf(trashedPath)
         val target = when {
             slot != null -> slot
             // Something inside a trashed folder (browsed into from the Trash view).
-            FsPath.isWithin(root.path, trashedPath) && FsPath.normalize(trashedPath) != FsPath.normalize(root.path) &&
-                trashedPath.split('/').none { it == ".." } -> File(trashedPath)
+            isNestedItem(trashedPath) -> {
+                val f = File(trashedPath)
+                val normRoot = FsPath.normalize(root.path)
+                var cur: File? = f.parentFile
+                while (cur != null && FsPath.normalize(cur.path) != normRoot) {
+                    if (FileInfo.isSymlink(cur.path)) {
+                        throw IOException("Refusing to delete through symbolic link in Trash")
+                    }
+                    cur = cur.parentFile
+                }
+                f
+            }
             else -> throw IOException("Not an item in the Trash")
         }
         if (!FileInfo.deleteTree(target)) throw IOException("Couldn't delete ${File(trashedPath).name}")

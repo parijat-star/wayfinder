@@ -23,13 +23,15 @@ class FileRepository(
     private val byScheme: Map<String, FileSystem> = emptyMap(),
 ) {
     private val zip = ZipFileSystem()
+    internal var localOverride: FileSystem? = null
+    internal val schemeOverrides = java.util.concurrent.ConcurrentHashMap<String, FileSystem>()
 
     fun fs(path: String): FileSystem = when {
-        FsPath.isSmb(path) -> smb
+        FsPath.isSmb(path) -> schemeOverrides["smb"] ?: smb
         FsPath.isZip(path) -> zip
-        FsPath.isRemote(path) -> RemoteUri.schemeOf(path)?.let { byScheme[it] }
+        FsPath.isRemote(path) -> RemoteUri.schemeOf(path)?.let { schemeOverrides[it] ?: byScheme[it] }
             ?: throw java.io.IOException("Unsupported location: ${path.substringBefore("://")}://")
-        else -> local
+        else -> localOverride ?: local
     }
 
     fun list(path: String): List<FileEntry> = when (path) {
