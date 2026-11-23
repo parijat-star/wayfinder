@@ -429,6 +429,7 @@
     <string name="shortcut_address_bar" description="System Keyboard Shortcuts Helper label for focusing the path address bar (Ctrl+L). [CHAR_LIMIT=35]">Address bar</string>
     <string name="shortcut_search" description="System Keyboard Shortcuts Helper label for focusing the folder search bar (Ctrl+F). [CHAR_LIMIT=35]">Search</string>
     <string name="shortcut_refresh" description="System Keyboard Shortcuts Helper label for reloading the current folder (Ctrl+R). [CHAR_LIMIT=35]">Refresh</string>
+    <string name="shortcut_refresh_f5" description="System Keyboard Shortcuts Helper label for reloading the current folder in single-pane mode (F5). [CHAR_LIMIT=35]">Refresh folder</string>
     <string name="shortcut_connect_server" description="System Keyboard Shortcuts Helper label for opening the Connect to server dialog (Ctrl+Shift+K). [CHAR_LIMIT=35]">Connect to server</string>
 
     <string name="shortcut_select_all" description="System Keyboard Shortcuts Helper label for selecting all items in the active folder (Ctrl+A). [CHAR_LIMIT=35]">Select all</string>
@@ -453,6 +454,7 @@
     <string name="shortcut_view_details" description="System Keyboard Shortcuts Helper label for switching to Details list view (Ctrl+1). [CHAR_LIMIT=35]">Details view</string>
     <string name="shortcut_view_grid" description="System Keyboard Shortcuts Helper label for switching to Grid view (Ctrl+2). [CHAR_LIMIT=35]">Grid view</string>
     <string name="shortcut_view_columns" description="System Keyboard Shortcuts Helper label for switching to Miller columns view (Ctrl+3). [CHAR_LIMIT=35]">Columns view</string>
+    <string name="shortcut_view_dual_pane" description="System Keyboard Shortcuts Helper label for toggling dual-pane view via keyboard chord (Ctrl+4). [CHAR_LIMIT=35]">Dual pane view</string>
     <string name="shortcut_hidden_files" description="System Keyboard Shortcuts Helper label for toggling visibility of hidden dotfiles (Ctrl+H). [CHAR_LIMIT=35]">Show hidden files</string>
     <string name="shortcut_pin_folder" description="System Keyboard Shortcuts Helper label for pinning or unpinning the active folder in the sidebar (Ctrl+B). [CHAR_LIMIT=35]">Pin / unpin folder</string>
     <string name="shortcut_toggle_sidebar" description="System Keyboard Shortcuts Helper label for showing or hiding the sidebar (Ctrl+\). [CHAR_LIMIT=35]">Toggle sidebar</string>

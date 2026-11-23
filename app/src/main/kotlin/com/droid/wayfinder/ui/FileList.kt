@@ -13,7 +13,9 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.res.stringResource
 import com.droid.wayfinder.R
@@ -693,6 +695,7 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
                             onSelect = { set -> vm.setSelection(set, tab.id) },
                             onEmptyClick = { vm.clearSelection(tab.id) },
                             onSecondary = { vm.clearSelection(tab.id); menu.show(it, backgroundMenu(vm, vm.state.value)) },
+                            onDragEnd = { vm.syncFocusToSelection(tab.id, interiorVisibleGridPaths(gridState)) },
                         ),
                     ) {
                         LazyVerticalGrid(
@@ -724,6 +727,7 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
                                 onSelect = { set -> vm.setSelection(set, tab.id) },
                                 onEmptyClick = { vm.clearSelection(tab.id) },
                                 onSecondary = { vm.clearSelection(tab.id); menu.show(it, backgroundMenu(vm, vm.state.value)) },
+                                onDragEnd = { vm.syncFocusToSelection(tab.id, interiorVisibleListPaths(listState)) },
                             ),
                         ) {
                             LazyColumn(Modifier.fillMaxSize(), listState, contentPadding = PaddingValues(vertical = 4.dp)) {
@@ -742,6 +746,20 @@ private fun EntryList(vm: BrowserViewModel, s: AppState, tab: TabState, entries:
 
 // Spacer item that gives rubber-band/context-click room below the last row.
 private fun Modifier.fillParentMaxHeightCompat(): Modifier = this.height(160.dp)
+
+private fun interiorVisibleListPaths(state: LazyListState): List<String> {
+    val info = state.layoutInfo.visibleItemsInfo
+    val interior = if (info.size >= 3) info.subList(1, info.size - 1) else info
+    val mapped = interior.mapNotNull { (it.key as? String)?.takeIf { k -> k != "filler" } }
+    return mapped.ifEmpty { info.mapNotNull { (it.key as? String)?.takeIf { k -> k != "filler" } } }
+}
+
+private fun interiorVisibleGridPaths(state: LazyGridState): List<String> {
+    val info = state.layoutInfo.visibleItemsInfo
+    val interior = if (info.size >= 2) info.subList(0, info.size - 1) else info
+    val mapped = interior.mapNotNull { it.key as? String }
+    return mapped.ifEmpty { info.mapNotNull { it.key as? String } }
+}
 
 private const val ROW_FIXED_OVERHEAD_DP = 82f // 48dp row horizontal padding + 34dp leading icon/gap
 
@@ -1381,8 +1399,20 @@ private fun MillerColumns(vm: BrowserViewModel, s: AppState, tab: TabState, entr
     val chain = remember(tab.path, s.roots) { FsPath.breadcrumbs(tab.path, s.rootLabels).map { it.second }.takeLast(8) }
     val cache = remember(tab.id) { HashMap<String, List<FileEntry>>() }
     val scroll = rememberScrollState()
-    val preview = tab.selectedEntries(s.showHidden).singleOrNull()?.takeIf { !it.isDir }
-    LaunchedEffect(tab.path, preview?.path) { withFrameNanos { }; scroll.animateScrollTo(scroll.maxValue) }
+    val rb = remember(tab.id) { RubberBandState() }
+    val candidatePreview = tab.selectedEntries(s.showHidden).singleOrNull()?.takeIf { !it.isDir }
+    var stablePreview by remember(tab.id, tab.path) { mutableStateOf(candidatePreview) }
+    if (!rb.active) {
+        stablePreview = candidatePreview
+    }
+    val preview = if (rb.active) stablePreview else candidatePreview
+    LaunchedEffect(tab.path, preview?.path) {
+        if (rb.active) {
+            snapshotFlow { rb.active }.first { !it }
+        }
+        withFrameNanos { }
+        scroll.animateScrollTo(scroll.maxValue)
+    }
     LaunchedEffect(active) { if (active) vm.setGridColumns(1, 12) }
     Box(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxSize().horizontalScroll(scroll)) {
@@ -1390,7 +1420,7 @@ private fun MillerColumns(vm: BrowserViewModel, s: AppState, tab: TabState, entr
                 AncestorColumn(vm, s, tab, dir, chain[i + 1], cache)
                 VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.5f))
             }
-            CurrentColumn(vm, s, tab, entries)
+            CurrentColumn(vm, s, tab, entries, rb)
             if (preview != null) {
                 VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.5f))
                 MillerPreview(vm, preview)
@@ -1443,12 +1473,11 @@ private fun AncestorColumn(vm: BrowserViewModel, s: AppState, tab: TabState, dir
 }
 
 @Composable
-private fun CurrentColumn(vm: BrowserViewModel, s: AppState, tab: TabState, entries: List<FileEntry>) {
+private fun CurrentColumn(vm: BrowserViewModel, s: AppState, tab: TabState, entries: List<FileEntry>, rb: RubberBandState) {
     val menu = LocalMenu.current
     val focusCoord = LocalFocusCoordinator.current
     val cs = MaterialTheme.colorScheme
     val active = s.active.id == tab.id
-    val rb = remember(tab.id) { RubberBandState() }
     val state = rememberLazyListState()
     val visiblePaths = remember(entries) { entries.mapTo(HashSet(entries.size)) { it.path } }
     val rovingPath = remember(entries, tab.focused) {
@@ -1482,6 +1511,7 @@ private fun CurrentColumn(vm: BrowserViewModel, s: AppState, tab: TabState, entr
                 onSelect = { set -> vm.setSelection(set, tab.id) },
                 onEmptyClick = { vm.clearSelection(tab.id) },
                 onSecondary = { vm.clearSelection(tab.id); menu.show(it, backgroundMenu(vm, vm.state.value)) },
+                onDragEnd = { vm.syncFocusToSelection(tab.id, interiorVisibleListPaths(state)) },
             ),
         ) {
             when {

@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -76,7 +77,9 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -111,6 +114,7 @@ import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -120,8 +124,10 @@ import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.ViewMode
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 internal class LiveSnackbarVisuals(
@@ -170,6 +176,17 @@ internal class TransientSnackbarController(
             return
         }
 
+        // Preserve active actionable snackbars (e.g. "Moved to Trash [Undo]") when a low-priority
+        // ephemeral status toast (zoom / theme) fires, so the user never loses Undo affordance.
+        if (current != null &&
+            current.actionLabel != null &&
+            snackbarJob?.isActive == true &&
+            actionLabel == null &&
+            durationMs != null
+        ) {
+            return
+        }
+
         dismissJob?.cancel()
         snackbarJob?.cancel()
         hostState.currentSnackbarData?.dismiss()
@@ -181,7 +198,7 @@ internal class TransientSnackbarController(
             key = key,
         )
         activeVisuals = visuals
-        snackbarJob = scope.launch {
+        snackbarJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val result = hostState.showSnackbar(visuals)
                 if (result == SnackbarResult.ActionPerformed) onAction?.invoke()
@@ -200,6 +217,9 @@ internal class TransientSnackbarController(
         dismissJob?.cancel()
         dismissJob = if (durationMs != null) {
             scope.launch {
+                if (hostState.currentSnackbarData?.visuals !== visuals) {
+                    snapshotFlow { hostState.currentSnackbarData?.visuals }.first { it === visuals }
+                }
                 delay(resolveTimeoutMs(durationMs, visuals.actionLabel != null))
                 if (hostState.currentSnackbarData?.visuals === visuals) {
                     hostState.currentSnackbarData?.dismiss()
@@ -327,9 +347,11 @@ fun AppRoot(vm: BrowserViewModel) {
     }
     BackHandler(enabled = s.active.canGoBack) { vm.back() }
 
+    val currentAccessibilityManager by rememberUpdatedState(accessibilityManager)
+
     LaunchedEffect(Unit) {
         val toasts = TransientSnackbarController(snackbar, this) { durationMs, hasAction ->
-            accessibilityManager?.calculateRecommendedTimeoutMillis(
+            currentAccessibilityManager?.calculateRecommendedTimeoutMillis(
                 originalTimeoutMillis = durationMs,
                 containsIcons = false,
                 containsText = true,
@@ -365,7 +387,7 @@ fun AppRoot(vm: BrowserViewModel) {
                 is UiEvent.Toast -> {
                     toasts.show(
                         message = e.message,
-                        actionLabel = if (e.undo) "Undo" else null,
+                        actionLabel = if (e.undo) ctx.getString(R.string.action_undo) else null,
                         key = e.key,
                         durationMs = e.durationMs,
                         onAction = if (e.undo) vm::undo else null,
@@ -874,7 +896,13 @@ fun AppRoot(vm: BrowserViewModel) {
                 hostState = snackbar,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(start = 16.dp, end = 16.dp, bottom = 48.dp),
+                    .windowInsetsPadding(
+                        WindowInsets.systemBars
+                            .union(WindowInsets.ime)
+                            .union(WindowInsets.displayCutout)
+                            .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
+                    )
+                    .padding(start = 16.dp, end = 16.dp, bottom = 44.dp),
             ) { data ->
                 val hasAction = data.visuals.actionLabel != null
                 Surface(
@@ -897,7 +925,11 @@ fun AppRoot(vm: BrowserViewModel) {
                         Text(
                             text = data.visuals.message,
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f, fill = false),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .padding(vertical = if (hasAction) 8.dp else 0.dp),
                         )
                         data.visuals.actionLabel?.let { label ->
                             TextButton(

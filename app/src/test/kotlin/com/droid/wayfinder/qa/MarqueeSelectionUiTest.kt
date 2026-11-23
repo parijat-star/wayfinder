@@ -499,6 +499,7 @@ class MarqueeSelectionUiTest {
         val selected = h.s.active.selection
         assertTrue("row_01.txt (which started at top) must remain selected after auto-scroll; selected=${selected.size}", h.pathOf("row_01.txt") in selected)
         assertTrue("auto-scroll must select items beyond the initial viewport; selected=${selected.size}", selected.size >= 14)
+        assertTrue("releasing marquee after downward auto-scroll must not snap viewport back to row_01.txt", rule.onAllNodesWithText("row_01.txt").fetchSemanticsNodes().isEmpty())
     }
 
     @Test fun scrollbarMouseDragDoesNotTriggerMarqueeSelection() {
@@ -520,5 +521,86 @@ class MarqueeSelectionUiTest {
         idle()
 
         assertTrue("dragging the scrollbar must not select rows", h.s.active.selection.isEmpty())
+    }
+
+    @Test fun deepMillerColumnsMarqueeDoesNotShiftColumnHorizontallyMidDragAndSyncsFocus() {
+        launch {
+            var cur = root
+            repeat(5) { idx ->
+                cur = java.io.File(cur, "level_${idx + 1}").apply { mkdirs() }
+            }
+            java.io.File(cur, "focus_first.txt").writeText("0")
+            java.io.File(cur, "pick_a.txt").writeText("a")
+            java.io.File(cur, "pick_b.txt").writeText("b")
+            navigate(cur.path)
+            vm.setViewMode(ViewMode.Columns)
+            vm.click(java.io.File(cur, "focus_first.txt").path, ctrl = false, shift = false)
+            vm.clearSelection()
+        }
+
+        val initialPickABounds = boundsOf("pick_a.txt")
+        val initialPickBBounds = boundsOf("pick_b.txt")
+        val start = Offset(initialPickABounds.right + 40f, initialPickABounds.center.y)
+        val mid = Offset(initialPickABounds.right + 35f, initialPickABounds.center.y + 8f)
+        val end = Offset(initialPickBBounds.right + 35f, initialPickBBounds.center.y)
+
+        // Touching the first file during marquee (selection size == 1) must NOT mount MillerPreview and scroll horizontally.
+        rootNode().performMouseInput {
+            moveTo(start)
+            press(MouseButton.Primary)
+            moveTo(mid)
+        }
+        idle()
+        val midDragPickABounds = boundsOf("pick_a.txt")
+        assertEquals(
+            "CurrentColumn must not jump horizontally while marquee drag is active",
+            initialPickABounds.left,
+            midDragPickABounds.left,
+            1.0f,
+        )
+
+        rootNode().performMouseInput {
+            moveTo(end)
+            release(MouseButton.Primary)
+        }
+        idle()
+
+        val selected = h.s.active.selection
+        assertEquals(2, selected.size)
+        assertTrue("tab.focused must move into marquee selection on drag completion", h.s.active.focused in selected)
+    }
+
+    @Test fun pointerSourceMarksPinchAndMultiFingerEventsNonPrecise() {
+        val now = android.os.SystemClock.uptimeMillis()
+        val mouseDown = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, 10f, 10f, 0).apply {
+            source = android.view.InputDevice.SOURCE_TOUCHPAD
+        }
+        try {
+            com.droid.wayfinder.ui.PointerSource.update(mouseDown)
+            assertTrue(com.droid.wayfinder.ui.PointerSource.precise)
+        } finally {
+            mouseDown.recycle()
+        }
+
+        val props = arrayOf(
+            android.view.MotionEvent.PointerProperties().apply { id = 0; toolType = android.view.MotionEvent.TOOL_TYPE_FINGER },
+            android.view.MotionEvent.PointerProperties().apply { id = 1; toolType = android.view.MotionEvent.TOOL_TYPE_FINGER },
+        )
+        val coords = arrayOf(
+            android.view.MotionEvent.PointerCoords().apply { x = 10f; y = 10f },
+            android.view.MotionEvent.PointerCoords().apply { x = 40f; y = 40f },
+        )
+        val multiMove = android.view.MotionEvent.obtain(
+            now, now + 10L, android.view.MotionEvent.ACTION_MOVE,
+            2, props, coords, 0, 0, 1f, 1f, 0, 0,
+            android.view.InputDevice.SOURCE_TOUCHPAD, 0,
+        )
+        try {
+            com.droid.wayfinder.ui.PointerSource.update(multiMove)
+            assertFalse("Multi-finger trackpad gesture must clear PointerSource.precise", com.droid.wayfinder.ui.PointerSource.precise)
+        } finally {
+            multiMove.recycle()
+            com.droid.wayfinder.ui.PointerSource.resetForTest()
+        }
     }
 }

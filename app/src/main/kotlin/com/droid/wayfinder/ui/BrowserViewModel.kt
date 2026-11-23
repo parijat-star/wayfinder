@@ -1364,6 +1364,19 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }
         t.copy(selection = paths, anchor = orderedAnchor)
     }
+
+    /** Moves keyboard roving focus into the visible portion of [TabState.selection] after a marquee drag finishes. */
+    fun syncFocusToSelection(tabId: Long = tab.id, preferVisible: List<String> = emptyList()) = updateTab(tabId) { t ->
+        if (t.selection.isEmpty()) return@updateTab t
+        val curFocused = t.focused
+        if (curFocused != null && curFocused in t.selection && (preferVisible.isEmpty() || curFocused in preferVisible)) {
+            return@updateTab t
+        }
+        val nextFocus = preferVisible.lastOrNull { it in t.selection }
+            ?: t.anchor?.takeIf { it in t.selection }
+            ?: t.visible(hidden).firstOrNull { it.path in t.selection }?.path
+        t.copy(focused = nextFocus)
+    }
     fun setSelectionIfNotSelected(path: String) { if (path !in tab.selection) updateTab(tab.id) { it.copy(selection = setOf(path), anchor = path, focused = path) } }
 
     fun moveFocus(delta: Int, extend: Boolean = false, keepSelection: Boolean = false) =
