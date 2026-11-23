@@ -274,6 +274,22 @@ object FsPath {
             }
             return out
         }
+        // Hide internal `.Wayfinder-Trash/<slot>` segments so Miller columns, pane headers, and Location rows stay rooted at Trash.
+        val allSegments = n.split('/').filter { it.isNotEmpty() }
+        val trashIdx = allSegments.indexOf(".Wayfinder-Trash")
+        if (trashIdx >= 0 && allSegments.none { it == ".." }) {
+            val trashLabel = rootLabels[TRASH_ROOT] ?: "Trash"
+            val out = mutableListOf(trashLabel to TRASH_ROOT)
+            if (allSegments.size >= trashIdx + 3) {
+                var cur = "/" + allSegments.take(trashIdx + 3).joinToString("/")
+                out += crumbLabel(allSegments[trashIdx + 2]) to cur
+                for (seg in allSegments.drop(trashIdx + 3)) {
+                    cur = "$cur/$seg"
+                    out += crumbLabel(seg) to cur
+                }
+            }
+            return out
+        }
         val root = rootLabels.keys.filter { isWithin(it, n) }.maxByOrNull { it.length }
         val out = mutableListOf<Pair<String, String>>()
         var cur: String

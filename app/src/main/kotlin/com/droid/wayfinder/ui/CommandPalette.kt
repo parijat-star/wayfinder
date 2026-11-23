@@ -170,8 +170,8 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState, hasDesktopCaption: Boolea
         add(c(vm.str(R.string.action_refresh), vm.str(R.string.palette_refresh_desc), if (s.dualPane) "Ctrl+R" else "F5 / Ctrl+R", Icons.Outlined.Refresh) { vm.refresh() })
         add(c(vm.str(R.string.palette_edit_address), vm.str(R.string.palette_edit_address_desc), "Ctrl+L", Icons.Outlined.Edit) { vm.setAddressEditing(true) })
         add(c(vm.str(R.string.palette_search), vm.str(R.string.palette_search_desc), "Ctrl+F", Icons.Outlined.Search) { vm.requestSearchFocus() })
-        val pinTargets = tab.selectedEntries(s.showHidden).filter { !it.isServer && !it.isShare && !FsPath.isZip(it.path) && !FsPath.isVirtual(it.path) }.map { it.path }
-        val effectivePinTargets = pinTargets.ifEmpty { listOf(tab.path).filter { !FsPath.isVirtual(it) && !FsPath.isZip(it) } }
+        val pinTargets = tab.selectedEntries(s.showHidden).filter { !it.isServer && !it.isShare && !FsPath.isZip(it.path) && !FsPath.isVirtual(it.path) && !vm.isInTrash(it.path) }.map { it.path }
+        val effectivePinTargets = pinTargets.ifEmpty { listOf(tab.path).filter { !FsPath.isVirtual(it) && !FsPath.isZip(it) && !vm.isInTrash(it) } }
         val pinned = effectivePinTargets.isNotEmpty() && effectivePinTargets.all { it in s.pins }
         val pinLabel = when {
             pinTargets.size > 1 -> if (pinned) vm.str(R.string.palette_unpin_selection) else vm.str(R.string.palette_pin_selection)
