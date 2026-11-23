@@ -4,17 +4,21 @@
 package com.droid.wayfinder.qa
 
 import android.Manifest
+import android.app.Application
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import com.droid.wayfinder.MainActivity
+import com.droid.wayfinder.PrivilegedDocumentsAlias
 import com.droid.wayfinder.R
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import java.io.File
 
@@ -80,6 +84,82 @@ class ManifestAndPrivacyPolicyTest {
             "Standalone 3P app without DocumentsProvider should not intercept ACTION_OPEN_DOCUMENT_TREE",
             resolved.any { it.activityInfo?.packageName == context.packageName },
         )
+    }
+
+    @Test
+    fun privilegedDocumentsIntentsDisabledByDefault_andEnabledOnlyWithManageDocuments() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val docUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload")
+        val privilegedIntents = listOf(
+            Intent("android.provider.action.BROWSE", docUri),
+            Intent("android.provider.action.MANAGE_DOCUMENT", docUri),
+            Intent(Intent.ACTION_VIEW).setDataAndType(docUri, "vnd.android.document/directory"),
+        )
+
+        // Default install (Google Play / user build without MANAGE_DOCUMENTS):
+        // Wayfinder must NOT intercept privileged DocumentsContract intents.
+        assertFalse(PrivilegedDocumentsAlias.hasManageDocuments(app))
+        for (intent in privilegedIntents) {
+            val resolved = app.packageManager.queryIntentActivities(intent, 0)
+            assertFalse(
+                "Unprivileged install must not intercept ${intent.action} (${intent.type})",
+                resolved.any { it.activityInfo?.packageName == app.packageName },
+            )
+        }
+        assertFalse(PrivilegedDocumentsAlias.sync(app))
+
+        // Non-privileged folder viewing intents still resolve to MainActivity on Play installs.
+        val safeFolderIntents = listOf(
+            Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse("file:///storage/emulated/0/Download"), "resource/folder"),
+            Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse("file:///storage/emulated/0/Download"), "vnd.android.document/directory"),
+            Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse("content://example/folder"), "resource/folder"),
+            Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse("content://example/folder"), "inode/directory"),
+        )
+        for (intent in safeFolderIntents) {
+            val resolved = app.packageManager.queryIntentActivities(intent, 0)
+            assertTrue(
+                "MainActivity must still resolve safe folder intent ${intent.data} (${intent.type})",
+                resolved.any {
+                    it.activityInfo?.packageName == app.packageName &&
+                        it.activityInfo?.name == MainActivity::class.java.name
+                },
+            )
+        }
+
+        // System app / ADB dev install with MANAGE_DOCUMENTS granted:
+        // syncing enables the alias so Wayfinder handles ACTION_BROWSE / MANAGE_DOCUMENT / content dir VIEW.
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.MANAGE_DOCUMENTS)
+        assertTrue(PrivilegedDocumentsAlias.hasManageDocuments(app))
+        assertTrue(PrivilegedDocumentsAlias.sync(app))
+        assertEquals(
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+            app.packageManager.getComponentEnabledSetting(PrivilegedDocumentsAlias.componentName(app)),
+        )
+        for (intent in privilegedIntents) {
+            val resolved = app.packageManager.queryIntentActivities(intent, 0)
+            assertTrue(
+                "Privileged install with MANAGE_DOCUMENTS must resolve ${intent.action} (${intent.type})",
+                resolved.any {
+                    it.activityInfo?.packageName == app.packageName &&
+                        it.activityInfo?.name == PrivilegedDocumentsAlias.ALIAS_CLASS_NAME
+                },
+            )
+        }
+
+        // Revoking MANAGE_DOCUMENTS disables the alias again.
+        Shadows.shadowOf(app).denyPermissions(Manifest.permission.MANAGE_DOCUMENTS)
+        assertFalse(PrivilegedDocumentsAlias.sync(app))
+        assertEquals(
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            app.packageManager.getComponentEnabledSetting(PrivilegedDocumentsAlias.componentName(app)),
+        )
+        for (intent in privilegedIntents) {
+            val resolved = app.packageManager.queryIntentActivities(intent, 0)
+            assertFalse(
+                "Revoking MANAGE_DOCUMENTS must stop intercepting ${intent.action} (${intent.type})",
+                resolved.any { it.activityInfo?.packageName == app.packageName },
+            )
+        }
     }
 
     @Test
