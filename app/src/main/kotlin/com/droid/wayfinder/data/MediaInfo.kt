@@ -13,24 +13,33 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Metadata
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.container.MdtaMetadataEntry
+import android.provider.MediaStore
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSourceException
 import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.TrackGroupArray
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.amr.AmrExtractor
 import androidx.media3.extractor.metadata.id3.TextInformationFrame
 import androidx.media3.extractor.metadata.vorbis.VorbisComment
+import androidx.media3.extractor.mp4.Mp4Extractor
+import androidx.media3.extractor.ts.AdtsExtractor
 import androidx.media3.inspector.MetadataRetriever
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
-import java.io.EOFException
 import java.io.IOException
 import java.io.InputStream
+import java.io.InterruptedIOException
 import java.util.Locale
+import java.util.concurrent.ExecutionException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
@@ -108,9 +117,36 @@ data class MediaTags(
  */
 object MediaInspector {
     private const val INSPECT_TIMEOUT_MS = 10_000L
-    private const val REMOTE_INSPECT_MAX_BYTES = 8L * 1024L * 1024L
+    internal const val REMOTE_INSPECT_MAX_BYTES = 8L * 1024L * 1024L
 
-    /** Inspects a seekable local `file://` or `content://` URI directly via Media3 [MetadataRetriever]. */
+    private val LOCAL_SEEKABLE_CONTENT_AUTHORITIES = setOf(
+        SystemDocumentsBridge.EXTERNAL_STORAGE_AUTHORITY,
+        "com.android.providers.downloads.documents",
+        "com.android.providers.media.documents",
+        MediaStore.AUTHORITY,
+    )
+
+    /**
+     * Returns `true` only when [uri] is backed by on-device local storage where random `ContentResolver`
+     * seeks will neither stage multi-gigabyte cloud/Cross-Device downloads nor fail with `ESPIPE` on pipes.
+     */
+    fun isLocalSeekableContentUri(uri: Uri?): Boolean {
+        if (uri == null) return false
+        return when (uri.scheme?.lowercase(Locale.ROOT)) {
+            "file" -> true
+            "content" -> uri.authority in LOCAL_SEEKABLE_CONTENT_AUTHORITIES
+            else -> false
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    internal fun buildStreamInspectorExtractorsFactory(): DefaultExtractorsFactory =
+        DefaultExtractorsFactory()
+            .setMp4ExtractorFlags(Mp4Extractor.FLAG_OMIT_TRACK_SAMPLE_TABLE)
+            .setAdtsExtractorFlags(AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
+            .setAmrExtractorFlags(AmrExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
+
+    /** Inspects a seekable local `file://` or local-storage `content://` URI directly via Media3 [MetadataRetriever]. */
     @OptIn(UnstableApi::class)
     suspend fun inspectUri(
         context: Context,
@@ -118,8 +154,9 @@ object MediaInspector {
         fileSizeBytes: Long = 0L,
         fileExtension: String? = null,
     ): MediaInfo? = withTimeout(INSPECT_TIMEOUT_MS) {
+        val appContext = context.applicationContext
         val mediaItem = MediaItem.fromUri(uri)
-        MetadataRetriever.Builder(context.applicationContext, mediaItem).build().use { retriever ->
+        MetadataRetriever.Builder(appContext, mediaItem).build().use { retriever ->
             val trackGroups = retriever.retrieveTrackGroups().await()
             val durationUs = runCatching { retriever.retrieveDurationUs().await() }.getOrDefault(C.TIME_UNSET)
             extractFromTrackGroups(trackGroups, durationUs, fileSizeBytes, fileExtension)
@@ -128,9 +165,9 @@ object MediaInspector {
     }
 
     /**
-     * Inspects a non-local media file (SMB, WebDAV, FTP, Drive, OneDrive, Zip) via a bounded
-     * [DataSource] backed by [openInput], capping reads at [maxBytes] so large remote files
-     * are never downloaded in full just to inspect headers.
+     * Inspects a non-local media file (SMB, WebDAV, FTP, Drive, OneDrive, Cross-Device Phone, MTP, Zip)
+     * via a shared prefix-caching bounded [DataSource] backed by [openInput], capping total network/pipe
+     * bytes read across all extractor seeks at [maxBytes].
      */
     @OptIn(UnstableApi::class)
     suspend fun inspectStream(
@@ -139,20 +176,29 @@ object MediaInspector {
         fileSizeBytes: Long,
         openInput: () -> InputStream,
         maxBytes: Long = REMOTE_INSPECT_MAX_BYTES,
-    ): MediaInfo? = withTimeout(INSPECT_TIMEOUT_MS) {
-        val ext = fileName.substringAfterLast('.', "").takeIf { it.isNotBlank() }
-        val factory = DataSource.Factory { BoundedStreamDataSource(openInput, fileSizeBytes, maxBytes) }
-        val mediaSourceFactory = DefaultMediaSourceFactory(factory)
-        val mediaItem = MediaItem.fromUri(Uri.parse("wayfinder://inspect/${Uri.encode(fileName)}"))
-        MetadataRetriever.Builder(context.applicationContext, mediaItem)
-            .setMediaSourceFactory(mediaSourceFactory)
-            .build()
-            .use { retriever ->
-                val trackGroups = retriever.retrieveTrackGroups().await()
-                val durationUs = runCatching { retriever.retrieveDurationUs().await() }.getOrDefault(C.TIME_UNSET)
-                extractFromTrackGroups(trackGroups, durationUs, fileSizeBytes, ext)
-                    .takeUnless { it.isEmpty }
+    ): MediaInfo? {
+        val sharedBuffer = SharedPrefixStreamBuffer(openInput, fileSizeBytes, maxBytes)
+        return try {
+            withTimeout(INSPECT_TIMEOUT_MS) {
+                val appContext = context.applicationContext
+                val ext = fileName.substringAfterLast('.', "").takeIf { it.isNotBlank() }
+                val factory = DataSource.Factory { BoundedStreamDataSource(sharedBuffer) }
+                val mediaSourceFactory = DefaultMediaSourceFactory(factory, buildStreamInspectorExtractorsFactory())
+                    .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(/* minimumLoadableRetryCount = */ 0))
+                val mediaItem = MediaItem.fromUri(Uri.parse("wayfinder://inspect/${Uri.encode(fileName)}"))
+                MetadataRetriever.Builder(appContext, mediaItem)
+                    .setMediaSourceFactory(mediaSourceFactory)
+                    .build()
+                    .use { retriever ->
+                        val trackGroups = retriever.retrieveTrackGroups().await()
+                        val durationUs = runCatching { retriever.retrieveDurationUs().await() }.getOrDefault(C.TIME_UNSET)
+                        extractFromTrackGroups(trackGroups, durationUs, fileSizeBytes, ext)
+                            .takeUnless { it.isEmpty }
+                    }
             }
+        } finally {
+            sharedBuffer.closeUnderlying()
+        }
     }
 
     /** Pure extraction from Media3 [TrackGroupArray] + [durationUs]; safe to run in unit tests. */
@@ -635,13 +681,19 @@ object MediaFormatters {
 }
 
 /** Cancellable coroutine bridge for Guava [ListenableFuture] without an extra dependency. */
-private suspend fun <T> ListenableFuture<T>.await(): T = suspendCancellableCoroutine { cont ->
+internal suspend fun <T> ListenableFuture<T>.await(): T = suspendCancellableCoroutine { cont ->
     addListener(
         {
+            if (isCancelled) {
+                cont.cancel()
+                return@addListener
+            }
             try {
                 cont.resume(get())
+            } catch (e: ExecutionException) {
+                cont.resumeWithException(e.cause ?: e)
             } catch (t: Throwable) {
-                cont.resumeWithException(t.cause ?: t)
+                cont.resumeWithException(t)
             }
         },
         MoreExecutors.directExecutor(),
@@ -650,62 +702,199 @@ private suspend fun <T> ListenableFuture<T>.await(): T = suspendCancellableCorou
 }
 
 /**
- * Bounded read-only Media3 [DataSource] backed by a Wayfinder [FileSystem.openInput] stream.
- * Caps total bytes read to [maxBytes] so inspecting remote media never downloads gigabytes.
+ * Shared prefix cache over a single lazy [openInput] stream for [BoundedStreamDataSource].
+ *
+ * Ensures that multiple `close()` + `open(DataSpec(position))` extractor seeks within `[0, maxBytes)`
+ * reuse a single underlying stream (serving backward seeks from memory and advancing forward seeks
+ * incrementally), strictly cap total network/pipe bytes transferred at [maxBytes], and abort
+ * blocking socket reads immediately when [closeUnderlying] is called on timeout or cancellation.
+ */
+internal class SharedPrefixStreamBuffer(
+    private val openInput: () -> InputStream,
+    val totalSize: Long,
+    val maxBytes: Long,
+) {
+    companion object {
+        private const val CHUNK_SIZE = 64 * 1024
+    }
+
+    private val ioLock = Any()
+    private val chunkLock = Any()
+    private val chunks = ArrayList<ByteArray>()
+    private var bufferedBytes = 0L
+    private var eofReached = false
+    private var streamFailure: IOException? = null
+
+    @Volatile private var closed = false
+    @Volatile private var activeStream: InputStream? = null
+
+    val bytesDownloaded: Long
+        get() = synchronized(chunkLock) { bufferedBytes }
+
+    fun ensureBufferedTo(targetExclusive: Long) {
+        val clampedTarget = minOf(targetExclusive, maxBytes)
+        if (clampedTarget <= 0L) return
+        synchronized(ioLock) {
+            checkNotCancelled()
+            while (true) {
+                val curBuffered = synchronized(chunkLock) { bufferedBytes }
+                if (curBuffered >= clampedTarget || eofReached) return
+                streamFailure?.let { throw it }
+                checkNotCancelled()
+                val stream = try {
+                    activeStream ?: openInput().also { opened ->
+                        activeStream = opened
+                        if (closed) {
+                            runCatching { opened.close() }
+                            activeStream = null
+                            throw InterruptedIOException("Media inspection cancelled")
+                        }
+                    }
+                } catch (e: IOException) {
+                    closeActiveStream()
+                    streamFailure = e
+                    throw e
+                }
+                val chunkIndex = (curBuffered / CHUNK_SIZE).toInt()
+                val chunkOffset = (curBuffered % CHUNK_SIZE).toInt()
+                val chunk = synchronized(chunkLock) {
+                    while (chunks.size <= chunkIndex) {
+                        chunks.add(ByteArray(CHUNK_SIZE))
+                    }
+                    chunks[chunkIndex]
+                }
+                val maxToRead = minOf(
+                    (CHUNK_SIZE - chunkOffset).toLong(),
+                    maxBytes - curBuffered,
+                ).toInt()
+                if (maxToRead <= 0) return
+                val n = try {
+                    stream.read(chunk, chunkOffset, maxToRead)
+                } catch (e: IOException) {
+                    closeActiveStream()
+                    streamFailure = e
+                    throw e
+                }
+                checkNotCancelled()
+                if (n < 0) {
+                    eofReached = true
+                    closeActiveStream()
+                    return
+                }
+                if (n > 0) {
+                    val reachedCap = synchronized(chunkLock) {
+                        bufferedBytes += n
+                        if (bufferedBytes >= maxBytes) {
+                            eofReached = true
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    if (reachedCap) {
+                        closeActiveStream()
+                        return
+                    }
+                }
+            }
+        }
+    }
+
+    fun readAt(position: Long, dest: ByteArray, offset: Int, length: Int): Int {
+        if (length == 0) return 0
+        if (position < 0L || position >= maxBytes) return C.RESULT_END_OF_INPUT
+        checkNotCancelled()
+        val desiredEnd = minOf(position + length.toLong(), maxBytes)
+        ensureBufferedTo(desiredEnd)
+        synchronized(chunkLock) {
+            if (position >= bufferedBytes) return C.RESULT_END_OF_INPUT
+            val available = minOf(length.toLong(), bufferedBytes - position).toInt()
+            val chunkIndex = (position / CHUNK_SIZE).toInt()
+            val chunkOffset = (position % CHUNK_SIZE).toInt()
+            val toCopy = minOf(available, CHUNK_SIZE - chunkOffset)
+            System.arraycopy(chunks[chunkIndex], chunkOffset, dest, offset, toCopy)
+            return toCopy
+        }
+    }
+
+    fun closeUnderlying() {
+        closed = true
+        closeActiveStream()
+    }
+
+    private fun closeActiveStream() {
+        val s = activeStream
+        activeStream = null
+        if (s != null) {
+            runCatching { s.close() }
+        }
+    }
+
+    private fun checkNotCancelled() {
+        if (closed || Thread.currentThread().isInterrupted) {
+            throw InterruptedIOException("Media inspection cancelled")
+        }
+    }
+}
+
+/**
+ * Bounded read-only Media3 [DataSource] backed by a [SharedPrefixStreamBuffer].
+ * Caps total bytes read across all extractor seeks to [SharedPrefixStreamBuffer.maxBytes].
  */
 @OptIn(UnstableApi::class)
-private class BoundedStreamDataSource(
-    private val openInput: () -> InputStream,
-    private val totalSize: Long,
-    private val maxBytes: Long,
+internal class BoundedStreamDataSource(
+    private val shared: SharedPrefixStreamBuffer,
 ) : BaseDataSource(/* isNetwork = */ true) {
     private var uri: Uri? = null
-    private var input: InputStream? = null
-    private var bytesRead = 0L
+    private var readPosition = 0L
+    private var remainingLength = C.LENGTH_UNSET.toLong()
     private var opened = false
 
     override fun open(dataSpec: DataSpec): Long {
         uri = dataSpec.uri
         transferInitializing(dataSpec)
         val position = dataSpec.position
-        if (position >= maxBytes) {
-            throw IOException("Seek position $position exceeds remote inspection limit")
+        if (position < 0L || position >= shared.maxBytes) {
+            throw DataSourceException(PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
         }
-        val stream = openInput()
-        input = stream
         if (position > 0L) {
-            var remaining = position
-            val skipBuf = ByteArray(16 * 1024)
-            while (remaining > 0L) {
-                val n = stream.read(skipBuf, 0, minOf(skipBuf.size.toLong(), remaining).toInt())
-                if (n < 0) throw EOFException()
-                remaining -= n
-                bytesRead += n
+            shared.ensureBufferedTo(position)
+            if (position > shared.bytesDownloaded) {
+                throw DataSourceException(PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
             }
         }
+        readPosition = position
         opened = true
         transferStarted(dataSpec)
-        val remainingSize = if (totalSize > 0L) {
-            (minOf(totalSize, maxBytes) - position).coerceAtLeast(0L)
+        val remainingSize = if (shared.totalSize in 1L..shared.maxBytes) {
+            (shared.totalSize - position).coerceAtLeast(0L)
         } else {
             C.LENGTH_UNSET.toLong()
         }
-        return if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
+        val resolvedLength = if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
             if (remainingSize != C.LENGTH_UNSET.toLong()) minOf(dataSpec.length, remainingSize) else dataSpec.length
         } else {
             remainingSize
         }
+        remainingLength = resolvedLength
+        return resolvedLength
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
-        val budget = maxBytes - bytesRead
-        if (budget <= 0L) return C.RESULT_END_OF_INPUT
-        val stream = input ?: return C.RESULT_END_OF_INPUT
-        val toRead = minOf(length.toLong(), budget).toInt()
-        val n = stream.read(buffer, offset, toRead)
-        if (n < 0) return C.RESULT_END_OF_INPUT
-        bytesRead += n
+        if (!opened) return C.RESULT_END_OF_INPUT
+        if (remainingLength == 0L) return C.RESULT_END_OF_INPUT
+        val maxRead = if (remainingLength != C.LENGTH_UNSET.toLong()) {
+            minOf(length.toLong(), remainingLength).toInt()
+        } else {
+            length
+        }
+        val n = shared.readAt(readPosition, buffer, offset, maxRead)
+        if (n == C.RESULT_END_OF_INPUT) return C.RESULT_END_OF_INPUT
+        readPosition += n
+        if (remainingLength != C.LENGTH_UNSET.toLong()) {
+            remainingLength = (remainingLength - n).coerceAtLeast(0L)
+        }
         bytesTransferred(n)
         return n
     }
@@ -714,14 +903,10 @@ private class BoundedStreamDataSource(
 
     override fun close() {
         uri = null
-        try {
-            input?.close()
-        } finally {
-            input = null
-            if (opened) {
-                opened = false
-                transferEnded()
-            }
+        remainingLength = C.LENGTH_UNSET.toLong()
+        if (opened) {
+            opened = false
+            transferEnded()
         }
     }
 }

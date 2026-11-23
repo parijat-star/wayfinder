@@ -3,6 +3,7 @@
 
 package com.droid.wayfinder.data
 
+import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.ColorInfo
@@ -12,16 +13,31 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.TrackGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.container.MdtaMetadataEntry
+import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.source.TrackGroupArray
 import androidx.media3.extractor.metadata.id3.TextInformationFrame
 import androidx.media3.extractor.metadata.vorbis.VorbisComment
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.google.common.util.concurrent.SettableFuture
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.ByteArrayInputStream
+import java.io.IOException
+import java.io.InputStream
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
+@RunWith(AndroidJUnit4::class)
 class MediaInfoTest {
 
     @Test
@@ -265,5 +281,233 @@ class MediaInfoTest {
         assertNull(info.durationUs)
         assertNull(info.overallBitrateBps)
         assertNull(info.tags)
+    }
+
+    @Test
+    fun isLocalSeekableContentUriAllowsOnlyLocalStorageAuthoritiesAndRejectsCloudOrPhone() {
+        assertTrue(MediaInspector.isLocalSeekableContentUri(Uri.parse("file:///storage/emulated/0/Movies/clip.mp4")))
+        assertTrue(
+            MediaInspector.isLocalSeekableContentUri(
+                Uri.parse("content://com.android.externalstorage.documents/document/primary%3AMovies%2Fclip.mp4"),
+            ),
+        )
+        assertTrue(
+            MediaInspector.isLocalSeekableContentUri(
+                Uri.parse("content://com.android.providers.downloads.documents/document/123"),
+            ),
+        )
+        assertTrue(MediaInspector.isLocalSeekableContentUri(Uri.parse("content://media/external/video/media/42")))
+
+        // Cloud, Cross-Device Phone, MTP, and unknown third-party SAF providers must use bounded stream inspection.
+        assertFalse(
+            MediaInspector.isLocalSeekableContentUri(
+                Uri.parse("content://com.google.android.apps.docs.storage/document/acc%3D1%3Bdoc%3Dbig4k"),
+            ),
+        )
+        assertFalse(
+            MediaInspector.isLocalSeekableContentUri(
+                Uri.parse("content://com.google.ambient.streaming.multidevicesync.quickaccess/document/phone//DCIM/4k.mp4"),
+            ),
+        )
+        assertFalse(
+            MediaInspector.isLocalSeekableContentUri(
+                Uri.parse("content://com.android.mtp.documents/document/77"),
+            ),
+        )
+        assertFalse(
+            MediaInspector.isLocalSeekableContentUri(
+                Uri.parse("content://org.nextcloud.documents/document/video.mkv"),
+            ),
+        )
+        assertFalse(MediaInspector.isLocalSeekableContentUri(null))
+    }
+
+    @OptIn(UnstableApi::class)
+    @Test
+    fun boundedStreamDataSourceReusesSingleStreamSupportsBackwardSeeksAndEnforcesTotalCap() {
+        val totalSize = 6 * 1024 * 1024 // 6 MB file (< 8 MB cap)
+        val payload = ByteArray(totalSize) { idx -> ((idx * 31 + 7) and 0xFF).toByte() }
+        val openCount = AtomicInteger(0)
+        val underlyingBytesRead = AtomicLong(0L)
+        val streamClosed = AtomicBoolean(false)
+
+        val maxBytes = 8L * 1024L * 1024L
+        val shared = SharedPrefixStreamBuffer(
+            openInput = {
+                openCount.incrementAndGet()
+                object : InputStream() {
+                    private val delegate = ByteArrayInputStream(payload)
+                    override fun read(): Int = delegate.read().also { if (it >= 0) underlyingBytesRead.incrementAndGet() }
+                    override fun read(b: ByteArray, off: Int, len: Int): Int =
+                        delegate.read(b, off, len).also { if (it > 0) underlyingBytesRead.addAndGet(it.toLong()) }
+                    override fun close() {
+                        streamClosed.set(true)
+                        delegate.close()
+                    }
+                }
+            },
+            totalSize = totalSize.toLong(),
+            maxBytes = maxBytes,
+        )
+
+        val uri = Uri.parse("wayfinder://inspect/sample.mp4")
+        val ds = BoundedStreamDataSource(shared)
+
+        // 1. Forward seek near end of 6 MB file (e.g. trailing MP4 moov atom at 5.5 MB).
+        val moovOffset = (5.5 * 1024 * 1024).toLong()
+        ds.open(DataSpec.Builder().setUri(uri).setPosition(moovOffset).setLength(4096L).build())
+        val moovBuf = ByteArray(4096)
+        var off = 0
+        while (off < moovBuf.size) {
+            val n = ds.read(moovBuf, off, moovBuf.size - off)
+            assertTrue("Expected bytes at moov offset", n > 0)
+            off += n
+        }
+        assertArrayEquals(payload.copyOfRange(moovOffset.toInt(), moovOffset.toInt() + 4096), moovBuf)
+        ds.close()
+
+        // 2. Backward seek to 3.0 MB (mdat header) must succeed from cache without re-opening or exceeding 8 MB!
+        val mdatOffset = 3L * 1024L * 1024L
+        val downloadsBeforeBackSeek = underlyingBytesRead.get()
+        ds.open(DataSpec.Builder().setUri(uri).setPosition(mdatOffset).setLength(4096L).build())
+        val mdatBuf = ByteArray(4096)
+        off = 0
+        while (off < mdatBuf.size) {
+            val n = ds.read(mdatBuf, off, mdatBuf.size - off)
+            assertTrue("Expected cached bytes on backward seek", n > 0)
+            off += n
+        }
+        assertArrayEquals(payload.copyOfRange(mdatOffset.toInt(), mdatOffset.toInt() + 4096), mdatBuf)
+        assertEquals("Backward seek must be served from prefix cache with 0 extra network bytes", downloadsBeforeBackSeek, underlyingBytesRead.get())
+        assertEquals("Underlying stream must only be opened once across seeks", 1, openCount.get())
+        ds.close()
+
+        shared.closeUnderlying()
+        assertTrue("closeUnderlying must close live InputStream", streamClosed.get())
+    }
+
+    @OptIn(UnstableApi::class)
+    @Test
+    fun boundedStreamDataSourceNeverDownloadsMoreThanMaxBytesAcrossRepeatedNearLimitSeeks() {
+        val maxBytes = 1024L * 1024L // 1 MB cap for test speed
+        val openCount = AtomicInteger(0)
+        val underlyingBytesRead = AtomicLong(0L)
+
+        val shared = SharedPrefixStreamBuffer(
+            openInput = {
+                openCount.incrementAndGet()
+                object : InputStream() {
+                    private var remaining = 50L * 1024L * 1024L // 50 MB remote file
+                    override fun read(): Int {
+                        if (remaining <= 0L) return -1
+                        remaining--
+                        underlyingBytesRead.incrementAndGet()
+                        return 0x42
+                    }
+                    override fun read(b: ByteArray, off: Int, len: Int): Int {
+                        if (remaining <= 0L) return -1
+                        val n = minOf(len.toLong(), remaining).toInt()
+                        b.fill(0x42, off, off + n)
+                        remaining -= n
+                        underlyingBytesRead.addAndGet(n.toLong())
+                        return n
+                    }
+                }
+            },
+            totalSize = 50L * 1024L * 1024L,
+            maxBytes = maxBytes,
+        )
+
+        val uri = Uri.parse("wayfinder://inspect/huge.mp4")
+        val ds = BoundedStreamDataSource(shared)
+        val seekPos = 900L * 1024L // 900 KB (< 1 MB cap)
+        val scratch = ByteArray(16 * 1024)
+
+        // Simulate 10 repeated extractor seeks near the cap; files > maxBytes report C.LENGTH_UNSET so CBR/WAV durations are never truncated.
+        repeat(10) {
+            val reportedLen = ds.open(DataSpec.Builder().setUri(uri).setPosition(seekPos).build())
+            assertEquals(C.LENGTH_UNSET.toLong(), reportedLen)
+            while (ds.read(scratch, 0, scratch.size) != C.RESULT_END_OF_INPUT) {
+                // drain up to cap
+            }
+            ds.close()
+        }
+
+        assertEquals("Must open underlying remote stream only once", 1, openCount.get())
+        assertEquals("Total remote bytes transferred must never exceed maxBytes", maxBytes, underlyingBytesRead.get())
+
+        // Seeking at or beyond maxBytes fails fast with non-retryable DataSourceException(ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE) and 0 extra reads.
+        try {
+            ds.open(DataSpec.Builder().setUri(uri).setPosition(maxBytes).build())
+            fail("Expected DataSourceException when seeking past maxBytes")
+        } catch (e: androidx.media3.datasource.DataSourceException) {
+            assertEquals(
+                androidx.media3.common.PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE,
+                e.reason,
+            )
+        }
+        assertEquals(maxBytes, underlyingBytesRead.get())
+        shared.closeUnderlying()
+    }
+
+    @Test
+    fun sharedPrefixStreamBufferClosesStreamAndRemembersStickyFailureOnMidStreamIoError() {
+        val openCount = AtomicInteger(0)
+        val closed = AtomicBoolean(false)
+        val shared = SharedPrefixStreamBuffer(
+            openInput = {
+                openCount.incrementAndGet()
+                object : InputStream() {
+                    private var emitted = 0
+                    override fun read(): Int = throw UnsupportedOperationException()
+                    override fun read(b: ByteArray, off: Int, len: Int): Int {
+                        if (emitted == 0) {
+                            val n = minOf(len, 1024)
+                            b.fill(0x11, off, off + n)
+                            emitted += n
+                            return n
+                        }
+                        throw IOException("Simulated socket reset")
+                    }
+                    override fun close() {
+                        closed.set(true)
+                    }
+                }
+            },
+            totalSize = 1024L * 1024L,
+            maxBytes = 1024L * 1024L,
+        )
+
+        val buf = ByteArray(4096)
+        // First read of 512 bytes succeeds from the initial 1024-byte read.
+        assertEquals(512, shared.readAt(0L, buf, 0, 512))
+
+        // Reading past byte 1024 hits the mid-stream IOException, closes the stream, and never re-opens at byte 0.
+        try {
+            shared.readAt(1024L, buf, 0, 512)
+            fail("Expected IOException")
+        } catch (_: IOException) {
+            // expected
+        }
+        assertTrue("Broken stream must be closed immediately", closed.get())
+        try {
+            shared.readAt(2048L, buf, 0, 512)
+            fail("Expected sticky IOException without re-opening stream")
+        } catch (_: IOException) {
+            // expected
+        }
+        assertEquals("Must not re-open stream from byte 0 when bufferedBytes > 0", 1, openCount.get())
+    }
+
+    @Test
+    fun listenableFutureAwaitPropagatesCancellationCleanly() = runBlocking {
+        val cancelledFuture = SettableFuture.create<String>()
+        cancelledFuture.cancel(true)
+        try {
+            cancelledFuture.await()
+            fail("Expected CancellationException for cancelled ListenableFuture")
+        } catch (_: CancellationException) {
+            // expected
+        }
     }
 }
