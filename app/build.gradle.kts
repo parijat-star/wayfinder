@@ -21,13 +21,14 @@ android {
   }
 
   signingConfigs {
-    val keystorePath = System.getenv("WAYFINDER_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
-    val keystorePassword = System.getenv("WAYFINDER_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
-    val keyAliasName = System.getenv("WAYFINDER_KEY_ALIAS")?.takeIf { it.isNotBlank() }
-    val keyPass = System.getenv("WAYFINDER_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
-    if (keystorePath != null && keystorePassword != null && keyAliasName != null && keyPass != null) {
+    val keystorePath = providers.environmentVariable("WAYFINDER_KEYSTORE_PATH").orNull?.takeIf { it.isNotBlank() }
+    val keystorePassword = providers.environmentVariable("WAYFINDER_KEYSTORE_PASSWORD").orNull?.takeIf { it.isNotBlank() }
+    val keyAliasName = providers.environmentVariable("WAYFINDER_KEY_ALIAS").orNull?.takeIf { it.isNotBlank() }
+    val keyPass = providers.environmentVariable("WAYFINDER_KEY_PASSWORD").orNull?.takeIf { it.isNotBlank() }
+    val keystoreFile = keystorePath?.let(::file)?.takeIf { it.isFile }
+    if (keystoreFile != null && keystorePassword != null && keyAliasName != null && keyPass != null) {
       create("release") {
-        storeFile = file(keystorePath)
+        storeFile = keystoreFile
         storePassword = keystorePassword
         keyAlias = keyAliasName
         keyPassword = keyPass

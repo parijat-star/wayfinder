@@ -64,4 +64,60 @@ class ReleaseConfigSecurityTest {
         assertTrue(File(root, "PRIVACY.md").readText().contains("OneDrive"))
         assertTrue(File(root, "docs/privacy.html").readText().contains("OneDrive"))
     }
+
+    @Test
+    fun releaseWorkflowPinsActionShasIsolatesPublishPermissionsAndGuardsMainAncestry() {
+        val root = sequenceOf(File("."), File(".."))
+            .map { it.canonicalFile }
+            .first { File(it, "app/build.gradle.kts").isFile }
+        val workflow = File(root, ".github/workflows/release.yml").readText()
+        val usesLines = workflow.lineSequence()
+            .map { it.trim() }
+            .filter { it.startsWith("uses:") || it.startsWith("- uses:") }
+            .toList()
+        assertTrue("Expected uses: entries in release.yml", usesLines.isNotEmpty())
+        val pinnedShaRegex = Regex("""^(-\s*)?uses:\s+[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}(\s+#.*)?$""")
+        for (line in usesLines) {
+            assertTrue("Action reference must be pinned to a 40-char commit SHA: $line", pinnedShaRegex.matches(line))
+        }
+        assertTrue(
+            "Checkout step must disable persisted git credentials",
+            workflow.contains("persist-credentials: false"),
+        )
+        assertTrue(
+            "Stable releases must verify origin/main ancestry before signing/clobbering",
+            workflow.contains("git merge-base --is-ancestor HEAD refs/remotes/origin/main"),
+        )
+        assertTrue(
+            "Pre-release tags must pass --prerelease so they never overwrite releases/latest",
+            workflow.contains("--prerelease"),
+        )
+        // Build signed release APK step must not receive raw WAYFINDER_KEYSTORE_BASE64 in its env.
+        val gradleBuildSection = workflow.substringAfter("- name: Build signed release APK")
+            .substringBefore("- name:")
+        assertFalse(
+            "Gradle assembleRelease step must not expose WAYFINDER_KEYSTORE_BASE64 in env",
+            gradleBuildSection.contains("WAYFINDER_KEYSTORE_BASE64"),
+        )
+
+        val publishJobSection = workflow.substringAfter("  publish:")
+        assertTrue(
+            "Checkout-less publish job must pass GH_REPO to gh CLI",
+            publishJobSection.contains("GH_REPO: \${{ github.repository }}"),
+        )
+        assertFalse(
+            "Publish job must not run actions/checkout or hold signing secrets",
+            publishJobSection.contains("actions/checkout") || publishJobSection.contains("WAYFINDER_KEYSTORE"),
+        )
+
+        val gradleScript = File(root, "app/build.gradle.kts").readText()
+        assertTrue(
+            "Release signingConfig must use providers.environmentVariable for config-cache safety",
+            gradleScript.contains("providers.environmentVariable(\"WAYFINDER_KEYSTORE_PATH\")"),
+        )
+        assertTrue(
+            "Release signingConfig must verify keystore file existence before creating signingConfig",
+            gradleScript.contains("takeIf { it.isFile }"),
+        )
+    }
 }
