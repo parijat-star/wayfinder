@@ -219,7 +219,7 @@ fun Toolbar(
                         }
                     }
                 }
-                if (wide > 1060.dp) {
+                if (wide > 1120.dp) {
                     ActionTooltip(stringResource(R.string.tooltip_undo)) {
                         IconButton({ vm.undo() }, Modifier.size(48.dp).focusRing(CircleShape), enabled = s.canUndo, colors = iconBtnColors) {
                             Icon(Icons.AutoMirrored.Outlined.Undo, stringResource(R.string.action_undo))
@@ -245,7 +245,7 @@ fun Toolbar(
                         }
                     }
                 } else {
-                    SearchField(vm, s, Modifier.width(if (wide > 1160.dp) 260.dp else if (wide > 1000.dp) 180.dp else 140.dp))
+                    SearchField(vm, s, Modifier.width(if (wide > 1160.dp) 260.dp else if (wide > 1000.dp) 200.dp else 176.dp))
                 }
                 if (wide > 960.dp) ViewToggle(vm, tab.viewMode, s.dualPane)
                 if (wide > 760.dp) SortButton(vm, s)
@@ -429,8 +429,11 @@ private fun SearchField(
             .padding(start = 12.dp, end = if (tab.query.isNotEmpty()) 0.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.Search, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
-        Box(Modifier.weight(1f).heightIn(min = 48.dp).padding(horizontal = 8.dp), contentAlignment = Alignment.CenterStart) {
+        Icon(Icons.Outlined.Search, null, Modifier.size(20.dp), tint = cs.onSurfaceVariant)
+        Box(
+            Modifier.weight(1f).heightIn(min = 48.dp).padding(start = 8.dp, end = if (tab.query.isNotEmpty()) 0.dp else 4.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
             BasicTextField(
                 tab.query, { vm.setQuery(it) },
                 Modifier.fillMaxWidth().sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRequester(fr)
@@ -455,7 +458,7 @@ private fun SearchField(
                         }
                         else false
                     },
-                singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(color = cs.onSurface),
+                singleLine = true, textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
                 cursorBrush = SolidColor(cs.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { focus.clearFocus(); focusCoord.focusFileList() }),
@@ -464,9 +467,10 @@ private fun SearchField(
                         if (tab.query.isEmpty()) {
                             Text(
                                 stringResource(R.string.search_files_placeholder),
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodyLarge,
                                 color = cs.onSurfaceVariant,
                                 maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                         innerTextField()

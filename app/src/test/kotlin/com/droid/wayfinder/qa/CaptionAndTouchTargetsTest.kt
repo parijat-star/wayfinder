@@ -21,8 +21,12 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.droid.wayfinder.data.ViewMode
 import com.droid.wayfinder.ui.AppRoot
@@ -33,6 +37,8 @@ import com.droid.wayfinder.ui.resolveDesktopCaptionHorizontalInsets
 import com.droid.wayfinder.ui.theme.WayfinderTheme
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import kotlin.math.abs
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -228,13 +234,33 @@ class CaptionAndTouchTargetsTest {
         rule.onNodeWithContentDescription("Address bar")
             .assertWidthIsAtLeast(180.dp)
             .assertHeightIsAtLeast(48.dp)
-        rule.onNodeWithContentDescription("Search files")
-            .assertHeightIsAtLeast(48.dp)
+        val searchNode = rule.onNodeWithContentDescription("Search files")
+        searchNode.assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
+
+        // Verify empty placeholder uses 16sp (bodyLarge), is vertically centered, and is not ellipsized
+        val placeholderLayouts = mutableListOf<TextLayoutResult>()
+        val placeholderNode = rule.onNodeWithText("Search files", useUnmergedTree = true).fetchSemanticsNode()
+        val searchBoxBounds = searchNode.fetchSemanticsNode().boundsInRoot
+        assertEquals(true, placeholderNode.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action?.invoke(placeholderLayouts))
+        assertEquals(16.sp, placeholderLayouts.single().layoutInput.style.fontSize)
+        assertFalse(placeholderLayouts.single().isLineEllipsized(0))
+        assertTrue(abs(placeholderNode.boundsInRoot.center.y - searchBoxBounds.center.y) <= 2f)
+
+        // Verify typed text uses 16sp and BasicTextField retains >= 48dp width alongside the 48dp Clear button
+        searchNode.performTextInput("sample")
+        idle(harness)
+        searchNode.assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
+        val searchSemantics = searchNode.fetchSemanticsNode()
+        val layouts = mutableListOf<TextLayoutResult>()
+        val fetched = searchSemantics.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action?.invoke(layouts)
+        assertEquals(true, fetched)
+        assertEquals(16.sp, layouts.single().layoutInput.style.fontSize)
 
         widthState.value = 680.dp
         idle(harness)
         rule.onNodeWithContentDescription("Address bar")
             .assertWidthIsAtLeast(180.dp)
             .assertHeightIsAtLeast(48.dp)
+        searchNode.assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
     }
 }
