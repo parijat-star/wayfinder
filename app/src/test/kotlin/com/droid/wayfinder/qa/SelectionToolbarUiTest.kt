@@ -10,16 +10,19 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -27,10 +30,14 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.rightClick
+import androidx.compose.ui.test.withKeyDown
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -562,6 +569,103 @@ class SelectionToolbarUiTest {
         rule.onNodeWithContentDescription("More")
             .assertIsDisplayed()
             .assertIsEnabled()
+    }
+
+    @Test
+    fun narrowWindowKeyboardShortcutsForAddressAndSearchTakePrecedenceOverSelectionBar() {
+        h = VmHarness()
+        h.file("alpha.txt", "a")
+        h.file("beta.txt", "b")
+        h.navigate(h.root.path)
+        h.settle()
+
+        rule.setContent {
+            WayfinderTheme(dark = false) {
+                Box(Modifier.size(width = 800.dp, height = 640.dp)) {
+                    AppRoot(h.vm)
+                }
+            }
+        }
+        idle()
+
+        // Select a file on an 800dp window -> CompactSelectionBar replaces toolbar
+        rule.onNodeWithText("alpha.txt").performMouseInput { click() }
+        idle()
+        rule.onNodeWithContentDescription("Clear selection").assertIsDisplayed()
+        rule.onAllNodesWithContentDescription("Address bar").assertCountEquals(0)
+
+        // Ctrl+L reveals and focuses PathBar even while an item is selected
+        rule.onAllNodes(isRoot())[0].performKeyInput {
+            withKeyDown(Key.CtrlLeft) { pressKey(Key.L) }
+        }
+        idle()
+        assertTrue(h.s.addressEditing)
+        rule.onNodeWithContentDescription("Address bar").assertIsDisplayed().assertIsFocused()
+        rule.onAllNodesWithContentDescription("Clear selection").assertCountEquals(0)
+
+        // Pressing Esc exits address editing and returns to CompactSelectionBar
+        rule.onNodeWithContentDescription("Address bar").performKeyInput { pressKey(Key.Escape) }
+        idle()
+        assertFalse(h.s.addressEditing)
+        rule.onNodeWithContentDescription("Clear selection").assertIsDisplayed()
+
+        // Ctrl+F reveals and focuses SearchField even while an item is selected
+        rule.onAllNodes(isRoot())[0].performKeyInput {
+            withKeyDown(Key.CtrlLeft) { pressKey(Key.F) }
+        }
+        idle()
+        rule.onNodeWithContentDescription("Search files").assertIsDisplayed().assertIsFocused()
+        rule.onAllNodesWithContentDescription("Clear selection").assertCountEquals(0)
+
+        // Typing a query and pressing Down selects the first result while keeping SearchField visible
+        rule.onNodeWithContentDescription("Search files").performTextInput("alpha")
+        idle()
+        rule.onNodeWithContentDescription("Search files").performKeyInput { pressKey(Key.DirectionDown) }
+        idle()
+        assertEquals("alpha", h.s.active.query)
+        assertTrue("Down from SearchField should select a search result", h.s.active.selection.isNotEmpty())
+        rule.onNodeWithContentDescription("Search files").assertIsDisplayed()
+        rule.onAllNodesWithContentDescription("Clear selection").assertCountEquals(0)
+
+        // Clearing search returns cleanly to CompactSelectionBar (focusSearch counter does not stay latched)
+        rule.onNodeWithContentDescription("Clear search").performClick()
+        idle()
+        assertEquals("", h.s.active.query)
+        rule.onNodeWithContentDescription("Clear selection").assertIsDisplayed()
+
+        // Alt+D after a prior Ctrl+F still focuses PathBar cleanly without SearchField stealing focus
+        rule.onAllNodes(isRoot())[0].performKeyInput {
+            withKeyDown(Key.AltLeft) { pressKey(Key.D) }
+        }
+        idle()
+        assertTrue(h.s.addressEditing)
+        rule.onNodeWithContentDescription("Address bar").assertIsDisplayed().assertIsFocused()
+    }
+
+    @Test
+    fun portraitPhoneSearchResultsKeepSearchBarAndLongPressOpensContextMenu() {
+        h = VmHarness()
+        h.file("alpha.txt", "a")
+        h.file("beta.txt", "b")
+        h.navigate(h.root.path)
+        h.vm.setQuery("alpha")
+        h.settle()
+
+        rule.setContent {
+            WayfinderTheme(dark = false) {
+                Box(Modifier.size(width = 360.dp, height = 640.dp)) {
+                    AppRoot(h.vm)
+                }
+            }
+        }
+        idle()
+
+        rule.onNodeWithContentDescription("Search files").assertIsDisplayed()
+        rule.onNodeWithText("alpha.txt").performTouchInput { longClick() }
+        idle()
+        // While search is active on a phone, long-press still offers the context menu directly
+        rule.onNodeWithText("Rename").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Search files").assertIsDisplayed()
     }
 
     @Test

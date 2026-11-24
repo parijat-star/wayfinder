@@ -135,17 +135,31 @@ fun Toolbar(
     val tab = s.active
     val focusManager = LocalFocusManager.current
     var compactSearchOpen by remember { mutableStateOf(false) }
+    var searchFocusPending by remember { mutableStateOf(false) }
+    var searchFieldFocused by remember { mutableStateOf(false) }
+    var lastHandledFocusSearch by remember { mutableStateOf(s.focusSearch) }
     BoxWithConstraints(Modifier.fillMaxWidth().background(cs.surfaceContainerLow)) {
         val wide = maxWidth
         val isCompact = wide < 600.dp
         val isNarrowCompact = wide < 480.dp
-        LaunchedEffect(s.focusSearch, isCompact) {
-            if (isCompact && s.focusSearch > 0) compactSearchOpen = true
+        LaunchedEffect(s.focusSearch) {
+            if (s.focusSearch > lastHandledFocusSearch) {
+                lastHandledFocusSearch = s.focusSearch
+                if (s.addressEditing) vm.setAddressEditing(false)
+                searchFocusPending = true
+                if (isCompact) compactSearchOpen = true
+            }
+        }
+        LaunchedEffect(s.addressEditing) {
+            if (s.addressEditing) {
+                searchFocusPending = false
+                compactSearchOpen = false
+            }
         }
         LaunchedEffect(isCompact) {
             if (!isCompact && compactSearchOpen) compactSearchOpen = false
         }
-        val showExpandedCompactSearch = isCompact && (compactSearchOpen || tab.query.isNotEmpty())
+        val showExpandedCompactSearch = isCompact && !s.addressEditing && (compactSearchOpen || tab.query.isNotEmpty())
         val iconBtnColors = IconButtonDefaults.iconButtonColors(
             contentColor = cs.onSurfaceVariant,
             disabledContentColor = cs.onSurface.copy(alpha = 0.38f),
@@ -158,11 +172,13 @@ fun Toolbar(
         val selectionActions = remember(tab.path, selectedEntries, tabInTrash) {
             selectionToolbarState(tab.path, selectedEntries, inTrash = tabInTrash)
         }
-        val showCompactSelectionMode = wide <= 960.dp && selectionActions.showToolbarActions
+        val inputTakesPrecedence = s.addressEditing || searchFocusPending || searchFieldFocused || tab.query.isNotEmpty() || showExpandedCompactSearch
+        val showCompactSelectionMode = wide <= 960.dp && selectionActions.showToolbarActions && !inputTakesPrecedence
         BackHandler(enabled = showExpandedCompactSearch && !showCompactSelectionMode) {
             vm.setQuery("")
             focusManager.clearFocus()
             compactSearchOpen = false
+            searchFocusPending = false
         }
         BackHandler(enabled = showCompactSelectionMode) {
             vm.clearSelection()
@@ -183,6 +199,7 @@ fun Toolbar(
                             vm.setQuery("")
                             focusManager.clearFocus()
                             compactSearchOpen = false
+                            searchFocusPending = false
                         },
                         Modifier.size(48.dp).focusRing(CircleShape),
                         colors = iconBtnColors,
@@ -195,7 +212,13 @@ fun Toolbar(
                     s = s,
                     modifier = Modifier.weight(1f),
                     autoFocusOnMount = compactSearchOpen,
-                    onEscapeCollapse = { compactSearchOpen = false },
+                    focusRequested = searchFocusPending,
+                    onFocusChange = { searchFieldFocused = it },
+                    onFocusRequestConsumed = { searchFocusPending = false },
+                    onEscapeCollapse = {
+                        compactSearchOpen = false
+                        searchFocusPending = false
+                    },
                 )
                 OverflowMenu(
                     vm = vm,
@@ -274,7 +297,15 @@ fun Toolbar(
                         }
                     }
                 } else {
-                    SearchField(vm, s, Modifier.width(if (wide > 1160.dp) 260.dp else if (wide > 1000.dp) 200.dp else 176.dp))
+                    SearchField(
+                        vm = vm,
+                        s = s,
+                        modifier = Modifier.width(if (wide > 1160.dp) 260.dp else if (wide > 1000.dp) 200.dp else 176.dp),
+                        focusRequested = searchFocusPending,
+                        onFocusChange = { searchFieldFocused = it },
+                        onFocusRequestConsumed = { searchFocusPending = false },
+                        onEscapeCollapse = { searchFocusPending = false },
+                    )
                 }
                 if (wide > 960.dp) {
                     if (selectionActions.showToolbarActions) SelectionActions(vm, selectionActions)
@@ -373,7 +404,11 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                         else if (hadFocus && s.addressEditing) { vm.setAddressEditing(false); vm.setTextFocus(false) }
                     }
                     .onPreviewKeyEvent { e ->
-                        if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) { vm.setAddressEditing(false); true } else false
+                        if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) {
+                            vm.setAddressEditing(false)
+                            vm.setTextFocus(false)
+                            true
+                        } else false
                     },
                 singleLine = true, textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
                 cursorBrush = SolidColor(cs.primary),
@@ -442,6 +477,9 @@ private fun SearchField(
     s: AppState,
     modifier: Modifier,
     autoFocusOnMount: Boolean = false,
+    focusRequested: Boolean = false,
+    onFocusChange: (Boolean) -> Unit = {},
+    onFocusRequestConsumed: () -> Unit = {},
     onEscapeCollapse: (() -> Unit)? = null,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -453,8 +491,14 @@ private fun SearchField(
     val clearSearchLabel = stringResource(R.string.tooltip_clear_search)
     var fieldFocused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(24.dp)
-    LaunchedEffect(s.focusSearch, autoFocusOnMount) {
-        if (s.focusSearch > 0 || autoFocusOnMount) fr.requestFocus()
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { onFocusChange(false) }
+    }
+    LaunchedEffect(focusRequested, autoFocusOnMount) {
+        if (focusRequested || autoFocusOnMount) {
+            if (fieldFocused) onFocusRequestConsumed()
+            else fr.requestFocus()
+        }
     }
     Row(
         modifier.heightIn(min = 48.dp).clip(shape).background(cs.surfaceContainerLowest)
@@ -474,17 +518,21 @@ private fun SearchField(
                     .onFocusChanged {
                         fieldFocused = it.isFocused
                         vm.setTextFocus(it.isFocused)
+                        onFocusChange(it.isFocused)
+                        if (it.isFocused) onFocusRequestConsumed()
                     }
                     .onPreviewKeyEvent { e ->
                         if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) {
                             vm.setQuery("")
                             focus.clearFocus()
+                            onFocusRequestConsumed()
                             onEscapeCollapse?.invoke()
                             focusCoord.focusFileList()
                             true
                         }
                         else if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) {
                             focus.clearFocus()
+                            onFocusRequestConsumed()
                             vm.moveFocus(1)
                             focusCoord.focusFileList()
                             true

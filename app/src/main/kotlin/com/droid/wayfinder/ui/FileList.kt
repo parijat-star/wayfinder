@@ -1187,14 +1187,16 @@ private fun handleFileLongPress(
     selectOnly: Boolean,
     haptics: HapticFeedback,
 ) {
+    val st = vm.state.value
+    val tab = st.tabById(tabId) ?: st.active
     val actionable = !entry.isServer && !entry.isShare && !FsPath.isVirtual(entry.path)
-    if (selectOnly && actionable) {
+    val toolbarInInputMode = st.addressEditing || tab.query.isNotEmpty()
+    if (selectOnly && actionable && !toolbarInInputMode) {
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        val cur = vm.state.value.tabById(tabId)?.selection.orEmpty()
-        if (entry.path !in cur) vm.click(entry.path, ctrl = true, shift = false)
+        if (entry.path !in tab.selection) vm.click(entry.path, ctrl = true, shift = false)
     } else {
         vm.setSelectionIfNotSelected(entry.path)
-        menu.show(offset, fileMenu(vm, vm.state.value, entry))
+        menu.show(offset, fileMenu(vm, st, entry))
     }
 }
 
