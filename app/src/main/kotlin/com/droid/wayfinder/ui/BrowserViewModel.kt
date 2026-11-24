@@ -2356,7 +2356,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             FsPath.isDoc(entry.path) -> com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(entry.path, tree = false)
             else -> null
         }
-        return if (contentUri != null) {
+        return if (contentUri != null && com.droid.wayfinder.data.ImageInspector.isLocalDocumentAuthority(contentUri.authority)) {
             com.droid.wayfinder.data.ImageInspector.inspectUri(app, contentUri)
         } else {
             com.droid.wayfinder.data.ImageInspector.inspectStream(

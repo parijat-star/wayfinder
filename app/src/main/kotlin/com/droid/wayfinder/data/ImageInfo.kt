@@ -80,6 +80,26 @@ object ImageInspector {
         "dng", "tif", "tiff", "cr2", "nef", "nrw", "arw", "orf", "rw2", "pef", "srw", "raf",
     )
 
+    /** Local on-device [android.provider.DocumentsProvider] authorities safe for seekable FD reads. */
+    private val LOCAL_DOCUMENT_AUTHORITIES = setOf(
+        SystemDocumentsBridge.EXTERNAL_STORAGE_AUTHORITY,
+        "com.android.providers.media.documents",
+        "com.android.providers.downloads.documents",
+    )
+
+    /**
+     * True when [authority] belongs to a local on-device `DocumentsProvider` (shared storage,
+     * media, downloads, or the local Linux VM). Cloud/remote SAF & `doc://` providers (such as
+     * Google Drive or Cross-Device/MTP) return false so they use the single-read bounded prefix
+     * path in [inspectStream].
+     */
+    fun isLocalDocumentAuthority(authority: String?): Boolean {
+        if (authority.isNullOrBlank()) return false
+        val clean = authority.substringAfter('@').trim().lowercase(Locale.US)
+        if (clean.isEmpty()) return false
+        return clean in LOCAL_DOCUMENT_AUTHORITIES || GooglebookEcosystem.isLinuxAuthority(clean)
+    }
+
     /** True if [entry] is a raster/RAW image whose headers/EXIF can be inspected. */
     fun isInspectableImage(entry: FileEntry): Boolean {
         if (entry.isDir || entry.isServer || entry.isShare) return false

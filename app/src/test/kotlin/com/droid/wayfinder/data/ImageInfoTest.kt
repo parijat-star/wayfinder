@@ -35,6 +35,24 @@ class ImageInfoTest {
     }
 
     @Test
+    fun isLocalDocumentAuthorityDistinguishesLocalProvidersFromCloudAndMtp() {
+        assertTrue(ImageInspector.isLocalDocumentAuthority("com.android.externalstorage.documents"))
+        assertTrue(ImageInspector.isLocalDocumentAuthority("10@com.android.externalstorage.documents"))
+        assertTrue(ImageInspector.isLocalDocumentAuthority("com.android.providers.media.documents"))
+        assertTrue(ImageInspector.isLocalDocumentAuthority("com.android.providers.downloads.documents"))
+        assertTrue(ImageInspector.isLocalDocumentAuthority("com.android.virtualization.terminal.guestdocuments"))
+        assertTrue(ImageInspector.isLocalDocumentAuthority("10@com.google.android.virtualization.terminal.guestdocuments"))
+        assertTrue(ImageInspector.isLocalDocumentAuthority("org.chromium.arc.crostini.documents"))
+
+        assertFalse(ImageInspector.isLocalDocumentAuthority("com.google.android.apps.docs.storage"))
+        assertFalse(ImageInspector.isLocalDocumentAuthority("10@com.google.android.apps.docs.storage"))
+        assertFalse(ImageInspector.isLocalDocumentAuthority("com.android.mtp.documents"))
+        assertFalse(ImageInspector.isLocalDocumentAuthority("com.google.ambient.streaming.documents"))
+        assertFalse(ImageInspector.isLocalDocumentAuthority(""))
+        assertFalse(ImageInspector.isLocalDocumentAuthority(null))
+    }
+
+    @Test
     fun formattersFormatDimensionsCameraExposureAndLocation() {
         assertEquals("4032 × 3024 (4:3 · 12.2 MP)", ImageFormatters.formatDimensions(4032, 3024))
         assertEquals("64 × 64 (1:1)", ImageFormatters.formatDimensions(64, 64))
