@@ -237,6 +237,42 @@ class DialogsUiTest {
         assertNull(h.s.dialog)
     }
 
+    @Test fun propertiesDialogShowsNonEmptyExifMetadataForImageFile() {
+        launch {
+            val dir = File(root, "photos").apply { mkdirs() }
+            val jpeg = File(dir, "shot.jpg")
+            // Valid 1x1 JPEG via Bitmap.compress so ExifInterface can write standard APP1 EXIF tags.
+            val bmp = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+            jpeg.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+            bmp.recycle()
+            androidx.exifinterface.media.ExifInterface(jpeg).apply {
+                setAttribute(androidx.exifinterface.media.ExifInterface.TAG_MAKE, "Google")
+                setAttribute(androidx.exifinterface.media.ExifInterface.TAG_MODEL, "Pixel 9")
+                setAttribute(androidx.exifinterface.media.ExifInterface.TAG_F_NUMBER, "1.8")
+                setAttribute(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME, "0.004")
+                setAttribute(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, "100")
+                setAttribute(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH, "68/10")
+                setAttribute(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, "24")
+                saveAttributes()
+            }
+            navigate(pathOf("photos")); select("photos/shot.jpg")
+        }
+        h.vm.showProperties()
+        h.until(what = "image exif") { (h.s.dialog as? Dialog.Properties)?.imageInfo != null }; idle()
+        rule.onNodeWithText("Image & EXIF").assertExists()
+        rule.onNodeWithText("Google Pixel 9").assertExists()
+        rule.onNodeWithText("f/1.8").assertExists()
+        rule.onNodeWithText("1/250 s").assertExists()
+        rule.onNodeWithText("ISO 100").assertExists()
+        rule.onNodeWithText("6.8 mm (24 mm equiv.)").assertExists()
+        // Empty EXIF fields must not be shown.
+        rule.onNodeWithText("Artist").assertDoesNotExist()
+        rule.onNodeWithText("Copyright").assertDoesNotExist()
+        rule.onNodeWithText("Location").assertDoesNotExist()
+        rule.onNodeWithText("Close").performClick(); idle()
+        assertNull(h.s.dialog)
+    }
+
     @Test fun pickerBannerEnablesSelectOnlyForAcceptedFiles() {
         launch(mapOf(BrowserViewModel.EXTRA_PICKER to true, BrowserViewModel.EXTRA_PICKER_MIME to arrayOf("text/plain"))) {
             file("pk/a.txt"); file("pk/b.zip"); navigate(pathOf("pk"))

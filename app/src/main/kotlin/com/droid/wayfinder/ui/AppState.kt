@@ -10,6 +10,7 @@ import com.droid.wayfinder.data.SavedServer
 import com.droid.wayfinder.data.Conflict
 import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FsSpace
+import com.droid.wayfinder.data.ImageInfo
 import com.droid.wayfinder.data.Marks
 import com.droid.wayfinder.data.MediaInfo
 import com.droid.wayfinder.data.OneDriveAccount
@@ -47,13 +48,15 @@ sealed interface Dialog {
     data class Delete(val paths: List<String>) : Dialog
     /**
      * [posix]/[space] are filled for local items; [checksums] (SHA-256 + CRC32) for a single regular file,
-     * with [hashProgress] shown while they are being computed; [mediaInfo] for a single audio/video file.
+     * with [hashProgress] shown while they are being computed; [mediaInfo] for a single audio/video file;
+     * [imageInfo] for a single raster/RAW image file.
      */
     data class Properties(
         val entries: List<FileEntry>, val bytes: Long? = null, val items: Int? = null,
         val posix: PosixInfo? = null, val space: FsSpace? = null,
         val checksums: Checksums? = null, val hashProgress: String? = null,
         val mediaInfo: MediaInfo? = null, val mediaLoading: Boolean = false, val mediaError: String? = null,
+        val imageInfo: ImageInfo? = null, val imageLoading: Boolean = false, val imageError: String? = null,
     ) : Dialog
     data class ConflictPrompt(val sources: List<String>, val dest: String, val move: Boolean, val names: List<String>) : Dialog
     data class Compress(val sources: List<String>, val suggested: String) : Dialog

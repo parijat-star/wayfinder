@@ -72,6 +72,8 @@ import androidx.compose.material3.IconButton
 import com.droid.wayfinder.data.Conflict
 import com.droid.wayfinder.data.FileInfo
 import com.droid.wayfinder.data.FsPath
+import com.droid.wayfinder.data.ImageFormatters
+import com.droid.wayfinder.data.ImageInfo
 import com.droid.wayfinder.data.MediaFormatters
 import com.droid.wayfinder.data.MediaInfo
 import com.droid.wayfinder.data.formatItemCount
@@ -210,6 +212,9 @@ private fun PropertiesDialog(d: Dialog.Properties, s: AppState, onDismiss: () ->
                 if (d.mediaLoading || d.mediaInfo != null || d.mediaError != null) {
                     MediaPropertiesSection(d.mediaInfo, d.mediaLoading, d.mediaError, onCopy)
                 }
+                if (d.imageLoading || d.imageInfo != null || d.imageError != null) {
+                    ImagePropertiesSection(d.imageInfo, d.imageLoading, d.imageError, onCopy)
+                }
                 if (d.checksums != null || d.hashProgress != null) {
                     Text(stringResource(R.string.properties_checksums_section), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     d.hashProgress?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -310,6 +315,70 @@ private fun MediaPropertiesSection(
         t.genre?.let { Row2(stringResource(R.string.properties_media_genre_label), it) }
         t.encoder?.let { Row2(stringResource(R.string.properties_media_encoder_label), it, mono = true) }
     }
+}
+
+@Composable
+private fun ImagePropertiesSection(
+    info: ImageInfo?,
+    loading: Boolean,
+    error: String?,
+    onCopy: (text: String, what: String) -> Unit,
+) {
+    val sectionTitle = stringResource(R.string.properties_image_section)
+    Row(
+        Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(sectionTitle, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        if (info != null) {
+            val copyDesc = stringResource(R.string.properties_image_copy)
+            ActionTooltip(copyDesc) {
+                IconButton(
+                    onClick = { onCopy(ImageFormatters.formatSummary(info), sectionTitle) },
+                    modifier = Modifier.size(48.dp).focusRing(androidx.compose.foundation.shape.CircleShape),
+                ) {
+                    Icon(Icons.Outlined.ContentCopy, copyDesc, Modifier.size(16.dp))
+                }
+            }
+        }
+    }
+    if (loading) {
+        Text(stringResource(R.string.properties_image_inspecting), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    if (error != null) {
+        Text(error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    if (info == null) return
+
+    if (info.width != null && info.height != null) {
+        Row2(stringResource(R.string.properties_image_dimensions_label), ImageFormatters.formatDimensions(info.width, info.height), mono = true)
+    }
+    info.orientation?.let { Row2(stringResource(R.string.properties_image_orientation_label), it) }
+    info.colorSpace?.let { Row2(stringResource(R.string.properties_image_colorspace_label), it) }
+    info.dateTaken?.let { Row2(stringResource(R.string.properties_image_date_taken_label), it, mono = true) }
+    info.camera?.let { Row2(stringResource(R.string.properties_image_camera_label), it) }
+    info.lens?.let { Row2(stringResource(R.string.properties_image_lens_label), it) }
+    info.software?.let { Row2(stringResource(R.string.properties_image_software_label), it) }
+    info.aperture?.let { Row2(stringResource(R.string.properties_image_aperture_label), it, mono = true) }
+    info.shutterSpeed?.let { Row2(stringResource(R.string.properties_image_shutter_label), it, mono = true) }
+    info.iso?.let { Row2(stringResource(R.string.properties_image_iso_label), it, mono = true) }
+    info.focalLength?.let { Row2(stringResource(R.string.properties_image_focal_label), it, mono = true) }
+    info.exposureBias?.let { Row2(stringResource(R.string.properties_image_exposure_bias_label), it, mono = true) }
+    info.exposureProgram?.let { Row2(stringResource(R.string.properties_image_exposure_program_label), it) }
+    info.meteringMode?.let { Row2(stringResource(R.string.properties_image_metering_label), it) }
+    info.flash?.let { Row2(stringResource(R.string.properties_image_flash_label), it) }
+    info.whiteBalance?.let { Row2(stringResource(R.string.properties_image_white_balance_label), it) }
+    info.location?.let { loc ->
+        val label = stringResource(R.string.properties_image_location_label)
+        Row2(label, loc, mono = true) { onCopy(loc, label) }
+    }
+    info.altitude?.let { Row2(stringResource(R.string.properties_image_altitude_label), it, mono = true) }
+    info.artist?.let { Row2(stringResource(R.string.properties_image_artist_label), it) }
+    info.copyright?.let { Row2(stringResource(R.string.properties_image_copyright_label), it) }
+    info.description?.let { Row2(stringResource(R.string.properties_image_description_label), it) }
 }
 
 @Composable

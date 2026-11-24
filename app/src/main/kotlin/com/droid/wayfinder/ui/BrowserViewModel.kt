@@ -182,6 +182,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private val recentHosts = LinkedHashSet<String>()
     private var hashJob: Job? = null
     private var mediaJob: Job? = null
+    private var imageJob: Job? = null
     private var recentsCache: Pair<Long, List<FileEntry>>? = null
     private var phoneReceiver: BroadcastReceiver? = null
     private var packageReceiver: BroadcastReceiver? = null
@@ -1453,6 +1454,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (d !is Dialog.Properties) {
             hashJob?.cancel(); hashJob = null
             mediaJob?.cancel(); mediaJob = null
+            imageJob?.cancel(); imageJob = null
         }
         _state.update { it.copy(dialog = d, compactSidebarOpen = if (d != null) false else it.compactSidebarOpen) }
     }
@@ -2280,6 +2282,23 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                             patch { it.copy(mediaLoading = false, mediaError = str(com.droid.wayfinder.R.string.properties_media_unavailable)) }
                         }
                     }
+                } else if (com.droid.wayfinder.data.ImageInspector.isInspectableImage(single)) {
+                    patch { it.copy(imageLoading = true, imageError = null) }
+                    imageJob?.cancel()
+                    imageJob = viewModelScope.launch {
+                        try {
+                            val info = withContext(Dispatchers.IO) { inspectImageEntry(single) }
+                            if (info != null) {
+                                patch { it.copy(imageInfo = info, imageLoading = false, imageError = null) }
+                            } else {
+                                patch { it.copy(imageLoading = false, imageError = str(com.droid.wayfinder.R.string.properties_image_unavailable)) }
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            patch { it.copy(imageLoading = false, imageError = str(com.droid.wayfinder.R.string.properties_image_unavailable)) }
+                        }
+                    }
                 }
                 patch { it.copy(hashProgress = "Computing SHA-256 & CRC32…") }
                 hashJob?.cancel()
@@ -2323,6 +2342,24 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 context = app,
                 fileName = entry.name,
                 fileSizeBytes = entry.size,
+                openInput = { repo.fs(entry.path).openInput(entry.path) },
+            )
+        }
+    }
+
+    private suspend fun inspectImageEntry(entry: FileEntry): com.droid.wayfinder.data.ImageInfo? {
+        if (FsPath.isLocalFile(entry.path)) {
+            return com.droid.wayfinder.data.ImageInspector.inspectFile(File(entry.path))
+        }
+        val contentUri = when {
+            FsPath.isSaf(entry.path) -> saf.documentUriOf(entry.path)
+            FsPath.isDoc(entry.path) -> com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(entry.path, tree = false)
+            else -> null
+        }
+        return if (contentUri != null) {
+            com.droid.wayfinder.data.ImageInspector.inspectUri(app, contentUri)
+        } else {
+            com.droid.wayfinder.data.ImageInspector.inspectStream(
                 openInput = { repo.fs(entry.path).openInput(entry.path) },
             )
         }
