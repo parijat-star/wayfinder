@@ -276,6 +276,31 @@
     <string name="properties_media_year_label" description="Row label in the Properties dialog for embedded media release or recording year tag. [CHAR_LIMIT=20]">Year</string>
     <string name="properties_media_genre_label" description="Row label in the Properties dialog for embedded media genre tag. [CHAR_LIMIT=20]">Genre</string>
     <string name="properties_media_encoder_label" description="Row label in the Properties dialog for embedded encoder/software tag. [CHAR_LIMIT=20]">Encoder</string>
+    <string name="properties_image_section" description="Section heading in the Properties dialog above image dimensions and EXIF camera metadata. [CHAR_LIMIT=25]">Image &amp; EXIF</string>
+    <string name="properties_image_inspecting" description="Status text shown in the Properties dialog while reading image EXIF metadata. [CHAR_LIMIT=35]">Reading EXIF…</string>
+    <string name="properties_image_unavailable" description="Fallback message shown in the Properties dialog when EXIF metadata could not be read from an image file. [CHAR_LIMIT=55]">Image metadata unavailable</string>
+    <string name="properties_image_copy" description="Content description for the button that copies the full EXIF metadata summary in the Properties dialog. [CHAR_LIMIT=30]">Copy EXIF info</string>
+    <string name="properties_image_dimensions_label" description="Row label in the Properties dialog for image pixel width, height, aspect ratio, and megapixels. [CHAR_LIMIT=20]">Dimensions</string>
+    <string name="properties_image_orientation_label" description="Row label in the Properties dialog for non-normal EXIF image rotation or flip orientation. [CHAR_LIMIT=20]">Orientation</string>
+    <string name="properties_image_colorspace_label" description="Row label in the Properties dialog for EXIF color space (e.g. sRGB, Adobe RGB). [CHAR_LIMIT=20]">Color space</string>
+    <string name="properties_image_date_taken_label" description="Row label in the Properties dialog for the EXIF original photo capture date and time. [CHAR_LIMIT=20]">Date taken</string>
+    <string name="properties_image_camera_label" description="Row label in the Properties dialog for the EXIF camera make and model. [CHAR_LIMIT=20]">Camera</string>
+    <string name="properties_image_lens_label" description="Row label in the Properties dialog for the EXIF lens make and model. [CHAR_LIMIT=20]">Lens</string>
+    <string name="properties_image_software_label" description="Row label in the Properties dialog for the EXIF camera firmware or editing software tag. [CHAR_LIMIT=20]">Software</string>
+    <string name="properties_image_aperture_label" description="Row label in the Properties dialog for the EXIF aperture f-number (e.g. f/1.8). [CHAR_LIMIT=20]">Aperture</string>
+    <string name="properties_image_shutter_label" description="Row label in the Properties dialog for the EXIF shutter speed / exposure time (e.g. 1/250 s). [CHAR_LIMIT=20]">Shutter</string>
+    <string name="properties_image_iso_label" description="Row label in the Properties dialog for the EXIF ISO sensitivity value. [CHAR_LIMIT=20]">ISO</string>
+    <string name="properties_image_focal_label" description="Row label in the Properties dialog for the EXIF lens focal length in millimeters. [CHAR_LIMIT=20]">Focal length</string>
+    <string name="properties_image_exposure_bias_label" description="Row label in the Properties dialog for the EXIF exposure compensation in EV. [CHAR_LIMIT=20]">Exposure bias</string>
+    <string name="properties_image_exposure_program_label" description="Row label in the Properties dialog for the EXIF camera shooting mode (e.g. Aperture priority, Manual). [CHAR_LIMIT=20]">Mode</string>
+    <string name="properties_image_metering_label" description="Row label in the Properties dialog for the EXIF exposure metering mode (e.g. Multi-segment, Spot). [CHAR_LIMIT=20]">Metering</string>
+    <string name="properties_image_flash_label" description="Row label in the Properties dialog for the EXIF flash status. [CHAR_LIMIT=20]">Flash</string>
+    <string name="properties_image_white_balance_label" description="Row label in the Properties dialog for the EXIF white balance setting (Auto or Manual). [CHAR_LIMIT=20]">White balance</string>
+    <string name="properties_image_location_label" description="Row label in the Properties dialog for EXIF GPS latitude and longitude coordinates. [CHAR_LIMIT=20]">Location</string>
+    <string name="properties_image_altitude_label" description="Row label in the Properties dialog for EXIF GPS altitude in meters. [CHAR_LIMIT=20]">Altitude</string>
+    <string name="properties_image_artist_label" description="Row label in the Properties dialog for the EXIF photographer or artist tag. [CHAR_LIMIT=20]">Artist</string>
+    <string name="properties_image_copyright_label" description="Row label in the Properties dialog for the EXIF copyright notice tag. [CHAR_LIMIT=20]">Copyright</string>
+    <string name="properties_image_description_label" description="Row label in the Properties dialog for the EXIF image description or user comment tag. [CHAR_LIMIT=20]">Description</string>
     <string name="shortcuts_trackpad_heading" description="Section heading in the F1 Shortcuts dialog describing trackpad gestures. [CHAR_LIMIT=25]">Trackpad</string>
     <string name="shortcuts_trackpad_body" description="Instructional summary of desktop trackpad gestures in the F1 Shortcuts dialog. [CHAR_LIMIT=220]">Two-finger click = context menu • two-finger scroll • drag a file onto a folder, sidebar item or tab to move (hold Ctrl to copy) • drag in empty space to select a group</string>
     <string name="batch_rename_mode_find_replace" description="Filter chip label in Batch Rename dialog for find-and-replace mode. [CHAR_LIMIT=25]">Find &amp; replace</string>

@@ -4,7 +4,7 @@ Wayfinder's APK includes the libraries below. All of them allow redistribution i
 
 | Library | Coordinates | License |
 |---|---|---|
-| AndroidX (Core, Activity, Lifecycle, Compose UI/Foundation/Material 3, Material Icons Extended, Media3 Common/Container/Database/DataSource/Decoder/ExoPlayer/Extractor/Inspector) | `androidx.*` | Apache-2.0 |
+| AndroidX (Core, Activity, Lifecycle, Compose UI/Foundation/Material 3, Material Icons Extended, Media3 Common/Container/Database/DataSource/Decoder/ExoPlayer/Extractor/Inspector, ExifInterface) | `androidx.*` | Apache-2.0 |
 | Kotlin standard library & kotlinx.coroutines | `org.jetbrains.kotlin*`, `org.jetbrains.kotlinx*` | Apache-2.0 |
 | Coil 3 (compose, video) | `io.coil-kt.coil3:*` | Apache-2.0 |
 | SMBJ | `com.hierynomus:smbj` | Apache-2.0 |
