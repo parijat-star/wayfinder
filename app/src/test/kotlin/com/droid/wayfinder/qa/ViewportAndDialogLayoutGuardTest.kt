@@ -182,13 +182,19 @@ class ViewportAndDialogLayoutGuardTest {
             .assertHeightIsAtLeast(48.dp)
         assertAllInteractiveTouchTargetsMeet48dp("360dp portrait (0 selected)", density)
 
-        // 2 selected: Address bar must not be crushed by inline selection chrome
+        // 2 selected on <= 960dp: CompactSelectionBar replaces toolbar row cleanly with >= 48dp targets,
+        // and Address bar retains >= 70.dp whenever address editing takes precedence.
         harness.select("Workspace/alpha.txt", "Workspace/beta.txt")
+        idle(harness)
+        rule.onNodeWithContentDescription("Clear selection").assertIsDisplayed()
+        assertAllInteractiveTouchTargetsMeet48dp("360dp portrait (2 selected)", density)
+        harness.vm.setAddressEditing(true)
         idle(harness)
         rule.onNodeWithContentDescription("Address bar")
             .assertWidthIsAtLeast(70.dp)
             .assertHeightIsAtLeast(48.dp)
-        assertAllInteractiveTouchTargetsMeet48dp("360dp portrait (2 selected)", density)
+        harness.vm.setAddressEditing(false)
+        idle(harness)
 
         // Expand compact search: placeholder centered & un-ellipsized, typed query retains >= 48dp input + Clear button
         harness.vm.clearSelection()
@@ -234,10 +240,14 @@ class ViewportAndDialogLayoutGuardTest {
             .assertHeightIsAtLeast(48.dp)
         harness.select("Downloads/invoice.pdf", "Downloads/notes.txt")
         idle(harness)
+        rule.onNodeWithContentDescription("Clear selection").assertIsDisplayed()
+        assertAllInteractiveTouchTargetsMeet48dp("412dp portrait @ 1.3x fontScale (2 selected)", d)
+        harness.vm.setAddressEditing(true)
+        idle(harness)
         rule.onNodeWithContentDescription("Address bar")
             .assertWidthIsAtLeast(110.dp)
             .assertHeightIsAtLeast(48.dp)
-        assertAllInteractiveTouchTargetsMeet48dp("412dp portrait @ 1.3x fontScale", d)
+        assertAllInteractiveTouchTargetsMeet48dp("412dp portrait @ 1.3x fontScale (address editing)", d)
     }
 
     @Test
@@ -265,10 +275,14 @@ class ViewportAndDialogLayoutGuardTest {
                 "search active" -> harness.vm.setQuery("clip")
             }
             idle(harness)
-            rule.onNodeWithContentDescription("Address bar")
-                .assertWidthIsAtLeast(180.dp)
-                .assertHeightIsAtLeast(48.dp)
-            assertSearchFieldTypographyAndCentering("890x412 landscape ($stateLabel)", d)
+            if (stateLabel == "2 selected") {
+                rule.onNodeWithContentDescription("Clear selection").assertIsDisplayed()
+            } else {
+                rule.onNodeWithContentDescription("Address bar")
+                    .assertWidthIsAtLeast(180.dp)
+                    .assertHeightIsAtLeast(48.dp)
+                assertSearchFieldTypographyAndCentering("890x412 landscape ($stateLabel)", d)
+            }
             assertAllInteractiveTouchTargetsMeet48dp("890x412 landscape ($stateLabel)", d)
         }
     }
@@ -300,10 +314,14 @@ class ViewportAndDialogLayoutGuardTest {
 
         harness.select("SplitDocs/one.md", "SplitDocs/two.md")
         idle(harness)
+        rule.onNodeWithContentDescription("Clear selection").assertIsDisplayed()
+        assertAllInteractiveTouchTargetsMeet48dp("680x900 split-screen (2 selected)", d)
+        harness.vm.setAddressEditing(true)
+        idle(harness)
         rule.onNodeWithContentDescription("Address bar")
             .assertWidthIsAtLeast(140.dp)
             .assertHeightIsAtLeast(48.dp)
-        assertAllInteractiveTouchTargetsMeet48dp("680x900 split-screen (2 selected)", d)
+        assertAllInteractiveTouchTargetsMeet48dp("680x900 split-screen (address editing)", d)
     }
 
     @Test

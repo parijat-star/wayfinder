@@ -116,6 +116,13 @@ object PointerSource {
 fun PointerInputChange.isPrecise(): Boolean = type == PointerType.Mouse || PointerSource.precise
 
 /**
+ * When true (narrow/phone viewports `<= 960.dp`), touch long-press on a file or folder enters
+ * selection mode and reveals the replacement contextual action bar instead of immediately opening
+ * the floating context menu (which remains accessible via the selection bar's `More` menu).
+ */
+internal val LocalTouchLongPressSelectsOnly = staticCompositionLocalOf { false }
+
+/**
  * True when a mouse/trackpad press is a primary action (left button or trackpad tap-and-drag with
  * zero button mask), excluding secondary/tertiary/back/forward buttons.
  */

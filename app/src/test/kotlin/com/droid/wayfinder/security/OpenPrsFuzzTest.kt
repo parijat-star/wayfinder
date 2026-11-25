@@ -5,6 +5,8 @@ package com.droid.wayfinder.security
 
 import android.graphics.Rect
 import com.droid.wayfinder.data.AudioTrackInfo
+import com.droid.wayfinder.data.FileEntry
+import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.LocalMediaStoreUri
 import com.droid.wayfinder.data.LocalUriResolver
 import com.droid.wayfinder.data.MarqueeMode
@@ -13,11 +15,16 @@ import com.droid.wayfinder.data.MarqueeSession
 import com.droid.wayfinder.data.MediaFormatters
 import com.droid.wayfinder.data.MediaInfo
 import com.droid.wayfinder.data.MediaTags
+import com.droid.wayfinder.data.SharedPrefixStreamBuffer
 import com.droid.wayfinder.data.SubtitleTrackInfo
+import com.droid.wayfinder.data.TrashManager
 import com.droid.wayfinder.data.VideoTrackInfo
 import com.droid.wayfinder.data.applyMarqueeMode
 import com.droid.wayfinder.data.marqueeAutoScrollSpeedPxPerSec
+import com.droid.wayfinder.data.selectionToolbarState
 import com.droid.wayfinder.ui.resolveDesktopCaptionHorizontalInsets
+import java.io.ByteArrayInputStream
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -211,6 +218,87 @@ class OpenPrsFuzzTest {
                 assertTrue(resolved.first >= 0)
                 assertTrue(resolved.second >= 0)
             }
+        }
+    }
+
+    @Test
+    fun fuzzSelectionActionsTrashBreadcrumbsAndSharedStreamBuffer() {
+        val rng = Random(0x73_75_79_83L)
+        val trashDir = File(System.getProperty("java.io.tmpdir"), "wf_fuzz_trash_${System.nanoTime()}").apply { mkdirs() }
+        try {
+            val trash = TrashManager(trashDir)
+            val tabPaths = listOf(
+                "/storage/emulated/10/Docs",
+                FsPath.TRASH_ROOT,
+                "${trashDir.path}/slot1/OldFolder",
+                "${trashDir.path}/slot1/archive.zip!/inner",
+                "/storage/emulated/10/pack.zip!/sub",
+                FsPath.STARRED_ROOT,
+                FsPath.RECENTS_ROOT,
+                FsPath.SMB_ROOT,
+            )
+
+            repeat(1_000) {
+                val tabPath = tabPaths[rng.nextInt(tabPaths.size)]
+                val inTrash = trash.isInTrash(tabPath)
+                val entries = List(rng.nextInt(0, 6)) { idx ->
+                    val isZip = rng.nextInt(4) == 0
+                    val p = if (isZip) "/storage/emulated/10/pack.zip!/f_$idx.txt" else "$tabPath/f_$idx.txt"
+                    FileEntry(
+                        path = p,
+                        name = "f_$idx.txt",
+                        isDir = rng.nextBoolean(),
+                        isServer = rng.nextInt(8) == 0,
+                        isShare = rng.nextInt(8) == 0,
+                    )
+                }
+                val state = selectionToolbarState(tabPath, entries, inTrash = inTrash)
+                if (entries.any { FsPath.isZip(it.path) && !it.isServer && !it.isShare && !FsPath.isVirtual(it.path) }) {
+                    assertFalse("Zip entries must never enable Delete or Cut", state.canDelete || state.canCut)
+                }
+                if (inTrash) {
+                    assertFalse("Trash must never enable Cut, Copy, Compress, or Share", state.canCut || state.canCopy || state.canCompress || state.canShare)
+                }
+
+                // Trash traversal & breadcrumb fuzzing
+                val maybeTraversal = "${trashDir.path}/slot_${rng.nextInt(5)}/${if (rng.nextBoolean()) ".." else "sub"}/x.txt"
+                if (maybeTraversal.contains("/../")) {
+                    assertFalse(trash.isInTrash(maybeTraversal))
+                    assertNull(trash.breadcrumbsOf(maybeTraversal))
+                } else {
+                    val crumbs = trash.breadcrumbsOf(maybeTraversal)
+                    assertTrue(crumbs != null && crumbs.first().second == FsPath.TRASH_ROOT)
+                    assertTrue(crumbs!!.none { it.first.contains(".Wayfinder-Trash") || it.first.startsWith("slot_") })
+                }
+            }
+
+            // SharedPrefixStreamBuffer interleaved random forward/backward seeks
+            val data = ByteArray(200_000) { (it * 17 + 3).toByte() }
+            val cap = 131_072L
+            val shared = SharedPrefixStreamBuffer(
+                openInput = { ByteArrayInputStream(data) },
+                totalSize = data.size.toLong(),
+                maxBytes = cap,
+            )
+            val dest = ByteArray(8192)
+            repeat(300) {
+                val pos = rng.nextLong(-64L, 220_000L)
+                val len = rng.nextInt(0, dest.size)
+                val n = shared.readAt(pos, dest, 0, len)
+                if (len == 0) {
+                    assertEquals(0, n)
+                } else if (pos < 0L || pos >= cap) {
+                    assertEquals(-1, n)
+                } else if (n > 0) {
+                    for (i in 0 until n) {
+                        assertEquals(data[pos.toInt() + i], dest[i])
+                    }
+                }
+                assertTrue(shared.bytesDownloaded <= cap)
+            }
+            shared.closeUnderlying()
+        } finally {
+            trashDir.deleteRecursively()
         }
     }
 }

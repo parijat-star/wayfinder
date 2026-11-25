@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.captionBar
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -860,8 +861,11 @@ fun AppRoot(vm: BrowserViewModel) {
                     }
                     val showSidebar = s.sidebarVisible && !compact
                     val showPreview = s.previewVisible && previewFits
+                    val hasDesktopCaption = WindowInsets.captionBar.getTop(LocalDensity.current) > 0
+                    val touchLongPressSelectsOnly = compact && !hasDesktopCaption
                     LaunchedEffect(showSidebar) { if (!showSidebar) sidebarZoneFocused = false }
                     LaunchedEffect(showPreview) { if (!showPreview) previewZoneFocused = false }
+                    CompositionLocalProvider(LocalTouchLongPressSelectsOnly provides touchLongPressSelectsOnly) {
                     Row(Modifier.fillMaxSize().padding(end = 8.dp, bottom = 8.dp)) {
                         if (showSidebar) {
                             Box(Modifier.onFocusChanged { sidebarZoneFocused = it.hasFocus }) {
@@ -876,6 +880,7 @@ fun AppRoot(vm: BrowserViewModel) {
                                 PreviewPane(vm, s, Modifier.width(300.dp).fillMaxSize())
                             }
                         }
+                    }
                     }
                 }
             }

@@ -40,15 +40,23 @@ import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.outlined.VerticalSplit
 import androidx.compose.material.icons.outlined.ViewColumn
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SelectAll
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material.icons.outlined.ViewHeadline
 import androidx.compose.material.icons.outlined.SwapVert
@@ -59,8 +67,10 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonColors
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -93,6 +103,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.filled.Circle
@@ -104,12 +115,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.ui.res.stringResource
 import com.droid.wayfinder.R
+import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.ModifiedRange
 import com.droid.wayfinder.data.SearchCategory
 import com.droid.wayfinder.data.SearchScope
+import com.droid.wayfinder.data.SelectionToolbarState
 import com.droid.wayfinder.data.SortKey
 import com.droid.wayfinder.data.ViewMode
+import com.droid.wayfinder.data.selectionToolbarState
 
 @Composable
 fun Toolbar(
@@ -121,39 +135,101 @@ fun Toolbar(
     val tab = s.active
     val focusManager = LocalFocusManager.current
     var compactSearchOpen by remember { mutableStateOf(false) }
+    var searchFocusPending by remember { mutableStateOf(false) }
+    var searchFieldFocused by remember { mutableStateOf(false) }
+    var lastHandledFocusSearch by remember { mutableStateOf(s.focusSearch) }
     BoxWithConstraints(Modifier.fillMaxWidth().background(cs.surfaceContainerLow)) {
         val wide = maxWidth
         val isCompact = wide < 600.dp
         val isNarrowCompact = wide < 480.dp
-        LaunchedEffect(s.focusSearch, isCompact) {
-            if (isCompact && s.focusSearch > 0) compactSearchOpen = true
+        LaunchedEffect(s.focusSearch) {
+            if (s.focusSearch > lastHandledFocusSearch) {
+                lastHandledFocusSearch = s.focusSearch
+                if (s.addressEditing) vm.setAddressEditing(false)
+                searchFocusPending = true
+                if (isCompact) compactSearchOpen = true
+            }
+        }
+        LaunchedEffect(s.addressEditing) {
+            if (s.addressEditing) {
+                searchFocusPending = false
+                compactSearchOpen = false
+            }
         }
         LaunchedEffect(isCompact) {
             if (!isCompact && compactSearchOpen) compactSearchOpen = false
         }
-        val showExpandedCompactSearch = isCompact && (compactSearchOpen || tab.query.isNotEmpty())
-        BackHandler(enabled = showExpandedCompactSearch) {
-            vm.setQuery("")
-            focusManager.clearFocus()
-            compactSearchOpen = false
-        }
+        val showExpandedCompactAddress = isCompact && s.addressEditing
+        val showExpandedCompactSearch = isCompact && !s.addressEditing && (compactSearchOpen || tab.query.isNotEmpty())
         val iconBtnColors = IconButtonDefaults.iconButtonColors(
             contentColor = cs.onSurfaceVariant,
             disabledContentColor = cs.onSurface.copy(alpha = 0.38f),
         )
+        val selectedEntries = remember(tab.entries, tab.searchResults, tab.selection, s.showHidden) {
+            if (tab.selection.isEmpty()) emptyList()
+            else (tab.searchResults ?: tab.entries).filter { (s.showHidden || !it.isHidden) && it.path in tab.selection }
+        }
+        val tabInTrash = remember(tab.path) { vm.isInTrash(tab.path) }
+        val selectionActions = remember(tab.path, selectedEntries, tabInTrash) {
+            selectionToolbarState(tab.path, selectedEntries, inTrash = tabInTrash)
+        }
+        val inputTakesPrecedence = s.addressEditing || searchFocusPending || searchFieldFocused || tab.query.isNotEmpty() || showExpandedCompactSearch
+        val showCompactSelectionMode = wide <= 960.dp && selectionActions.showToolbarActions && !inputTakesPrecedence
+        BackHandler(enabled = s.addressEditing) {
+            vm.setAddressEditing(false)
+            vm.setTextFocus(false)
+            focusManager.clearFocus()
+        }
+        BackHandler(enabled = showExpandedCompactSearch && !showCompactSelectionMode) {
+            vm.setQuery("")
+            focusManager.clearFocus()
+            compactSearchOpen = false
+            searchFocusPending = false
+        }
+        BackHandler(enabled = showCompactSelectionMode) {
+            vm.clearSelection()
+        }
         Column(Modifier.fillMaxWidth()) {
+        if (showCompactSelectionMode) {
+            CompactSelectionBar(vm, s, selectedEntries, selectionActions, wide)
+        } else {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (showExpandedCompactSearch) {
+            if (showExpandedCompactAddress) {
+                ActionTooltip(stringResource(R.string.action_close_address)) {
+                    IconButton(
+                        {
+                            vm.setAddressEditing(false)
+                            vm.setTextFocus(false)
+                            focusManager.clearFocus()
+                        },
+                        Modifier.size(48.dp).focusRing(CircleShape),
+                        colors = iconBtnColors,
+                    ) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.action_close_address))
+                    }
+                }
+                PathBar(vm, s, Modifier.weight(1f))
+                OverflowMenu(
+                    vm = vm,
+                    s = s,
+                    showViewItems = true,
+                    showSortItems = true,
+                    hasDesktopCaption = hasDesktopCaption,
+                    isCompactViewport = true,
+                    showCompactNavItems = isNarrowCompact,
+                )
+            } else if (showExpandedCompactSearch) {
                 ActionTooltip(stringResource(R.string.action_close_search)) {
                     IconButton(
                         {
                             vm.setQuery("")
                             focusManager.clearFocus()
                             compactSearchOpen = false
+                            searchFocusPending = false
                         },
                         Modifier.size(48.dp).focusRing(CircleShape),
                         colors = iconBtnColors,
@@ -166,7 +242,13 @@ fun Toolbar(
                     s = s,
                     modifier = Modifier.weight(1f),
                     autoFocusOnMount = compactSearchOpen,
-                    onEscapeCollapse = { compactSearchOpen = false },
+                    focusRequested = searchFocusPending,
+                    onFocusChange = { searchFieldFocused = it },
+                    onFocusRequestConsumed = { searchFocusPending = false },
+                    onEscapeCollapse = {
+                        compactSearchOpen = false
+                        searchFocusPending = false
+                    },
                 )
                 OverflowMenu(
                     vm = vm,
@@ -245,20 +327,32 @@ fun Toolbar(
                         }
                     }
                 } else {
-                    SearchField(vm, s, Modifier.width(if (wide > 1160.dp) 260.dp else if (wide > 1000.dp) 200.dp else 176.dp))
+                    SearchField(
+                        vm = vm,
+                        s = s,
+                        modifier = Modifier.width(if (wide > 1160.dp) 260.dp else if (wide > 1000.dp) 200.dp else 176.dp),
+                        focusRequested = searchFocusPending,
+                        onFocusChange = { searchFieldFocused = it },
+                        onFocusRequestConsumed = { searchFocusPending = false },
+                        onEscapeCollapse = { searchFocusPending = false },
+                    )
                 }
-                if (wide > 960.dp) ViewToggle(vm, tab.viewMode, s.dualPane)
+                if (wide > 960.dp) {
+                    if (selectionActions.showToolbarActions) SelectionActions(vm, selectionActions)
+                    else ViewToggle(vm, tab.viewMode, s.dualPane)
+                }
                 if (wide > 760.dp) SortButton(vm, s)
                 OverflowMenu(
                     vm = vm,
                     s = s,
-                    showViewItems = wide <= 960.dp,
+                    showViewItems = wide <= 960.dp || selectionActions.showToolbarActions,
                     showSortItems = wide <= 760.dp,
                     hasDesktopCaption = hasDesktopCaption,
                     isCompactViewport = isCompact,
                     showCompactNavItems = isNarrowCompact,
                 )
             }
+        }
         }
         if (tab.query.isNotBlank()) SearchFilterRow(vm, tab)
         }
@@ -330,7 +424,7 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         var tf by remember(tab.path) { mutableStateOf(TextFieldValue(initialAddress, TextRange(0, initialAddress.length))) }
         var hadFocus by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) { fr.requestFocus() }
-        Row(modifier.heightIn(min = 48.dp).clip(shape).background(cs.surfaceContainerLowest).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier.heightIn(min = 48.dp).clip(shape).background(cs.surfaceContainerLowest), verticalAlignment = Alignment.CenterVertically) {
             BasicTextField(
                 tf, { tf = it }, Modifier.weight(1f).sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRequester(fr)
                     .semantics { contentDescription = "Address bar" }
@@ -340,7 +434,11 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                         else if (hadFocus && s.addressEditing) { vm.setAddressEditing(false); vm.setTextFocus(false) }
                     }
                     .onPreviewKeyEvent { e ->
-                        if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) { vm.setAddressEditing(false); true } else false
+                        if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) {
+                            vm.setAddressEditing(false)
+                            vm.setTextFocus(false)
+                            true
+                        } else false
                     },
                 singleLine = true, textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
                 cursorBrush = SolidColor(cs.primary),
@@ -350,7 +448,7 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                     if (p != null) vm.navigate(p) else if (!vm.openAddress(tf.text)) vm.setAddressEditing(false)
                 }),
                 decorationBox = { innerTextField ->
-                    Box(Modifier.fillMaxWidth().heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {
+                    Box(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 14.dp), contentAlignment = Alignment.CenterStart) {
                         innerTextField()
                     }
                 },
@@ -409,6 +507,9 @@ private fun SearchField(
     s: AppState,
     modifier: Modifier,
     autoFocusOnMount: Boolean = false,
+    focusRequested: Boolean = false,
+    onFocusChange: (Boolean) -> Unit = {},
+    onFocusRequestConsumed: () -> Unit = {},
     onEscapeCollapse: (() -> Unit)? = null,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -420,8 +521,14 @@ private fun SearchField(
     val clearSearchLabel = stringResource(R.string.tooltip_clear_search)
     var fieldFocused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(24.dp)
-    LaunchedEffect(s.focusSearch, autoFocusOnMount) {
-        if (s.focusSearch > 0 || autoFocusOnMount) fr.requestFocus()
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { onFocusChange(false) }
+    }
+    LaunchedEffect(focusRequested, autoFocusOnMount) {
+        if (focusRequested || autoFocusOnMount) {
+            if (fieldFocused) onFocusRequestConsumed()
+            else fr.requestFocus()
+        }
     }
     Row(
         modifier.heightIn(min = 48.dp).clip(shape).background(cs.surfaceContainerLowest)
@@ -441,17 +548,21 @@ private fun SearchField(
                     .onFocusChanged {
                         fieldFocused = it.isFocused
                         vm.setTextFocus(it.isFocused)
+                        onFocusChange(it.isFocused)
+                        if (it.isFocused) onFocusRequestConsumed()
                     }
                     .onPreviewKeyEvent { e ->
                         if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) {
                             vm.setQuery("")
                             focus.clearFocus()
+                            onFocusRequestConsumed()
                             onEscapeCollapse?.invoke()
                             focusCoord.focusFileList()
                             true
                         }
                         else if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) {
                             focus.clearFocus()
+                            onFocusRequestConsumed()
                             vm.moveFocus(1)
                             focusCoord.focusFileList()
                             true
@@ -600,6 +711,258 @@ private fun ViewToggle(vm: BrowserViewModel, mode: ViewMode, dual: Boolean) {
     }
 }
 
+private val VIEW_TOGGLE_SLOT_WIDTH = 244.dp
+
+@Composable
+private fun SelectionActions(vm: BrowserViewModel, actions: SelectionToolbarState) {
+    val cs = MaterialTheme.colorScheme
+    val colors = IconButtonDefaults.iconButtonColors(
+        contentColor = cs.onSecondaryContainer,
+        disabledContentColor = cs.onSecondaryContainer.copy(alpha = 0.38f),
+    )
+    Box(Modifier.width(VIEW_TOGGLE_SLOT_WIDTH), contentAlignment = Alignment.CenterEnd) {
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(cs.secondaryContainer)
+                .padding(2.dp),
+        ) {
+            SelectionActionButtons(vm, actions, colors)
+        }
+    }
+}
+
+@Composable
+private fun CompactSelectionBar(
+    vm: BrowserViewModel,
+    s: AppState,
+    selectedEntries: List<FileEntry>,
+    actions: SelectionToolbarState,
+    wide: Dp,
+) {
+    val cs = MaterialTheme.colorScheme
+    val colors = IconButtonDefaults.iconButtonColors(
+        contentColor = cs.onSecondaryContainer,
+        disabledContentColor = cs.onSecondaryContainer.copy(alpha = 0.38f),
+    )
+    val selectedLabel = icuStringResource(R.string.selected_count_plural, actions.selectedCount)
+    val showCutInline = wide >= 360.dp
+    val showCompressInline = wide >= 480.dp
+    val showCompactNumber = wide < 440.dp && !actions.inTrash
+    val displayedCount = if (showCompactNumber) {
+        formatLocalizedNumber(actions.selectedCount.toLong())
+    } else {
+        selectedLabel
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(cs.secondaryContainer)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SelectionActionButton(
+            icon = Icons.Outlined.Close,
+            tooltip = stringResource(R.string.tooltip_clear_selection),
+            contentDesc = stringResource(R.string.palette_clear_selection),
+            enabled = true,
+            colors = colors,
+        ) { vm.clearSelection() }
+        Text(
+            text = displayedCount,
+            style = MaterialTheme.typography.titleMedium,
+            color = cs.onSecondaryContainer,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 4.dp)
+                .then(
+                    if (showCompactNumber) Modifier.semantics { contentDescription = selectedLabel }
+                    else Modifier,
+                ),
+        )
+        SelectionActionButtons(
+            vm = vm,
+            actions = actions,
+            colors = colors,
+            showCut = showCutInline,
+            showCompress = showCompressInline,
+        )
+        SelectionMoreButton(vm = vm, s = s, selectedEntries = selectedEntries, colors = colors)
+    }
+}
+
+@Composable
+private fun SelectionMoreButton(
+    vm: BrowserViewModel,
+    s: AppState,
+    selectedEntries: List<FileEntry>,
+    colors: IconButtonColors,
+) {
+    var open by remember { mutableStateOf(false) }
+    var activeItems by remember { mutableStateOf<List<MenuEntry>>(emptyList()) }
+    val moreTooltip = stringResource(R.string.tooltip_more_options)
+    val moreDesc = stringResource(R.string.action_more_options)
+    val focusCoord = LocalFocusCoordinator.current
+    val moreRequester = remember { FocusRequester() }
+    androidx.compose.runtime.DisposableEffect(moreRequester) {
+        focusCoord.activeToolbarLastRequester = moreRequester
+        onDispose {
+            if (focusCoord.activeToolbarLastRequester === moreRequester) {
+                focusCoord.activeToolbarLastRequester = null
+            }
+        }
+    }
+    Box {
+        ActionTooltip(moreTooltip) {
+            IconButton(
+                onClick = {
+                    val tab = s.active
+                    val anchor = selectedEntries.firstOrNull { it.path == tab.focused } ?: selectedEntries.firstOrNull()
+                    if (anchor != null) {
+                        val visibleCount = tab.visible(s.showHidden).size
+                        activeItems = buildList {
+                            addAll(fileMenu(vm, s, anchor))
+                            if (visibleCount > selectedEntries.size) {
+                                add(MenuEntry.Divider)
+                                add(
+                                    MenuEntry.Item(
+                                        label = vm.str(R.string.action_select_all),
+                                        icon = Icons.Outlined.SelectAll,
+                                        shortcut = "Ctrl+A",
+                                    ) { vm.selectAll() },
+                                )
+                            }
+                        }.trimDividersPublic()
+                        open = true
+                    }
+                },
+                modifier = Modifier.size(48.dp).focusRequester(moreRequester).focusRing(CircleShape),
+                colors = colors,
+            ) {
+                Icon(Icons.Outlined.MoreVert, moreDesc, Modifier.size(20.dp))
+            }
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            activeItems.forEach { entry ->
+                when (entry) {
+                    MenuEntry.Divider -> HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    is MenuEntry.Item -> DropdownMenuItem(
+                        text = { Text(entry.label) },
+                        leadingIcon = entry.icon?.let {
+                            { Icon(it, null, Modifier.size(20.dp), tint = entry.tint ?: LocalContentColor.current) }
+                        },
+                        trailingIcon = when {
+                            entry.checked -> ({ Icon(Icons.Filled.Check, "On", Modifier.size(18.dp)) })
+                            entry.submenu != null -> ({ Text("›", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) })
+                            entry.shortcut != null -> ({ Hint(entry.shortcut) })
+                            else -> null
+                        },
+                        enabled = entry.enabled,
+                        onClick = {
+                            val sub = entry.submenu
+                            if (sub != null) activeItems = sub() else { open = false; entry.action() }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectionActionButtons(
+    vm: BrowserViewModel,
+    actions: SelectionToolbarState,
+    colors: IconButtonColors,
+    showCut: Boolean = true,
+    showCompress: Boolean = true,
+) {
+    if (actions.inTrash) {
+        if (actions.canRestore) {
+            val restoreLabel = stringResource(R.string.action_restore)
+            SelectionActionButton(
+                icon = Icons.Outlined.Restore,
+                tooltip = restoreLabel,
+                contentDesc = restoreLabel,
+                enabled = true,
+                colors = colors,
+            ) { vm.restoreFromTrash() }
+        }
+        SelectionActionButton(
+            icon = Icons.Outlined.DeleteForever,
+            tooltip = stringResource(R.string.tooltip_delete_permanently),
+            contentDesc = stringResource(R.string.action_delete_permanently),
+            enabled = actions.canDelete,
+            colors = colors,
+        ) { vm.requestDelete(permanent = true) }
+    } else {
+        if (showCut) {
+            SelectionActionButton(
+                icon = Icons.Outlined.ContentCut,
+                tooltip = stringResource(R.string.tooltip_cut),
+                contentDesc = stringResource(R.string.action_cut),
+                enabled = actions.canCut,
+                colors = colors,
+            ) { vm.cut() }
+        }
+        SelectionActionButton(
+            icon = Icons.Outlined.ContentCopy,
+            tooltip = stringResource(R.string.tooltip_copy),
+            contentDesc = stringResource(R.string.action_copy),
+            enabled = actions.canCopy,
+            colors = colors,
+        ) { vm.copy() }
+        if (showCompress) {
+            val compressLabel = stringResource(R.string.action_compress_to_zip)
+            SelectionActionButton(
+                icon = Icons.Outlined.Archive,
+                tooltip = compressLabel,
+                contentDesc = compressLabel,
+                enabled = actions.canCompress,
+                colors = colors,
+            ) { vm.requestCompress() }
+        }
+        val shareLabel = stringResource(R.string.action_share)
+        SelectionActionButton(
+            icon = Icons.Outlined.Share,
+            tooltip = shareLabel,
+            contentDesc = shareLabel,
+            enabled = actions.canShare,
+            colors = colors,
+        ) { vm.share() }
+        SelectionActionButton(
+            icon = Icons.Outlined.Delete,
+            tooltip = stringResource(R.string.tooltip_delete),
+            contentDesc = stringResource(R.string.action_delete),
+            enabled = actions.canDelete,
+            colors = colors,
+        ) { vm.requestDelete(permanent = false) }
+    }
+}
+
+@Composable
+private fun SelectionActionButton(
+    icon: ImageVector,
+    tooltip: String,
+    contentDesc: String,
+    enabled: Boolean,
+    colors: IconButtonColors,
+    onClick: () -> Unit,
+) {
+    ActionTooltip(tooltip) {
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier.size(48.dp).focusRing(CircleShape),
+            enabled = enabled,
+            colors = colors,
+        ) {
+            Icon(icon, contentDesc, Modifier.size(20.dp))
+        }
+    }
+}
+
 @Composable
 private fun SortButton(vm: BrowserViewModel, s: AppState) {
     val cs = MaterialTheme.colorScheme
@@ -729,10 +1092,10 @@ private fun OverflowMenu(
             if (showViewItems) {
                 HorizontalDivider()
                 listOf(
-                    ViewMode.Details to "Details view",
-                    ViewMode.List to "List view",
-                    ViewMode.Grid to "Grid view",
-                    ViewMode.Columns to "Columns view",
+                    ViewMode.Details to stringResource(R.string.action_details_view),
+                    ViewMode.List to stringResource(R.string.action_list_view),
+                    ViewMode.Grid to stringResource(R.string.action_grid_view),
+                    ViewMode.Columns to stringResource(R.string.action_columns_view),
                 ).forEach { (m, label) ->
                     DropdownMenuItem(
                         { Text(label) },
