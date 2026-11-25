@@ -15,7 +15,7 @@ object CacheJanitor {
     const val SWEEP_INTERVAL_MS: Long = 30L * 60_000L
 
     private val STAGED_SUBDIRS = listOf("remote-open", "zip-open", "picker", "view-archive", "thumbs")
-    private val CLOUD_TEMP_PREFIXES = listOf("wf-gdrive", "wf-onedrive")
+    private val CLOUD_TEMP_PREFIXES = listOf("wf-gdrive", "wf-onedrive", "wf-dropbox")
     private const val CLOUD_TEMP_SUFFIX = ".part"
 
     private val lastSweepMillis = AtomicLong(0L)

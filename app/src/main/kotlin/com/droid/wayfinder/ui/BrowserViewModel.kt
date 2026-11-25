@@ -34,6 +34,10 @@ import com.droid.wayfinder.data.WorkProfileTarget
 import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.LocalFileSystem
 import com.droid.wayfinder.data.NetworkDiscovery
+import com.droid.wayfinder.data.DropboxAccount
+import com.droid.wayfinder.data.DropboxAccountStore
+import com.droid.wayfinder.data.DropboxAuthManager
+import com.droid.wayfinder.data.DropboxRestFileSystem
 import com.droid.wayfinder.data.OneDriveAccount
 import com.droid.wayfinder.data.OneDriveAccountStore
 import com.droid.wayfinder.data.OneDriveAuthManager
@@ -149,6 +153,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     internal val oneDriveStore = OneDriveAccountStore(app)
     internal val oneDriveAuth = OneDriveAuthManager(oneDriveStore)
     internal val onedrive = OneDriveRestFileSystem(app, oneDriveAuth)
+    internal val dropboxStore = DropboxAccountStore(app)
+    internal val dropboxAuth = DropboxAuthManager(dropboxStore)
+    internal val dropbox = DropboxRestFileSystem(app, dropboxStore, dropboxAuth)
     private val docFs = DocFileSystem(app)
     private val phoneFs = PhoneFileSystem(app)
     private val primary: String = Environment.getExternalStorageDirectory().path
@@ -160,6 +167,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             "dav" to dav, "davs" to dav, "ftp" to ftp, "ftps" to ftp,
             RemoteUri.SAF_SCHEME to saf, RemoteUri.GDRIVE_SCHEME to gdrive,
             RemoteUri.ONEDRIVE_SCHEME to onedrive,
+            RemoteUri.DROPBOX_SCHEME to dropbox,
             RemoteUri.DOC_SCHEME to docFs,
             RemoteUri.PHONE_SCHEME to phoneFs,
         ),
@@ -190,6 +198,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private val observedPhoneTreeUris = HashSet<String>()
     private var phoneRetryJob: Job? = null
     private var oneDriveAuthJob: Job? = null
+    private var dropboxAuthJob: Job? = null
     private var storageVolumeCallback: Any? = null
     private var pendingMountAccount: String? = null
     internal var phoneConnectRetryDelaysMs: LongArray = longArrayOf(0L, 1_000L, 3_000L, 6_000L)
@@ -207,7 +216,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             FsPath.isVirtual(it) ||
                 (FsPath.isRemote(it) &&
                     (!FsPath.isSaf(it) || safMounts.any { m -> FsPath.isWithin(m.path, it) }) &&
-                    (!FsPath.isOneDrive(it) || oneDriveStore.getAccount(it.removePrefix("onedrive://").substringBefore('/')) != null)) ||
+                    (!FsPath.isOneDrive(it) || oneDriveStore.getAccount(it.removePrefix("onedrive://").substringBefore('/')) != null) &&
+                    (!FsPath.isDropbox(it) || dropboxStore.getAccount(it.removePrefix("dropbox://").substringBefore('/')) != null)) ||
                 File(it).isDirectory || FsPath.zipSplit(it)?.let { z -> File(z.first).isFile } == true
         }
         // A requested file (e.g. an .apk from another app) opens its enclosing folder with the file selected.
@@ -256,6 +266,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             driveAccounts = initialDrive,
             oneDriveAccounts = oneDriveStore.accounts(),
             oneDriveDefaultClientId = oneDriveStore.defaultClientId,
+            dropboxAccounts = dropboxStore.accounts(),
+            dropboxDefaultAppKey = dropboxStore.defaultAppKey,
             pairedPhone = initialPhone,
             phoneConnected = initialPhone != null,
             bluetoothPermissionGranted = initialBtGranted,
@@ -407,6 +419,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         phoneRetryJob = null
         oneDriveAuthJob?.cancel()
         oneDriveAuthJob = null
+        dropboxAuthJob?.cancel()
+        dropboxAuthJob = null
         phoneReceiver?.let {
             runCatching { app.unregisterReceiver(it) }
             phoneReceiver = null
@@ -712,6 +726,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             driveAccounts = driveAccs,
             oneDriveAccounts = oneDriveStore.accounts(),
             oneDriveDefaultClientId = oneDriveStore.defaultClientId,
+            dropboxAccounts = dropboxStore.accounts(),
+            dropboxDefaultAppKey = dropboxStore.defaultAppKey,
             pairedPhone = phone,
             phoneConnected = phone != null,
             bluetoothPermissionGranted = btGranted,
@@ -921,6 +937,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             if (_state.value.dialog is Dialog.ConnectOneDrive) return
             val accId = host.removePrefix("onedrive://").substringBefore('/').takeIf { it.isNotBlank() }
             showConnectOneDriveDialog(accId)
+            return
+        }
+        if (FsPath.isDropbox(host)) {
+            if (_state.value.dialog is Dialog.ConnectDropbox) return
+            val accId = host.removePrefix("dropbox://").substringBefore('/').takeIf { it.isNotBlank() }
+            showConnectDropboxDialog(accId)
             return
         }
         if (_state.value.dialog is Dialog.SmbAuth) return
@@ -1349,10 +1371,13 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                             val limit = if (e.kind == FileKind.Video) REMOTE_THUMB_VIDEO_PREFIX_BYTES else REMOTE_THUMB_MAX_IMAGE_BYTES
                             val tmp = File(dir, "${target.name}.part")
                             try {
-                                val fetchedGraphThumb = FsPath.isOneDrive(e.path) &&
+                                val fetchedCloudThumb = (FsPath.isOneDrive(e.path) &&
                                     e.kind == FileKind.Image &&
-                                    onedrive.downloadThumbnailToFile(e.path, tmp)
-                                if (!fetchedGraphThumb) {
+                                    onedrive.downloadThumbnailToFile(e.path, tmp)) ||
+                                    (FsPath.isDropbox(e.path) &&
+                                        e.kind == FileKind.Image &&
+                                        dropbox.downloadThumbnailToFile(e.path, tmp))
+                                if (!fetchedCloudThumb) {
                                     repo.fs(e.path).openInput(e.path).use { inp ->
                                         tmp.outputStream().use { out ->
                                             val buf = ByteArray(64 * 1024)
@@ -1840,6 +1865,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             _state.value.network.map { it.path } +
             _state.value.mounts.map { it.path } +
             _state.value.driveAccounts.mapNotNull { it.mountPath } +
+            _state.value.oneDriveAccounts.map { it.rootPath } +
+            _state.value.dropboxAccounts.map { it.rootPath } +
             listOfNotNull(_state.value.pairedPhone?.path).filter { it != FsPath.PHONE_ROOT }
         if (rootPaths.none { FsPath.isWithin(it, path) }) return
         var cur = FsPath.parent(path)
@@ -2455,13 +2482,20 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                     val target = FsPath.child(destDir, ops.uniqueName(destDir, name))
                     val input = cr.openInputStream(uri) ?: throw java.io.IOException("Can't read $name")
                     input.use { inp ->
-                        repo.fs(destDir).openOutput(target).use { o ->
-                            val buf = ByteArray(256 * 1024)
-                            while (true) {
-                                currentCoroutineContext().ensureActive() // cancellable (endless / huge streams)
-                                val n = inp.read(buf)
-                                if (n < 0) break
-                                o.write(buf, 0, n)
+                        repo.fs(destDir).openOutput(target).apply {
+                            try {
+                                val buf = ByteArray(256 * 1024)
+                                while (true) {
+                                    currentCoroutineContext().ensureActive() // cancellable (endless / huge streams)
+                                    val n = inp.read(buf)
+                                    if (n < 0) break
+                                    write(buf, 0, n)
+                                }
+                            } catch (t: Throwable) {
+                                (this as? com.droid.wayfinder.data.AbortableOutputStream)?.abort()
+                                throw t
+                            } finally {
+                                close()
                             }
                         }
                     }
@@ -2606,7 +2640,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
      */
     fun openAddress(input: String): Boolean {
         val t = input.trim()
-        if (FsPath.isSaf(t) || FsPath.isDoc(t) || FsPath.isPhone(t) || FsPath.isOneDrive(t)) { navigate(t); return true }
+        if (FsPath.isSaf(t) || FsPath.isDoc(t) || FsPath.isPhone(t) || FsPath.isOneDrive(t) || FsPath.isDropbox(t)) { navigate(t); return true }
         val a = RemoteUri.parse(t) ?: return false
         if (a.user != null) {
             val stored = servers.get(a.credKey)
@@ -2672,6 +2706,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun showConnectOneDriveDialog(reauthAccountId: String? = null) {
         oneDriveAuthJob?.cancel()
         oneDriveAuthJob = null
+        dropboxAuthJob?.cancel()
+        dropboxAuthJob = null
         val savedClientId = reauthAccountId?.let { oneDriveStore.getAccount(it)?.clientId }
             ?.takeIf { it.isNotBlank() }
             ?: oneDriveStore.defaultClientId
@@ -2856,6 +2892,220 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 emit(UiEvent.OpenExternalUrl(url))
             } else {
                 toast("Couldn't resolve OneDrive web link")
+            }
+        }
+    }
+
+    fun showConnectDropboxDialog(reauthAccountId: String? = null) {
+        oneDriveAuthJob?.cancel()
+        oneDriveAuthJob = null
+        dropboxAuthJob?.cancel()
+        dropboxAuthJob = null
+        val savedAppKey = reauthAccountId?.let { dropboxStore.getAccount(it)?.appKey }
+            ?.takeIf { it.isNotBlank() }
+            ?: dropboxStore.defaultAppKey
+        _state.update {
+            it.copy(
+                dialog = Dialog.ConnectDropbox(reauthAccountId),
+                dropboxDefaultAppKey = savedAppKey,
+                dropboxSigningIn = false,
+                dropboxAuthError = null,
+                dropboxCodeSession = null,
+                compactSidebarOpen = false,
+            )
+        }
+    }
+
+    fun dismissDropboxDialog() {
+        dropboxAuthJob?.cancel()
+        dropboxAuthJob = null
+        _state.update {
+            it.copy(
+                dialog = null,
+                dropboxSigningIn = false,
+                dropboxAuthError = null,
+                dropboxCodeSession = null,
+            )
+        }
+    }
+
+    fun cancelDropboxSignIn() {
+        dropboxAuthJob?.cancel()
+        dropboxAuthJob = null
+        _state.update {
+            it.copy(
+                dropboxSigningIn = false,
+            )
+        }
+    }
+
+    fun startDropboxBrowserSignIn(appKey: String, aliasLabel: String) {
+        val key = appKey.trim()
+        if (!DropboxAuthManager.isValidAppKey(key)) {
+            _state.update { it.copy(dropboxAuthError = "Enter a valid Dropbox App Key") }
+            return
+        }
+        dropboxStore.defaultAppKey = key
+        dropboxAuthJob?.cancel()
+        _state.update {
+            it.copy(
+                dropboxDefaultAppKey = key,
+                dropboxSigningIn = true,
+                dropboxAuthError = null,
+                dropboxCodeSession = null,
+            )
+        }
+        dropboxAuthJob = viewModelScope.launch {
+            try {
+                val account = withContext(Dispatchers.IO) {
+                    dropboxAuth.authorizeViaRedirect(
+                        appKeyInput = key,
+                        aliasLabel = aliasLabel,
+                        onLaunchBrowser = { url -> emit(UiEvent.OpenExternalUrl(url)) },
+                    )
+                }
+                onDropboxAccountConnected(account)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        dropboxSigningIn = false,
+                        dropboxAuthError = e.message ?: "Dropbox sign-in failed",
+                    )
+                }
+            }
+        }
+    }
+
+    fun startDropboxCodePasteSession(appKey: String) {
+        val key = appKey.trim()
+        if (!DropboxAuthManager.isValidAppKey(key)) {
+            _state.update { it.copy(dropboxAuthError = "Enter a valid Dropbox App Key") }
+            return
+        }
+        try {
+            val session = dropboxAuth.startCodePasteSession(key)
+            _state.update {
+                it.copy(
+                    dropboxDefaultAppKey = key,
+                    dropboxAuthError = null,
+                    dropboxCodeSession = session,
+                )
+            }
+            emit(UiEvent.OpenExternalUrl(session.authorizeUrl))
+        } catch (e: Exception) {
+            _state.update {
+                it.copy(dropboxAuthError = e.message ?: "Couldn't start Dropbox sign-in")
+            }
+        }
+    }
+
+    fun completeDropboxCodePasteSignIn(pastedCode: String, aliasLabel: String) {
+        val session = _state.value.dropboxCodeSession
+        if (session == null) {
+            _state.update { it.copy(dropboxAuthError = "Please request a Dropbox sign-in code first") }
+            return
+        }
+        val code = pastedCode.trim()
+        if (!DropboxAuthManager.isValidAuthorizationCode(code)) {
+            _state.update { it.copy(dropboxAuthError = "Paste the valid authorization code shown by Dropbox") }
+            return
+        }
+        dropboxAuthJob?.cancel()
+        _state.update {
+            it.copy(
+                dropboxSigningIn = true,
+                dropboxAuthError = null,
+            )
+        }
+        dropboxAuthJob = viewModelScope.launch {
+            try {
+                val account = dropboxAuth.completeCodePasteSignIn(
+                    session = session,
+                    pastedCode = code,
+                    aliasLabel = aliasLabel,
+                )
+                onDropboxAccountConnected(account)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        dropboxSigningIn = false,
+                        dropboxAuthError = e.message ?: "Dropbox code verification failed",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun onDropboxAccountConnected(account: DropboxAccount) {
+        dropbox.disconnect(account.accountId)
+        _state.update {
+            it.copy(
+                dialog = null,
+                dropboxSigningIn = false,
+                dropboxAuthError = null,
+                dropboxCodeSession = null,
+            )
+        }
+        refreshMounts()
+        val matchingTabs = (_state.value.tabs + listOfNotNull(_state.value.secondary))
+            .filter { FsPath.isWithin(account.rootPath, it.path) }
+        if (matchingTabs.isNotEmpty()) {
+            matchingTabs.forEach { load(it.id) }
+        } else {
+            navigate(account.rootPath)
+        }
+        toast(str(com.droid.wayfinder.R.string.toast_dropbox_connected, account.sidebarTitle))
+    }
+
+    fun signOutDropbox(accountId: String) {
+        val acc = dropboxStore.getAccount(accountId)
+        val rootPath = "dropbox://$accountId"
+        dropboxStore.remove(accountId)
+        dropbox.disconnect(accountId)
+        val fallback = roots().firstOrNull()?.path ?: FsPath.RECENTS_ROOT
+        val s = _state.value
+        (s.tabs + listOfNotNull(s.secondary))
+            .filter { FsPath.isWithin(rootPath, it.path) }
+            .forEach { navigate(fallback, it.id) }
+        _state.update { st ->
+            st.copy(
+                tree = st.tree.copy(
+                    children = st.tree.children.filterKeys { !FsPath.isWithin(rootPath, it) },
+                    expanded = st.tree.expanded.filterTo(HashSet()) { !FsPath.isWithin(rootPath, it) },
+                ),
+            )
+        }
+        refreshMounts()
+        toast(str(com.droid.wayfinder.R.string.toast_dropbox_signed_out, acc?.sidebarTitle ?: accountId))
+    }
+
+    fun refreshDropboxQuota(accountId: String) {
+        viewModelScope.launch {
+            val updated = withContext(Dispatchers.IO) {
+                runCatching { dropboxAuth.refreshAccountQuota(accountId) }.getOrNull()
+            }
+            refreshMounts()
+            if (updated != null) {
+                toast("${updated.sidebarTitle}: ${updated.sidebarSubtitle}")
+            } else {
+                toast("Couldn't refresh Dropbox storage quota")
+            }
+        }
+    }
+
+    fun openInDropboxWeb(path: String) {
+        viewModelScope.launch {
+            val url = withContext(Dispatchers.IO) {
+                runCatching { dropbox.resolveWebUrl(path) }.getOrNull()
+            }
+            if (!url.isNullOrBlank()) {
+                emit(UiEvent.OpenExternalUrl(url))
+            } else {
+                toast("Couldn't resolve Dropbox web link")
             }
         }
     }

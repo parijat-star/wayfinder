@@ -379,7 +379,7 @@ internal fun resolveAddress(input: String, s: AppState? = null): String? {
         t.equals("recents", true) || t == FsPath.RECENTS_ROOT -> return FsPath.RECENTS_ROOT
         t.equals("starred", true) || t == FsPath.STARRED_ROOT -> return FsPath.STARRED_ROOT
         t.startsWith(FsPath.TAG_PREFIX) && FsPath.tagOf(t) != null -> return t
-        FsPath.isDoc(t) || FsPath.isPhone(t) || FsPath.isOneDrive(t) -> return FsPath.normalize(t)
+        FsPath.isDoc(t) || FsPath.isPhone(t) || FsPath.isOneDrive(t) || FsPath.isDropbox(t) -> return FsPath.normalize(t)
     }
     if (t.equals("phone", ignoreCase = true) || t.startsWith("phone/", ignoreCase = true)) {
         val sub = if (t.length > 5) t.substring(6).trim('/') else ""
@@ -476,6 +476,8 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                         if (i == 0) {
                             if (FsPath.isOneDrive(path)) {
                                 OneDriveIcon(Modifier.size(18.dp))
+                            } else if (FsPath.isDropbox(path)) {
+                                DropboxIcon(Modifier.size(18.dp))
                             } else {
                                 val ic = when {
                                     path == FsPath.SMB_ROOT -> Icons.Outlined.Dns
@@ -1136,6 +1138,7 @@ private fun OverflowMenu(
             DropdownMenuItem({ Text("Command palette…") }, { open = false; vm.openPalette() }, trailingIcon = { Hint("Ctrl+K") })
             DropdownMenuItem({ Text("Connect to server…") }, { open = false; vm.showConnectDialog() }, trailingIcon = { Hint("Ctrl+Shift+K") })
             DropdownMenuItem({ Text(stringResource(R.string.palette_connect_onedrive)) }, { open = false; vm.showConnectOneDriveDialog() })
+            DropdownMenuItem({ Text(stringResource(R.string.palette_connect_dropbox)) }, { open = false; vm.showConnectDropboxDialog() })
             DropdownMenuItem({ Text(stringResource(R.string.action_default_file_handler)) }, { open = false; vm.showDefaultHandlerDialog() })
             DropdownMenuItem({ Text("Keyboard shortcuts") }, { open = false; vm.showDialog(Dialog.Shortcuts) }, trailingIcon = { Hint("F1") })
             DropdownMenuItem({ Text("About Wayfinder") }, { open = false; vm.showDialog(Dialog.About) })
