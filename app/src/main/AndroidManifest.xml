@@ -92,24 +92,25 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
             <intent-filter>
-                <action android:name="android.provider.action.BROWSE" />
-                <action android:name="android.provider.action.MANAGE_DOCUMENT" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="content" />
-            </intent-filter>
-            <intent-filter>
                 <action android:name="android.intent.action.VIEW_DOWNLOADS" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-            <!-- Folder / directory viewing from other apps and launchers. -->
+            <!-- Folder / directory viewing from other apps and launchers (safe on unprivileged 3P installs). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="file" />
-                <data android:scheme="content" />
                 <data android:mimeType="resource/folder" />
                 <data android:mimeType="vnd.android.document/directory" />
+                <data android:mimeType="inode/directory" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:mimeType="resource/folder" />
                 <data android:mimeType="inode/directory" />
             </intent-filter>
             <!-- Archive browsing (.zip, .tar.gz, .tgz, .tar) opened directly in Wayfinder. -->
@@ -128,6 +129,33 @@
                 <data android:mimeType="application/x-gtar-compressed" />
             </intent-filter>
         </activity>
+
+        <!--
+          Privileged DocumentsContract browse/directory handlers (ACTION_BROWSE, ACTION_MANAGE_DOCUMENT,
+          and ACTION_VIEW for content:// vnd.android.document/directory).
+          Disabled by default so retail / Google Play installs without MANAGE_DOCUMENTS never intercept
+          system DocumentsProvider intents; enabled dynamically by PrivilegedDocumentsAlias when
+          MANAGE_DOCUMENTS is granted (system app or ADB dev installs).
+        -->
+        <activity-alias
+            android:name=".DocumentsBrowseAlias"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:enabled="false">
+            <intent-filter>
+                <action android:name="android.provider.action.BROWSE" />
+                <action android:name="android.provider.action.MANAGE_DOCUMENT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:mimeType="vnd.android.document/directory" />
+            </intent-filter>
+        </activity-alias>
 
         <provider
             android:name=".WayfinderFileProvider"

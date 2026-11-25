@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PrivilegedDocumentsAlias.sync(this)
         persistIncomingTreeGrant(intent)
         if (!prepareIntentExtras(isInitialLaunch = savedInstanceState == null)) {
             finish()
@@ -105,6 +106,7 @@ class MainActivity : ComponentActivity() {
             WayfinderTheme(dark) {
                 var granted by remember { mutableStateOf(hasAccess()) }
                 LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+                    PrivilegedDocumentsAlias.sync(this@MainActivity)
                     granted = hasAccess()
                     applyStatusBarVisibility(SharedUi.hideStatusBar.value)
                     vmOrNull?.refreshAll()
