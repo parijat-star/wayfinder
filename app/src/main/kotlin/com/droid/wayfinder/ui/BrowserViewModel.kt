@@ -2275,7 +2275,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                                 patch { it.copy(mediaLoading = false, mediaError = str(com.droid.wayfinder.R.string.properties_media_unavailable)) }
                             }
                         } catch (e: CancellationException) {
-                            throw e
+                            currentCoroutineContext().ensureActive()
+                            patch { it.copy(mediaLoading = false, mediaError = str(com.droid.wayfinder.R.string.properties_media_unavailable)) }
                         } catch (_: Exception) {
                             patch { it.copy(mediaLoading = false, mediaError = str(com.droid.wayfinder.R.string.properties_media_unavailable)) }
                         }
@@ -2313,7 +2314,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val directUri = when {
             FsPath.isLocalFile(entry.path) -> Uri.fromFile(File(entry.path))
             FsPath.isSaf(entry.path) -> saf.documentUriOf(entry.path)
+                ?.takeIf { com.droid.wayfinder.data.MediaInspector.isLocalSeekableContentUri(it) }
             FsPath.isDoc(entry.path) -> com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(entry.path, tree = false)
+                ?.takeIf { com.droid.wayfinder.data.MediaInspector.isLocalSeekableContentUri(it) }
             else -> null
         }
         return if (directUri != null) {
