@@ -72,23 +72,43 @@ import kotlinx.coroutines.launch
  * MainActivity feeds every MotionEvent here so desktop click semantics still apply.
  */
 object PointerSource {
+    private const val CLASSIFICATION_MULTI_FINGER_SWIPE = 4
+    private const val CLASSIFICATION_PINCH = 5
+
     @Volatile var precise: Boolean = false
         private set
 
+    fun isMultiFingerOrGesture(ev: android.view.MotionEvent): Boolean {
+        if (ev.pointerCount > 1) return true
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            val c = ev.classification
+            if (c == android.view.MotionEvent.CLASSIFICATION_TWO_FINGER_SWIPE ||
+                c == CLASSIFICATION_MULTI_FINGER_SWIPE ||
+                c == CLASSIFICATION_PINCH
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
     fun update(ev: android.view.MotionEvent) {
+        if (isMultiFingerOrGesture(ev)) {
+            precise = false
+            return
+        }
         if (ev.actionMasked != android.view.MotionEvent.ACTION_DOWN &&
             ev.actionMasked != android.view.MotionEvent.ACTION_BUTTON_PRESS
         ) {
             return
         }
-        val swipe = android.os.Build.VERSION.SDK_INT >= 34 &&
-            (ev.classification == android.view.MotionEvent.CLASSIFICATION_TWO_FINGER_SWIPE ||
-                ev.classification == 4 /* CLASSIFICATION_MULTI_FINGER_SWIPE */)
-        precise = !swipe && (
-            ev.getToolType(0) == android.view.MotionEvent.TOOL_TYPE_MOUSE ||
-                ev.isFromSource(android.view.InputDevice.SOURCE_MOUSE) ||
-                ev.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD)
-            )
+        precise = ev.getToolType(0) == android.view.MotionEvent.TOOL_TYPE_MOUSE ||
+            ev.isFromSource(android.view.InputDevice.SOURCE_MOUSE) ||
+            ev.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD)
+    }
+
+    internal fun resetForTest() {
+        precise = false
     }
 }
 
@@ -554,6 +574,7 @@ fun Modifier.rubberBand(
     onEmptyClick: () -> Unit,
     onSecondary: (Offset) -> Unit,
     onLongPress: (Offset) -> Unit = onSecondary,
+    onDragEnd: () -> Unit = {},
 ): Modifier = composed {
     val scope = rememberCoroutineScope()
     val holder = remember { arrayOfNulls<LayoutCoordinates>(1) }
@@ -567,6 +588,7 @@ fun Modifier.rubberBand(
     val empty by rememberUpdatedState(onEmptyClick)
     val sec by rememberUpdatedState(onSecondary)
     val lp by rememberUpdatedState(onLongPress)
+    val dragEnd by rememberUpdatedState(onDragEnd)
     val menu = LocalMenu.current
     val vc = LocalViewConfiguration.current
     this
@@ -654,6 +676,9 @@ fun Modifier.rubberBand(
                     return@awaitEachGesture
                 }
                 if (!currentEvent.isPrimaryMouseAction()) return@awaitEachGesture
+                val allowMarqueeDrag = android.os.Build.VERSION.SDK_INT >= 34 ||
+                    down.type == PointerType.Mouse ||
+                    currentEvent.buttons.isPrimaryPressed
 
                 val initialSelection = selectionProvider()
                 if (state.isDraggableHit(downRoot, initialSelection, canDragProvider)) {
@@ -675,6 +700,7 @@ fun Modifier.rubberBand(
                 var autoScrollJob: Job? = null
                 var pendingLayout = false
                 var lastPointerLocal = down.position
+                var lastDispatchedSelection: Set<String>? = null
 
                 fun syncSelection(sess: MarqueeSession, ingestVisible: Boolean) {
                     val coords = holder[0]
@@ -693,7 +719,11 @@ fun Modifier.rubberBand(
                         sess.updateVisibleItems(visibleLocal)
                     }
                     state.overlayRect = sess.overlayRect(vpSize.width.toFloat(), vpSize.height.toFloat())
-                    select(sess.computeSelection(validPathsProvider()))
+                    val computed = sess.computeSelection(validPathsProvider())
+                    if (computed != lastDispatchedSelection) {
+                        lastDispatchedSelection = computed
+                        select(computed)
+                    }
                 }
 
                 fun ensureAutoScrollLoop(sess: MarqueeSession) {
@@ -734,6 +764,14 @@ fun Modifier.rubberBand(
                 try {
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.count { it.pressed } > 1 ||
+                            (!PointerSource.precise && down.type != PointerType.Mouse)
+                        ) {
+                            if (dragging && lastDispatchedSelection != initialSelection) {
+                                select(initialSelection)
+                            }
+                            break
+                        }
                         if (dragging && event.type == PointerEventType.Scroll) {
                             val sess = session
                             val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
@@ -756,6 +794,8 @@ fun Modifier.rubberBand(
                         if (!change.pressed) {
                             if (dragging) {
                                 change.consume()
+                                session?.let { syncSelection(it, ingestVisible = true) }
+                                dragEnd()
                             } else {
                                 val finalEvent = awaitPointerEvent(PointerEventPass.Final)
                                 val finalUp = finalEvent.changes.firstOrNull { it.id == down.id }
@@ -769,6 +809,7 @@ fun Modifier.rubberBand(
                         lastPointerLocal = change.position
                         if (!dragging) {
                             if ((change.position - down.position).getDistance() >= slopPx) {
+                                if (!allowMarqueeDrag) break
                                 dragging = true
                                 val sess = MarqueeSession(
                                     startContentX = down.position.x,

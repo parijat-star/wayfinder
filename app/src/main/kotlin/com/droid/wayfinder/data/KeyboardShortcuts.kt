@@ -35,7 +35,7 @@ object KeyboardShortcuts {
     private const val CTRL_SHIFT = CTRL or SHIFT
     private const val ALT_SHIFT = ALT or SHIFT
 
-    val sections: List<KeyboardShortcutSection> = listOf(
+    fun sectionsFor(dualPane: Boolean): List<KeyboardShortcutSection> = listOf(
         KeyboardShortcutSection(
             titleRes = R.string.shortcut_group_tabs_windows,
             entries = listOf(
@@ -52,17 +52,20 @@ object KeyboardShortcuts {
         ),
         KeyboardShortcutSection(
             titleRes = R.string.shortcut_group_navigate,
-            entries = listOf(
-                KeyboardShortcutEntry(R.string.shortcut_back, KeyEvent.KEYCODE_DPAD_LEFT, ALT),
-                KeyboardShortcutEntry(R.string.shortcut_forward, KeyEvent.KEYCODE_DPAD_RIGHT, ALT),
-                KeyboardShortcutEntry(R.string.shortcut_up_one_level, KeyEvent.KEYCODE_DPAD_UP, ALT),
-                KeyboardShortcutEntry(R.string.shortcut_open, KeyEvent.KEYCODE_ENTER),
-                KeyboardShortcutEntry(R.string.shortcut_quick_look, KeyEvent.KEYCODE_SPACE),
-                KeyboardShortcutEntry(R.string.shortcut_address_bar, KeyEvent.KEYCODE_L, CTRL),
-                KeyboardShortcutEntry(R.string.shortcut_search, KeyEvent.KEYCODE_F, CTRL),
-                KeyboardShortcutEntry(R.string.shortcut_refresh, KeyEvent.KEYCODE_R, CTRL),
-                KeyboardShortcutEntry(R.string.shortcut_connect_server, KeyEvent.KEYCODE_K, CTRL_SHIFT),
-            ),
+            entries = buildList {
+                add(KeyboardShortcutEntry(R.string.shortcut_back, KeyEvent.KEYCODE_DPAD_LEFT, ALT))
+                add(KeyboardShortcutEntry(R.string.shortcut_forward, KeyEvent.KEYCODE_DPAD_RIGHT, ALT))
+                add(KeyboardShortcutEntry(R.string.shortcut_up_one_level, KeyEvent.KEYCODE_DPAD_UP, ALT))
+                add(KeyboardShortcutEntry(R.string.shortcut_open, KeyEvent.KEYCODE_ENTER))
+                add(KeyboardShortcutEntry(R.string.shortcut_quick_look, KeyEvent.KEYCODE_SPACE))
+                add(KeyboardShortcutEntry(R.string.shortcut_address_bar, KeyEvent.KEYCODE_L, CTRL))
+                add(KeyboardShortcutEntry(R.string.shortcut_search, KeyEvent.KEYCODE_F, CTRL))
+                add(KeyboardShortcutEntry(R.string.shortcut_refresh, KeyEvent.KEYCODE_R, CTRL))
+                if (!dualPane) {
+                    add(KeyboardShortcutEntry(R.string.shortcut_refresh_f5, KeyEvent.KEYCODE_F5))
+                }
+                add(KeyboardShortcutEntry(R.string.shortcut_connect_server, KeyEvent.KEYCODE_K, CTRL_SHIFT))
+            },
         ),
         KeyboardShortcutSection(
             titleRes = R.string.shortcut_group_select_edit,
@@ -93,6 +96,7 @@ object KeyboardShortcuts {
                 KeyboardShortcutEntry(R.string.shortcut_view_details, KeyEvent.KEYCODE_1, CTRL),
                 KeyboardShortcutEntry(R.string.shortcut_view_grid, KeyEvent.KEYCODE_2, CTRL),
                 KeyboardShortcutEntry(R.string.shortcut_view_columns, KeyEvent.KEYCODE_3, CTRL),
+                KeyboardShortcutEntry(R.string.shortcut_view_dual_pane, KeyEvent.KEYCODE_4, CTRL),
                 KeyboardShortcutEntry(R.string.shortcut_hidden_files, KeyEvent.KEYCODE_H, CTRL),
                 KeyboardShortcutEntry(R.string.shortcut_pin_folder, KeyEvent.KEYCODE_B, CTRL),
                 KeyboardShortcutEntry(R.string.shortcut_toggle_sidebar, KeyEvent.KEYCODE_BACKSLASH, CTRL),
@@ -106,17 +110,21 @@ object KeyboardShortcuts {
         ),
         KeyboardShortcutSection(
             titleRes = R.string.shortcut_group_dual_pane,
-            entries = listOf(
-                KeyboardShortcutEntry(R.string.shortcut_toggle_dual_pane, KeyEvent.KEYCODE_F3),
-                KeyboardShortcutEntry(R.string.shortcut_switch_pane, KeyEvent.KEYCODE_TAB),
-                KeyboardShortcutEntry(R.string.shortcut_copy_other_pane, KeyEvent.KEYCODE_F5),
-                KeyboardShortcutEntry(R.string.shortcut_move_other_pane, KeyEvent.KEYCODE_F6),
-            ),
+            entries = buildList {
+                add(KeyboardShortcutEntry(R.string.shortcut_toggle_dual_pane, KeyEvent.KEYCODE_F3))
+                if (dualPane) {
+                    add(KeyboardShortcutEntry(R.string.shortcut_switch_pane, KeyEvent.KEYCODE_TAB))
+                    add(KeyboardShortcutEntry(R.string.shortcut_copy_other_pane, KeyEvent.KEYCODE_F5))
+                    add(KeyboardShortcutEntry(R.string.shortcut_move_other_pane, KeyEvent.KEYCODE_F6))
+                }
+            },
         ),
     )
 
-    fun toSystemGroups(context: Context): List<KeyboardShortcutGroup> =
-        sections.map { section ->
+    val sections: List<KeyboardShortcutSection> = sectionsFor(dualPane = true)
+
+    fun toSystemGroups(context: Context, dualPane: Boolean = true): List<KeyboardShortcutGroup> =
+        sectionsFor(dualPane).map { section ->
             KeyboardShortcutGroup(
                 context.getString(section.titleRes),
                 section.entries.map { entry ->

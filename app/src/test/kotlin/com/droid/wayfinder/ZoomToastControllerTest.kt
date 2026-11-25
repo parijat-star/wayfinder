@@ -87,4 +87,39 @@ class ZoomToastControllerTest {
         assertTrue(undone)
         assertNull(host.currentSnackbarData)
     }
+
+    @Test
+    fun ephemeralZoomOrThemeToastDoesNotDismissActiveUndoSnackbar() = runTest {
+        val host = SnackbarHostState()
+        val controller = TransientSnackbarController(host, this)
+        var undone = false
+
+        controller.show("Moved 3 items to Trash", actionLabel = "Undo", onAction = { undone = true })
+        runCurrent()
+        val undoData = host.currentSnackbarData
+        assertEquals("Moved 3 items to Trash", undoData?.visuals?.message)
+
+        // Firing ephemeral zoom/theme status toasts while Undo is active must not clobber Undo.
+        controller.show("Interface zoom: 110%", key = "zoom", durationMs = 1_500L)
+        controller.show("Theme: Dark", key = "theme", durationMs = 1_500L)
+        runCurrent()
+
+        assertSame(undoData, host.currentSnackbarData)
+        assertEquals("Moved 3 items to Trash", host.currentSnackbarData?.visuals?.message)
+
+        host.currentSnackbarData?.performAction()
+        runCurrent()
+        assertTrue(undone)
+        assertNull(host.currentSnackbarData)
+    }
+
+    @Test
+    fun zeroTimeoutEphemeralToastDismissesCleanlyWithoutStickingIndefinitely() = runTest {
+        val host = SnackbarHostState()
+        val controller = TransientSnackbarController(host, this) { _, _ -> 0L }
+
+        controller.show("Interface zoom: 100%", key = "zoom", durationMs = 1_500L)
+        runCurrent()
+        assertNull(host.currentSnackbarData)
+    }
 }

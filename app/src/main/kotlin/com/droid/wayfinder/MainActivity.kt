@@ -187,7 +187,8 @@ class MainActivity : ComponentActivity() {
         deviceId: Int,
     ) {
         super.onProvideKeyboardShortcuts(data, menu, deviceId)
-        data?.addAll(com.droid.wayfinder.data.KeyboardShortcuts.toSystemGroups(this))
+        val vm = vmOrNull ?: return
+        data?.addAll(com.droid.wayfinder.data.KeyboardShortcuts.toSystemGroups(this, dualPane = vm.state.value.dualPane))
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
