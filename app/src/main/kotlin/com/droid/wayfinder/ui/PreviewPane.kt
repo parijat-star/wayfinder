@@ -117,8 +117,9 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                     if (!e.isDir) Fact("Size", formatSize(e.size))
                     Fact("Modified", formatDateFull(e.modified))
                     Fact("Location", s.displayPath(FsPath.parent(e.path) ?: e.path, " / "))
+                    val inTrash = vm.isInTrash(e.path) || vm.isInTrash(tab.path)
                     if (FsPath.isLocalFile(e.path)) PosixFact(e)
-                    if (!e.isServer && !e.isShare) MarksEditor(vm, s, e)
+                    if (!e.isServer && !e.isShare && !inTrash) MarksEditor(vm, s, e)
                     val btnPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                     val btnMod = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).focusRing(RoundedCornerShape(20.dp))
                     FlowRow(
@@ -132,14 +133,14 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                                 Text(stringResource(R.string.onedrive_action_open_web), maxLines = 1, softWrap = false)
                             }
                         }
-                        if (FsPath.isLocalFile(e.path) && !e.isDir) FilledTonalButton({ vm.share() }, modifier = btnMod, contentPadding = btnPadding) { Text("Share", maxLines = 1, softWrap = false) }
-                        if (!e.isServer && !e.isShare && !FsPath.isZip(e.path) && !FsPath.isVirtual(e.path)) {
+                        if (FsPath.isLocalFile(e.path) && !e.isDir && !inTrash) FilledTonalButton({ vm.share() }, modifier = btnMod, contentPadding = btnPadding) { Text("Share", maxLines = 1, softWrap = false) }
+                        if (!e.isServer && !e.isShare && !FsPath.isZip(e.path) && !FsPath.isVirtual(e.path) && !inTrash) {
                             val pinned = e.path in s.pins
                             FilledTonalButton({ vm.togglePin(e.path) }, modifier = btnMod, contentPadding = btnPadding) {
                                 Text(if (pinned) "Unpin" else "Pin", maxLines = 1, softWrap = false)
                             }
                         }
-                        if (!e.isServer && !e.isShare && !FsPath.isZip(e.path)) FilledTonalButton({ vm.requestRename() }, modifier = btnMod, contentPadding = btnPadding) { Text("Rename", maxLines = 1, softWrap = false) }
+                        if (!e.isServer && !e.isShare && !FsPath.isZip(e.path) && !inTrash) FilledTonalButton({ vm.requestRename() }, modifier = btnMod, contentPadding = btnPadding) { Text("Rename", maxLines = 1, softWrap = false) }
                     }
                     if (!e.isDir && FsPath.isLocalFile(e.path) && (e.kind == FileKind.Text || e.kind == FileKind.Code)) TextSnippet(e)
                 }

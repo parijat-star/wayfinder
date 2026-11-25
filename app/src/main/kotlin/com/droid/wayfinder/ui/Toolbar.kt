@@ -325,7 +325,7 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
     if (s.addressEditing) {
         val fr = remember { FocusRequester() }
         val initialAddress = remember(tab.path, s.rootLabels) {
-            if (tab.path == FsPath.TRASH_ROOT) "" else s.displayPath(tab.path, "/")
+            if (vm.isInTrash(tab.path)) "" else s.displayPath(tab.path, "/")
         }
         var tf by remember(tab.path) { mutableStateOf(TextFieldValue(initialAddress, TextRange(0, initialAddress.length))) }
         var hadFocus by remember { mutableStateOf(false) }
@@ -357,7 +357,7 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             )
         }
     } else {
-        val crumbs = FsPath.breadcrumbs(tab.path, s.rootLabels)
+        val crumbs = vm.trashBreadcrumbs(tab.path) ?: FsPath.breadcrumbs(tab.path, s.rootLabels)
         val scroll = rememberScrollState()
         LaunchedEffect(tab.path, crumbs.size) { scroll.scrollTo(scroll.maxValue) }
         Row(
@@ -652,7 +652,7 @@ private fun OverflowMenu(
 ) {
     val cs = MaterialTheme.colorScheme
     var open by remember { mutableStateOf(false) }
-    val virtual = FsPath.isReadOnly(s.active.path)
+    val virtual = FsPath.isReadOnly(s.active.path) || vm.isInTrash(s.active.path)
     val moreTooltip = stringResource(R.string.tooltip_more_options)
     val moreDesc = stringResource(R.string.action_more_options)
     val focusCoord = LocalFocusCoordinator.current
@@ -692,8 +692,8 @@ private fun OverflowMenu(
             DropdownMenuItem({ Text("New folder") }, { open = false; vm.requestNewItem(true) }, enabled = !virtual, trailingIcon = { Hint("Ctrl+Shift+N") })
             DropdownMenuItem({ Text("New text file") }, { open = false; vm.requestNewItem(false) }, enabled = !virtual, trailingIcon = { Hint("Ctrl+Shift+M") })
             DropdownMenuItem({ Text("Select all") }, { open = false; vm.selectAll() }, trailingIcon = { Hint("Ctrl+A") })
-            val pinTargets = s.active.selectedEntries(s.showHidden).filter { !it.isServer && !it.isShare && !FsPath.isZip(it.path) && !FsPath.isVirtual(it.path) }.map { it.path }
-                .ifEmpty { listOf(s.active.path).filter { !FsPath.isVirtual(it) && !FsPath.isZip(it) } }
+            val pinTargets = s.active.selectedEntries(s.showHidden).filter { !it.isServer && !it.isShare && !FsPath.isZip(it.path) && !FsPath.isVirtual(it.path) && !vm.isInTrash(it.path) }.map { it.path }
+                .ifEmpty { listOf(s.active.path).filter { !FsPath.isVirtual(it) && !FsPath.isZip(it) && !vm.isInTrash(it) } }
             if (pinTargets.isNotEmpty()) {
                 val pinned = pinTargets.all { it in s.pins }
                 DropdownMenuItem(

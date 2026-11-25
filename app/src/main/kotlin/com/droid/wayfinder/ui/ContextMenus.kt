@@ -177,14 +177,34 @@ val StarColor = Color(0xFFF4B400)
 fun fileMenu(vm: BrowserViewModel, s: AppState, entry: FileEntry): List<MenuEntry> {
     val tab = s.active
     val sel = tab.selectedEntries(s.showHidden)
-    val inTrash = FsPath.isWithin(FsPath.TRASH_ROOT, tab.path) || tab.path == FsPath.TRASH_ROOT
+    val inTrash = vm.isInTrash(tab.path) || sel.any { vm.isInTrash(it.path) } || vm.isInTrash(entry.path)
     val single = sel.size == 1
-    if (inTrash) return listOf(
-        item(vm.str(R.string.action_restore), Icons.Outlined.Restore) { vm.restoreFromTrash() },
-        item(vm.str(R.string.action_delete_permanently), Icons.Outlined.DeleteForever, "Del") { vm.requestDelete(true) },
-        MenuEntry.Divider,
-        item(vm.str(R.string.action_properties), Icons.Outlined.Info, "Ctrl+I") { vm.showProperties() },
-    )
+    if (inTrash) return buildList {
+        if (single && entry.isDir) {
+            add(item(vm.str(R.string.action_open), Icons.AutoMirrored.Outlined.OpenInNew, "Enter") { vm.openSelection() })
+            add(MenuEntry.Divider)
+        }
+        add(
+            item(
+                vm.str(R.string.action_restore),
+                Icons.Outlined.Restore,
+                enabled = sel.isNotEmpty() && sel.all { vm.canRestoreFromTrash(it.path) },
+            ) { vm.restoreFromTrash() },
+        )
+        add(
+            item(
+                vm.str(R.string.action_delete_permanently),
+                Icons.Outlined.DeleteForever,
+                "Del",
+                enabled = sel.isNotEmpty(),
+            ) { vm.requestDelete(true) },
+        )
+        add(MenuEntry.Divider)
+        add(item(vm.str(R.string.action_copy), Icons.Outlined.ContentCopy, "Ctrl+C", enabled = sel.isNotEmpty()) { vm.copy() })
+        add(item(vm.str(R.string.action_copy_path), Icons.Outlined.Link, "Ctrl+Shift+C") { vm.copyPathToClipboard() })
+        add(MenuEntry.Divider)
+        add(item(vm.str(R.string.action_properties), Icons.Outlined.Info, "Ctrl+I") { vm.showProperties() })
+    }
     val dirs = sel.filter { it.isDir }
     val isArchive = single && vm.isBrowsableArchive(entry)
     val canExtract = sel.any { vm.isBrowsableArchive(it) }
@@ -258,6 +278,12 @@ fun backgroundMenu(vm: BrowserViewModel, s: AppState): List<MenuEntry> {
     if (tab.path == FsPath.TRASH_ROOT) return listOf(
         item(vm.str(R.string.action_empty_trash), Icons.Outlined.DeleteForever) { vm.emptyTrash() },
         item(vm.str(R.string.action_refresh), Icons.Outlined.Refresh, "F5") { vm.refresh() },
+    )
+    if (vm.isInTrash(tab.path)) return listOf(
+        item(vm.str(R.string.action_select_all), Icons.Outlined.SelectAll, "Ctrl+A") { vm.selectAll() },
+        item(vm.str(R.string.action_refresh), Icons.Outlined.Refresh, if (s.dualPane) "Ctrl+R" else "F5") { vm.refresh() },
+        MenuEntry.Divider,
+        item(vm.str(R.string.action_properties), Icons.Outlined.Info, "Ctrl+I") { vm.showProperties() },
     )
     if (tab.path == FsPath.SMB_ROOT) return listOf(
         item(vm.str(R.string.action_connect_to_server_ellipsis), Icons.Outlined.Link, "Ctrl+Shift+K") { vm.showConnectDialog() },
