@@ -334,13 +334,19 @@ class OneDriveRestFileSystem(
             throw e
         }
 
-        return object : FilterOutputStream(fos) {
+        return object : FilterOutputStream(fos), AbortableOutputStream {
             private var closed = false
+            private var aborted = false
+
+            override fun abort() {
+                aborted = true
+            }
 
             override fun write(b: Int) {
                 try {
                     out.write(b)
                 } catch (e: IOException) {
+                    aborted = true
                     tmp.delete()
                     throw e
                 }
@@ -350,6 +356,7 @@ class OneDriveRestFileSystem(
                 try {
                     out.write(b, off, len)
                 } catch (e: IOException) {
+                    aborted = true
                     tmp.delete()
                     throw e
                 }
@@ -359,7 +366,8 @@ class OneDriveRestFileSystem(
                 if (closed) return
                 closed = true
                 try {
-                    super.close()
+                    runCatching { super.close() }.onFailure { if (!aborted) throw it }
+                    if (aborted) return
                     val totalBytes = tmp.length()
                     if (totalBytes <= simpleUploadLimitBytes) {
                         uploadSimple(accountId, segs, tmp)

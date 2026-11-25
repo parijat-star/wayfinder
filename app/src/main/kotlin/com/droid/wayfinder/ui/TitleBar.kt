@@ -451,6 +451,8 @@ private fun TabItem(
             if (showIcon) {
                 if (FsPath.isOneDrive(tab.path)) {
                     OneDriveIcon(Modifier.size(18.dp))
+                } else if (FsPath.isDropbox(tab.path)) {
+                    DropboxIcon(Modifier.size(18.dp))
                 } else {
                     val icon = when {
                         com.droid.wayfinder.data.SystemDocumentsBridge.isPhonePath(tab.path) -> if (s.phoneConnected || FsPath.isDoc(tab.path)) Icons.Outlined.Smartphone else pinIcon(tab.path)

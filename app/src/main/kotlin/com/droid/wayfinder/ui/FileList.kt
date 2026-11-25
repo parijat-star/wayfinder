@@ -467,6 +467,9 @@ private fun ErrorView(vm: BrowserViewModel, tab: TabState) {
             if (FsPath.isOneDrive(e.authHost)) {
                 val accId = e.authHost.removePrefix("onedrive://").substringBefore('/').takeIf { it.isNotBlank() }
                 Button({ vm.showConnectOneDriveDialog(accId) }, modifier = btnMod) { Text("Sign in") }
+            } else if (FsPath.isDropbox(e.authHost)) {
+                val accId = e.authHost.removePrefix("dropbox://").substringBefore('/').takeIf { it.isNotBlank() }
+                Button({ vm.showConnectDropboxDialog(accId) }, modifier = btnMod) { Text("Sign in") }
             } else {
                 Button({ vm.showDialog(Dialog.SmbAuth(e.authHost)) }, modifier = btnMod) { Text("Sign in") }
             }

@@ -29,6 +29,22 @@ interface RemoteFileSystem : FileSystem {
     fun disconnect(key: String)
 }
 
+/** Optional hook on staged [OutputStream]s so failed or cancelled writes discard temp buffers without uploading partial bytes. */
+interface AbortableOutputStream {
+    fun abort()
+}
+
+/** Runs [block] and closes this [OutputStream], calling [AbortableOutputStream.abort] before `close()` if [block] throws. */
+inline fun <R> OutputStream.useCommit(block: (OutputStream) -> R): R =
+    use { out ->
+        try {
+            block(out)
+        } catch (t: Throwable) {
+            (out as? AbortableOutputStream)?.abort()
+            throw t
+        }
+    }
+
 class LocalFileSystem : FileSystem {
     private fun toEntry(f: File): FileEntry {
         val mode = FileInfo.mode(f.path)

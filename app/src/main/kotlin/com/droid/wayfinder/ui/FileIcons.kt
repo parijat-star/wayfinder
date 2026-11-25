@@ -110,7 +110,9 @@ fun pinIcon(path: String, isKnownFile: Boolean = false): ImageVector {
     if (isKnownFile) {
         return FileKind.fromName(com.droid.wayfinder.data.FsPath.name(path)).icon()
     }
-    if (com.droid.wayfinder.data.FsPath.isOneDrive(path) && com.droid.wayfinder.data.RemoteUri.relOf(path).isEmpty()) {
+    if ((com.droid.wayfinder.data.FsPath.isOneDrive(path) || com.droid.wayfinder.data.FsPath.isDropbox(path)) &&
+        com.droid.wayfinder.data.RemoteUri.relOf(path).isEmpty()
+    ) {
         return Icons.Outlined.Cloud
     }
     val name = path.substringAfterLast('/')
@@ -250,5 +252,45 @@ fun OneDriveIcon(modifier: Modifier = Modifier) {
             size = androidx.compose.ui.geometry.Size(w * 0.42f, h * 0.18f),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(h * 0.09f, h * 0.09f),
         )
+    }
+}
+
+/**
+ * Geometric open-box diamond emblem (#0061FF) for Dropbox accounts rendered via Canvas.
+ */
+@Composable
+fun DropboxIcon(modifier: Modifier = Modifier) {
+    Canvas(
+        modifier = modifier
+            .defaultMinSize(minWidth = 20.dp, minHeight = 20.dp)
+            .semantics { contentDescription = "Dropbox" },
+    ) {
+        val w = size.width
+        val h = size.height
+        val dropboxBlue = Color(0xFF0061FF)
+
+        fun diamond(
+            x0: Float, y0: Float,
+            x1: Float, y1: Float,
+            x2: Float, y2: Float,
+            x3: Float, y3: Float,
+        ): Path = Path().apply {
+            moveTo(w * x0, h * y0)
+            lineTo(w * x1, h * y1)
+            lineTo(w * x2, h * y2)
+            lineTo(w * x3, h * y3)
+            close()
+        }
+
+        // Top-left flap
+        drawPath(diamond(0.28f, 0.12f, 0.50f, 0.27f, 0.28f, 0.42f, 0.06f, 0.27f), dropboxBlue)
+        // Top-right flap
+        drawPath(diamond(0.72f, 0.12f, 0.94f, 0.27f, 0.72f, 0.42f, 0.50f, 0.27f), dropboxBlue)
+        // Bottom-left flap
+        drawPath(diamond(0.28f, 0.42f, 0.50f, 0.57f, 0.28f, 0.72f, 0.06f, 0.57f), dropboxBlue)
+        // Bottom-right flap
+        drawPath(diamond(0.72f, 0.42f, 0.94f, 0.57f, 0.72f, 0.72f, 0.50f, 0.57f), dropboxBlue)
+        // Lower center base diamond
+        drawPath(diamond(0.50f, 0.62f, 0.72f, 0.77f, 0.50f, 0.91f, 0.28f, 0.77f), dropboxBlue)
     }
 }
