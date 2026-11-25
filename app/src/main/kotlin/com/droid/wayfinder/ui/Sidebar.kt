@@ -30,7 +30,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.MyLocation
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Smartphone
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.UnfoldLess
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +63,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -131,16 +134,19 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
     val activePath = s.active.path
     // Inside an archive the tree highlights the folder that holds the .zip.
     val treePath = FsPath.zipSplit(activePath)?.first?.let { FsPath.parent(it) } ?: activePath
-    val locations = remember(s.roots, s.linuxRootPath, s.tree, s.showHidden) {
+    val vis = s.sidebarVisibility
+    val locations = remember(s.roots, s.linuxRootPath, s.tree, s.showHidden, vis.linuxFiles) {
         buildList {
             s.roots.forEach {
-                val isBeta = com.droid.wayfinder.data.GooglebookEcosystem.isLinuxLocation(it.path, it.label, s.linuxRootPath)
-                flatten(it.path, it.label, rootIcon(it.removable), null, 0, s, this, it.subtitle, isBeta = isBeta)
+                val isLinux = com.droid.wayfinder.data.GooglebookEcosystem.isLinuxLocation(it.path, it.label, s.linuxRootPath)
+                if (!isLinux || vis.linuxFiles) {
+                    flatten(it.path, it.label, rootIcon(it.removable), null, 0, s, this, it.subtitle, isBeta = isLinux)
+                }
             }
         }
     }
-    val driveRows = remember(s.driveAccounts, s.tree, s.showHidden) {
-        buildList {
+    val driveRows = remember(s.driveAccounts, s.tree, s.showHidden, vis.googleDrive) {
+        if (!vis.googleDrive) emptyList() else buildList {
             s.driveAccounts.forEach { acc ->
                 val rootPath = acc.mountPath ?: "gdrive://${acc.email}/root"
                 if (acc.isMounted && acc.mountPath != null) {
@@ -151,8 +157,8 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             }
         }
     }
-    val oneDriveRows = remember(s.oneDriveAccounts, s.tree, s.showHidden) {
-        buildList {
+    val oneDriveRows = remember(s.oneDriveAccounts, s.tree, s.showHidden, vis.oneDrive) {
+        if (!vis.oneDrive) emptyList() else buildList {
             s.oneDriveAccounts.forEach { acc ->
                 flatten(
                     acc.rootPath,
@@ -168,8 +174,8 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             }
         }
     }
-    val dropboxRows = remember(s.dropboxAccounts, s.tree, s.showHidden) {
-        buildList {
+    val dropboxRows = remember(s.dropboxAccounts, s.tree, s.showHidden, vis.dropbox) {
+        if (!vis.dropbox) emptyList() else buildList {
             s.dropboxAccounts.forEach { acc ->
                 flatten(
                     acc.rootPath,
@@ -185,8 +191,8 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             }
         }
     }
-    val phoneRows = remember(s.pairedPhone, s.quickAccessAvailable, s.tree, s.showHidden) {
-        buildList {
+    val phoneRows = remember(s.pairedPhone, s.quickAccessAvailable, s.tree, s.showHidden, vis.phone) {
+        if (!vis.phone) emptyList() else buildList {
             val phone = s.pairedPhone ?: if (s.quickAccessAvailable) {
                 com.droid.wayfinder.data.PairedPhone(
                     name = "Phone",
@@ -214,17 +220,21 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
             setOfNotNull(s.pairedPhone?.path?.takeIf { it != FsPath.PHONE_ROOT })
     }
     // Saved servers and cloud / SAF mounts first (with eject buttons), filtering out those mapped to Drive accounts or Phone
-    val mountRows = remember(s.mounts, s.linuxRootPath, s.tree, s.showHidden, specialMountPaths) {
-        buildList {
+    val mountRows = remember(s.mounts, s.linuxRootPath, s.tree, s.showHidden, specialMountPaths, vis.networkAndCloud, vis.linuxFiles) {
+        if (!vis.networkAndCloud) emptyList() else buildList {
             s.mounts.filter { it.path !in specialMountPaths }.forEach { m ->
-                val isBeta = com.droid.wayfinder.data.GooglebookEcosystem.isLinuxLocation(m.path, m.label, s.linuxRootPath)
-                flatten(m.path, m.label, if (m.saf) Icons.Outlined.Cloud else Icons.Outlined.Dns, null, 0, s, this, isBeta = isBeta)
+                val isLinux = com.droid.wayfinder.data.GooglebookEcosystem.isLinuxLocation(m.path, m.label, s.linuxRootPath)
+                if (!isLinux || vis.linuxFiles) {
+                    flatten(m.path, m.label, if (m.saf) Icons.Outlined.Cloud else Icons.Outlined.Dns, null, 0, s, this, isBeta = isLinux)
+                }
             }
         }
     }
-    val network = remember(s.network, s.mounts, s.tree, s.showHidden) {
-        val mounted = s.mounts.mapTo(HashSet()) { it.path }
-        buildList { s.network.filter { it.path !in mounted }.forEach { flatten(it.path, it.name, it.icon(), null, 0, s, this) } }
+    val network = remember(s.network, s.mounts, s.tree, s.showHidden, vis.networkAndCloud) {
+        if (!vis.networkAndCloud) emptyList() else {
+            val mounted = s.mounts.mapTo(HashSet()) { it.path }
+            buildList { s.network.filter { it.path !in mounted }.forEach { flatten(it.path, it.name, it.icon(), null, 0, s, this) } }
+        }
     }
     val listState = rememberLazyListState()
     val locStart = remember { IntArray(1) }
@@ -340,7 +350,7 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         }; n++
         locStart[0] = n
         items(locations, key = { "loc${it.path}" }) { r -> TreeItem(vm, s, r, treePath, menu) }
-        if (s.linuxProviderAuthority != null && s.linuxRootPath == null) {
+        if (vis.linuxFiles && s.linuxProviderAuthority != null && s.linuxRootPath == null) {
             item(key = "linux_mount_prompt") {
                 SidebarItem(
                     label = "Linux files",
@@ -351,14 +361,17 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                     subtitle = "Click to mount Linux folder",
                     badge = stringResource(R.string.badge_beta),
                     onClick = { vm.requestMountLinuxFiles() },
+                    onSecondary = { menu.show(it, sidebarSectionMenu(vm, com.droid.wayfinder.data.SidebarModule.LinuxFiles)) },
                 )
             }
         }
 
         // Paired phone (e.g. Pixel 9 · Internal storage) matching the system Files app layout
-        items(phoneRows, key = { "phone${it.depth}${it.path}" }) { r ->
-            val mount = if (r.depth == 0) s.mounts.firstOrNull { it.path == r.path } else null
-            TreeItem(vm, s, r, activePath, menu, mount = mount)
+        if (vis.phone) {
+            items(phoneRows, key = { "phone${it.depth}${it.path}" }) { r ->
+                val mount = if (r.depth == 0) s.mounts.firstOrNull { it.path == r.path } else null
+                TreeItem(vm, s, r, activePath, menu, mount = mount)
+            }
         }
 
         // Enterprise Work Profile switching via CrossProfileApps
@@ -377,108 +390,134 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
         }
 
         // Google Drive integration matching system Files app
-        item { Divider() }
-        item {
-            SectionTitle(stringResource(R.string.google_drive_section), trailing = {
-                HeaderAction(Icons.Outlined.AddToDrive, stringResource(R.string.action_mount_drive_folder)) {
-                    if (s.driveAccounts.isEmpty()) vm.requestGoogleAccountSignIn() else vm.requestMountSaf(s.driveAccounts.first().email)
-                }
-            })
-        }
-        if (driveRows.isEmpty()) {
+        if (vis.googleDrive) {
+            item { Divider() }
             item {
-                SidebarItem(
-                    label = "Sign in to Google Drive…",
-                    icon = Icons.Outlined.Cloud,
-                    depth = 0,
-                    selected = false,
-                    dropPath = null,
-                    subtitle = "Connect account or mount Drive folder",
-                    iconComposable = { GoogleDriveIcon(Modifier.size(20.dp)) },
-                    onClick = { vm.requestGoogleAccountSignIn() },
+                SectionTitle(
+                    text = stringResource(R.string.google_drive_section),
+                    onSecondary = { menu.show(it, sidebarSectionMenu(vm, com.droid.wayfinder.data.SidebarModule.GoogleDrive)) },
+                    trailing = {
+                        HeaderAction(Icons.Outlined.AddToDrive, stringResource(R.string.action_mount_drive_folder)) {
+                            if (s.driveAccounts.isEmpty()) vm.requestGoogleAccountSignIn() else vm.requestMountSaf(s.driveAccounts.first().email)
+                        }
+                    },
                 )
             }
-        } else {
-            items(driveRows, key = { "drive${it.depth}${it.path}" }) { r ->
-                val mount = if (r.depth == 0) s.mounts.firstOrNull { it.path == r.path } else null
-                TreeItem(vm, s, r, activePath, menu, mount = mount)
+            if (driveRows.isEmpty()) {
+                item {
+                    SidebarItem(
+                        label = "Sign in to Google Drive…",
+                        icon = Icons.Outlined.Cloud,
+                        depth = 0,
+                        selected = false,
+                        dropPath = null,
+                        subtitle = "Connect account or mount Drive folder",
+                        iconComposable = { GoogleDriveIcon(Modifier.size(20.dp)) },
+                        onClick = { vm.requestGoogleAccountSignIn() },
+                        onSecondary = { menu.show(it, sidebarSectionMenu(vm, com.droid.wayfinder.data.SidebarModule.GoogleDrive)) },
+                    )
+                }
+            } else {
+                items(driveRows, key = { "drive${it.depth}${it.path}" }) { r ->
+                    val mount = if (r.depth == 0) s.mounts.firstOrNull { it.path == r.path } else null
+                    TreeItem(vm, s, r, activePath, menu, mount = mount)
+                }
             }
         }
 
         // Microsoft OneDrive (Personal + Microsoft 365) via Graph v1.0
-        item { Divider() }
-        item {
-            val addOneDriveDesc = stringResource(R.string.onedrive_add_account)
-            SectionTitle(stringResource(R.string.onedrive_section), trailing = {
-                HeaderAction(Icons.Outlined.Add, addOneDriveDesc) { vm.showConnectOneDriveDialog() }
-            })
-        }
-        if (oneDriveRows.isEmpty()) {
-            item(key = "onedrive_empty") {
-                SidebarItem(
-                    label = stringResource(R.string.onedrive_sign_in_prompt),
-                    icon = Icons.Outlined.Cloud,
-                    depth = 0,
-                    selected = false,
-                    dropPath = null,
-                    subtitle = stringResource(R.string.onedrive_sign_in_subtitle),
-                    iconComposable = { OneDriveIcon(Modifier.size(20.dp)) },
-                    onClick = { vm.showConnectOneDriveDialog() },
+        if (vis.oneDrive) {
+            item { Divider() }
+            item {
+                val addOneDriveDesc = stringResource(R.string.onedrive_add_account)
+                SectionTitle(
+                    text = stringResource(R.string.onedrive_section),
+                    onSecondary = { menu.show(it, sidebarSectionMenu(vm, com.droid.wayfinder.data.SidebarModule.OneDrive)) },
+                    trailing = {
+                        HeaderAction(Icons.Outlined.Add, addOneDriveDesc) { vm.showConnectOneDriveDialog() }
+                    },
                 )
             }
-        } else {
-            items(oneDriveRows, key = { "onedrive${it.depth}${it.path}" }) { r ->
-                TreeItem(vm, s, r, activePath, menu)
+            if (oneDriveRows.isEmpty()) {
+                item(key = "onedrive_empty") {
+                    SidebarItem(
+                        label = stringResource(R.string.onedrive_sign_in_prompt),
+                        icon = Icons.Outlined.Cloud,
+                        depth = 0,
+                        selected = false,
+                        dropPath = null,
+                        subtitle = stringResource(R.string.onedrive_sign_in_subtitle),
+                        iconComposable = { OneDriveIcon(Modifier.size(20.dp)) },
+                        onClick = { vm.showConnectOneDriveDialog() },
+                        onSecondary = { menu.show(it, sidebarSectionMenu(vm, com.droid.wayfinder.data.SidebarModule.OneDrive)) },
+                    )
+                }
+            } else {
+                items(oneDriveRows, key = { "onedrive${it.depth}${it.path}" }) { r ->
+                    TreeItem(vm, s, r, activePath, menu)
+                }
             }
         }
 
         // Dropbox (Personal + Business / Team Space) via HTTP API v2
-        item { Divider() }
-        item {
-            val addDropboxDesc = stringResource(R.string.dropbox_add_account)
-            SectionTitle(
-                text = stringResource(R.string.dropbox_section),
-                badge = stringResource(R.string.badge_beta),
-                trailing = {
-                    HeaderAction(Icons.Outlined.Add, addDropboxDesc) { vm.showConnectDropboxDialog() }
-                },
-            )
-        }
-        if (dropboxRows.isEmpty()) {
-            item(key = "dropbox_empty") {
-                SidebarItem(
-                    label = stringResource(R.string.dropbox_sign_in_prompt),
-                    icon = Icons.Outlined.Cloud,
-                    depth = 0,
-                    selected = false,
-                    dropPath = null,
-                    subtitle = stringResource(R.string.dropbox_sign_in_subtitle),
-                    iconComposable = { DropboxIcon(Modifier.size(20.dp)) },
-                    onClick = { vm.showConnectDropboxDialog() },
+        if (vis.dropbox) {
+            item { Divider() }
+            item {
+                val addDropboxDesc = stringResource(R.string.dropbox_add_account)
+                SectionTitle(
+                    text = stringResource(R.string.dropbox_section),
+                    badge = stringResource(R.string.badge_beta),
+                    onSecondary = { menu.show(it, sidebarSectionMenu(vm, com.droid.wayfinder.data.SidebarModule.Dropbox)) },
+                    trailing = {
+                        HeaderAction(Icons.Outlined.Add, addDropboxDesc) { vm.showConnectDropboxDialog() }
+                    },
                 )
             }
-        } else {
-            items(dropboxRows, key = { "dropbox${it.depth}${it.path}" }) { r ->
-                TreeItem(vm, s, r, activePath, menu)
+            if (dropboxRows.isEmpty()) {
+                item(key = "dropbox_empty") {
+                    SidebarItem(
+                        label = stringResource(R.string.dropbox_sign_in_prompt),
+                        icon = Icons.Outlined.Cloud,
+                        depth = 0,
+                        selected = false,
+                        dropPath = null,
+                        subtitle = stringResource(R.string.dropbox_sign_in_subtitle),
+                        iconComposable = { DropboxIcon(Modifier.size(20.dp)) },
+                        onClick = { vm.showConnectDropboxDialog() },
+                        onSecondary = { menu.show(it, sidebarSectionMenu(vm, com.droid.wayfinder.data.SidebarModule.Dropbox)) },
+                    )
+                }
+            } else {
+                items(dropboxRows, key = { "dropbox${it.depth}${it.path}" }) { r ->
+                    TreeItem(vm, s, r, activePath, menu)
+                }
             }
         }
-        item { Divider() }
-        item {
-            SectionTitle(stringResource(R.string.network_and_cloud_section), trailing = {
-                if (s.scanning) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                else HeaderAction(Icons.Outlined.Refresh, stringResource(R.string.action_rescan_network)) { vm.navigate(FsPath.SMB_ROOT); vm.refresh() }
-            })
+
+        if (vis.networkAndCloud) {
+            item { Divider() }
+            item {
+                SectionTitle(
+                    text = stringResource(R.string.network_and_cloud_section),
+                    onSecondary = { menu.show(it, sidebarSectionMenu(vm, com.droid.wayfinder.data.SidebarModule.NetworkAndCloud)) },
+                    trailing = {
+                        if (s.scanning) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                        else HeaderAction(Icons.Outlined.Refresh, stringResource(R.string.action_rescan_network)) { vm.navigate(FsPath.SMB_ROOT); vm.refresh() }
+                    },
+                )
+            }
+            items(mountRows, key = { "mnt${it.depth}${it.path}" }) { r ->
+                TreeItem(vm, s, r, activePath, menu, mount = if (r.depth == 0) s.mounts.firstOrNull { it.path == r.path } else null)
+            }
+            items(network, key = { "net${it.path}" }) { r -> TreeItem(vm, s, r, activePath, menu) }
+            item {
+                SidebarItem("Connect to Server…", Icons.Outlined.Add, 0, false, null, null, onClick = { vm.showConnectDialog() })
+            }
+            item {
+                SidebarItem("Mount Cloud / SAF…", Icons.Outlined.AddToDrive, 0, false, null, null, onClick = { vm.requestMountSaf() })
+            }
         }
-        items(mountRows, key = { "mnt${it.depth}${it.path}" }) { r ->
-            TreeItem(vm, s, r, activePath, menu, mount = if (r.depth == 0) s.mounts.firstOrNull { it.path == r.path } else null)
-        }
-        items(network, key = { "net${it.path}" }) { r -> TreeItem(vm, s, r, activePath, menu) }
-        item {
-            SidebarItem("Connect to Server…", Icons.Outlined.Add, 0, false, null, null, onClick = { vm.showConnectDialog() })
-        }
-        item {
-            SidebarItem("Mount Cloud / SAF…", Icons.Outlined.AddToDrive, 0, false, null, null, onClick = { vm.requestMountSaf() })
-        }
+
         item { Divider() }
         item {
             SidebarItem(
@@ -487,16 +526,34 @@ fun Sidebar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                 onSecondary = { menu.show(it, sidebarMenu(vm, s, FsPath.TRASH_ROOT, false)) },
             )
         }
+        if (vis.colorTags) {
+            item { Divider() }
+            item {
+                SectionTitle(
+                    text = stringResource(R.string.color_tags_section),
+                    onSecondary = { menu.show(it, sidebarSectionMenu(vm, com.droid.wayfinder.data.SidebarModule.ColorTags)) },
+                )
+            }
+            items(ColorTag.entries, key = { "tag${it.name}" }) { t ->
+                val path = FsPath.tagPath(t)
+                val count = s.marks.tags.count { t in it.value }
+                SidebarItem(
+                    t.label, Icons.Filled.Circle, 0, activePath == path, path, tint = Color(t.argb),
+                    trailing = if (count > 0) ({ Text(count.toString(), style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant) }) else null,
+                    onClick = { vm.navigate(path) }, onMiddle = { vm.newTab(path, activate = false) },
+                    onSecondary = { menu.show(it, sidebarMenu(vm, s, path, false) + sidebarSectionMenu(vm, com.droid.wayfinder.data.SidebarModule.ColorTags)) },
+                )
+            }
+        }
         item { Divider() }
-        item { SectionTitle(stringResource(R.string.color_tags_section)) }
-        items(ColorTag.entries, key = { "tag${it.name}" }) { t ->
-            val path = FsPath.tagPath(t)
-            val count = s.marks.tags.count { t in it.value }
+        item(key = "customize_sidebar") {
             SidebarItem(
-                t.label, Icons.Filled.Circle, 0, activePath == path, path, tint = Color(t.argb),
-                trailing = if (count > 0) ({ Text(count.toString(), style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant) }) else null,
-                onClick = { vm.navigate(path) }, onMiddle = { vm.newTab(path, activate = false) },
-                onSecondary = { menu.show(it, sidebarMenu(vm, s, path, false)) },
+                label = stringResource(R.string.action_customize_sidebar),
+                icon = Icons.Outlined.Settings,
+                depth = 0,
+                selected = false,
+                dropPath = null,
+                onClick = { vm.showSettings(com.droid.wayfinder.data.SettingsSection.Integrations) },
             )
         }
         item { Box(Modifier.height(12.dp)) }
@@ -608,7 +665,12 @@ private fun TreeItem(vm: BrowserViewModel, s: AppState, r: TreeRowData, activePa
                 phone != null -> menu.show(it, phoneMenu(vm, phone, mount))
                 else -> {
                     val base = sidebarMenu(vm, s, r.path, r.path in s.pins)
-                    menu.show(it, if (mount == null) base else base + mountMenu(vm, mount))
+                    val withMount = if (mount == null) base else base + mountMenu(vm, mount)
+                    val isLinux = r.depth == 0 && com.droid.wayfinder.data.GooglebookEcosystem.isLinuxLocation(r.path, r.label, s.linuxRootPath)
+                    menu.show(
+                        it,
+                        if (isLinux) withMount + sidebarSectionMenu(vm, com.droid.wayfinder.data.SidebarModule.LinuxFiles) else withMount,
+                    )
                 }
             }
         },
@@ -619,10 +681,33 @@ private fun TreeItem(vm: BrowserViewModel, s: AppState, r: TreeRowData, activePa
 private fun SectionTitle(
     text: String,
     badge: String? = null,
+    onSecondary: ((androidx.compose.ui.geometry.Offset) -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
+    var rootOrigin by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    val ctxMod = if (onSecondary != null) {
+        Modifier
+            .onGloballyPositioned { rootOrigin = it.boundsInRoot().topLeft }
+            .pointerInput(onSecondary) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: continue
+                        if (event.buttons.isSecondaryPressed && !change.previousPressed && change.pressed) {
+                            change.consume()
+                            onSecondary(rootOrigin + change.position)
+                        }
+                    }
+                }
+            }
+    } else {
+        Modifier
+    }
     Row(
-        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
+        Modifier
+            .fillMaxWidth()
+            .then(ctxMod)
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(

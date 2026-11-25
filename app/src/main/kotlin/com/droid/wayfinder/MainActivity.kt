@@ -68,8 +68,10 @@ class MainActivity : ComponentActivity() {
             return
         }
         // Video frame decoding for thumbnails and Quick Look.
-        coil3.SingletonImageLoader.setSafe { ctx ->
-            coil3.ImageLoader.Builder(ctx).components { add(coil3.video.VideoFrameDecoder.Factory()) }.build()
+        runCatching {
+            coil3.SingletonImageLoader.setSafe { ctx ->
+                coil3.ImageLoader.Builder(ctx).components { add(coil3.video.VideoFrameDecoder.Factory()) }.build()
+            }
         }
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

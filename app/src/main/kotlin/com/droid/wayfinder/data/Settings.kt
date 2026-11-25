@@ -175,6 +175,11 @@ class Settings(context: Context) {
     var shownDefaultHandlerPrompt: Boolean
         get() = p.getBoolean("shownDefaultHandlerPrompt", false)
         set(v) = p.edit().putBoolean("shownDefaultHandlerPrompt", v).apply()
+
+    /** Optional sidebar modules hidden by user preference (all visible when empty). */
+    var sidebarVisibility: SidebarVisibility
+        get() = SidebarVisibility.parse(p.getString("hiddenSidebarModules", null))
+        set(v) = p.edit().putString("hiddenSidebarModules", v.serialize()).apply()
 }
 
 fun normalizeColumnOrder(order: List<SortKey>): List<SortKey> {

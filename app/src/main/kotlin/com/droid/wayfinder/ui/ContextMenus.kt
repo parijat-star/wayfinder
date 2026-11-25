@@ -49,6 +49,7 @@ import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Smartphone
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AddToDrive
 import androidx.compose.material.icons.outlined.StarOutline
@@ -414,5 +415,21 @@ fun phoneMenu(vm: BrowserViewModel, phone: com.droid.wayfinder.data.PairedPhone,
     add(MenuEntry.Divider)
     add(item(vm.str(R.string.action_quick_share_folder), Icons.Outlined.Folder) { vm.openQuickShareFolder() })
     add(item(vm.str(R.string.action_phone_hub_settings), Icons.Outlined.Settings) { vm.openPhoneHubSettings() })
+    add(MenuEntry.Divider)
+    add(item(vm.str(R.string.action_hide_in_sidebar, vm.sidebarModuleTitle(com.droid.wayfinder.data.SidebarModule.Phone)), Icons.Outlined.VisibilityOff) {
+        vm.hideSidebarModuleWithUndo(com.droid.wayfinder.data.SidebarModule.Phone)
+    })
+    add(item(vm.str(R.string.action_customize_sidebar), Icons.Outlined.Settings) {
+        vm.showSettings(com.droid.wayfinder.data.SettingsSection.Integrations)
+    })
 }
+
+fun sidebarSectionMenu(vm: BrowserViewModel, module: com.droid.wayfinder.data.SidebarModule): List<MenuEntry> = listOf(
+    item(vm.str(R.string.action_hide_in_sidebar, vm.sidebarModuleTitle(module)), Icons.Outlined.VisibilityOff) {
+        vm.hideSidebarModuleWithUndo(module)
+    },
+    item(vm.str(R.string.action_customize_sidebar), Icons.Outlined.Settings) {
+        vm.showSettings(com.droid.wayfinder.data.SettingsSection.Integrations)
+    },
+)
 

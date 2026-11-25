@@ -105,10 +105,16 @@ class StatusBarVisibilityTest {
         // Bottom status bar starts visible ("1 item")
         rule.onNodeWithText("1 item").assertIsDisplayed()
 
-        // Toggle bottom "Status bar" OFF via Overflow menu ("More" -> "Status bar")
+        // Toggle bottom "Status bar" OFF via Overflow menu ("More" -> "Settings…" -> "Appearance" -> "Status bar")
         rule.onNodeWithContentDescription("More").performClick()
+        rule.onNodeWithText("Settings…").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Appearance").performClick()
+        rule.waitForIdle()
         rule.onNodeWithText("Status bar").performScrollTo().performClick()
         harness.settle()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("Close").performClick()
         rule.waitForIdle()
 
         assertFalse(harness.s.statusBarVisible)
@@ -126,7 +132,7 @@ class StatusBarVisibilityTest {
         assertTrue(Settings(ApplicationProvider.getApplicationContext()).statusBarVisible)
         rule.onNodeWithText("1 item").assertIsDisplayed()
 
-        // Fullscreen mode offers "Hide system status bar" in both Overflow and Command Palette
+        // Fullscreen mode offers "Hide system status bar" in Settings -> Appearance and Command Palette
         val hideCmd = paletteCommands(harness.vm, harness.s, hasDesktopCaption = false).firstOrNull { it.name == "Hide system status bar" }
         assertNotNull("Expected 'Hide system status bar' in Command Palette when no desktop caption", hideCmd)
         assertNull(
@@ -134,10 +140,16 @@ class StatusBarVisibilityTest {
             paletteCommands(harness.vm, harness.s, hasDesktopCaption = true).firstOrNull { it.name == "Hide system status bar" },
         )
 
-        // Toggle ON via Overflow menu ("More" -> "Hide system status bar")
+        // Toggle ON via Settings -> Appearance ("Hide system status bar")
         rule.onNodeWithContentDescription("More").performClick()
+        rule.onNodeWithText("Settings…").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Appearance").performClick()
+        rule.waitForIdle()
         rule.onNodeWithText("Hide system status bar").performScrollTo().performClick()
         harness.settle()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("Close").performClick()
         rule.waitForIdle()
 
         assertTrue(harness.s.hideStatusBar)
@@ -167,17 +179,20 @@ class StatusBarVisibilityTest {
     @Test
     fun desktopCaptionToolbarOmitsHideSystemStatusBarOption() {
         val harness = VmHarness().also { h = it }
+        harness.vm.showSettings(com.droid.wayfinder.data.SettingsSection.Appearance)
         rule.setContent {
             WayfinderTheme(false) {
-                Toolbar(harness.vm, harness.s, hasDesktopCaption = true)
+                com.droid.wayfinder.ui.SettingsDialog(
+                    vm = harness.vm,
+                    s = harness.s,
+                    initialSection = com.droid.wayfinder.data.SettingsSection.Appearance,
+                    hasDesktopCaption = true,
+                )
             }
         }
         rule.waitForIdle()
 
-        rule.onNodeWithContentDescription("More").performClick()
-        rule.waitForIdle()
-
-        rule.onNodeWithText("Status bar").assertIsDisplayed()
+        rule.onNodeWithText("Status bar").performScrollTo().assertIsDisplayed()
         rule.onAllNodesWithText("Hide system status bar").assertCountEquals(0)
     }
 }

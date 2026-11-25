@@ -56,21 +56,23 @@ class AboutDialogAndIconTest {
         }
         rule.waitForIdle()
 
-        // Open OverflowMenu -> About Wayfinder
+        // Open OverflowMenu -> Settings… -> System & About (inline About Wayfinder)
         rule.onNodeWithContentDescription("More").performClick()
-        rule.onNodeWithText("About Wayfinder").performScrollTo().performClick()
+        rule.onNodeWithText("Settings…").performScrollTo().performClick()
         rule.waitForIdle()
-        assertEquals(Dialog.About, harness.s.dialog)
+        rule.onNodeWithText("System & About").performClick()
+        rule.waitForIdle()
+        assertEquals(Dialog.Settings(com.droid.wayfinder.data.SettingsSection.SystemAndAbout), harness.s.dialog)
 
-        // Version-agnostic: read the installed versionName the same way the About dialog does.
+        // Version-agnostic: read the installed versionName the same way the About card does.
         val ctx = ApplicationProvider.getApplicationContext<Context>()
         val versionName = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
         assertTrue("versionName must be readable", !versionName.isNullOrBlank())
-        rule.onNodeWithText("Version $versionName").assertIsDisplayed()
-        rule.onNodeWithText("Apache License, Version 2.0", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("Version $versionName").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Apache License, Version 2.0", substring = true).performScrollTo().assertIsDisplayed()
 
         // Toggle Open-source licenses view and verify bundled asset text loads
-        rule.onNodeWithText("Open-source licenses").performClick()
+        rule.onNodeWithText("Open-source licenses").performScrollTo().performClick()
         rule.waitUntil(timeoutMillis = 5_000) {
             runCatching {
                 rule.onNodeWithText("BSD-3-Clause", substring = true).assertExists()
@@ -79,8 +81,8 @@ class AboutDialogAndIconTest {
         }
         rule.onNodeWithText("Bouncy Castle", substring = true).assertExists()
 
-        // Close dialog
-        rule.onNodeWithText("Close").performClick()
+        // Close Settings dialog
+        rule.onNodeWithContentDescription("Close").performClick()
         rule.waitForIdle()
         assertEquals(null, harness.s.dialog)
     }

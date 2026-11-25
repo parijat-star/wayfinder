@@ -455,6 +455,19 @@
     <string name="default_handler_app_settings" description="Primary button in the Default File Handler dialog that opens Android App Info or Default Apps settings for Wayfinder. [CHAR_LIMIT=30]">App Default Settings</string>
     <string name="default_handler_not_now" description="Dismiss button in the Default File Handler dialog to close the prompt without changing settings. [CHAR_LIMIT=20]">Not now</string>
 
+    <!-- Settings & Sidebar customization -->
+    <string name="action_settings" description="Overflow menu item and command palette action title to open the Settings dialog (Ctrl+,). [CHAR_LIMIT=30]">Settings…</string>
+    <string name="settings_title" description="Header title of the Settings modal dialog and compact full-screen Settings sheet. [CHAR_LIMIT=25]">Settings</string>
+    <string name="palette_settings_desc" description="Command palette subtitle describing the Settings command. [CHAR_LIMIT=70]">Manage integrations, appearance, columns, and app defaults</string>
+    <string name="action_customize_sidebar" description="Sidebar footer item and context menu option that opens Settings to the Sidebar &amp; Integrations section. [CHAR_LIMIT=35]">Customize sidebar…</string>
+    <string name="palette_customize_sidebar_desc" description="Command palette subtitle describing the Customize sidebar command. [CHAR_LIMIT=75]">Show or hide cloud integrations, network, phone, Linux, and tags</string>
+    <string name="action_hide_in_sidebar" description="Context menu item on optional sidebar section headers to hide that section. %1$s is the section name (e.g. Dropbox). [CHAR_LIMIT=45]">Hide %1$s in sidebar</string>
+    <string name="toast_sidebar_section_hidden" description="Undoable snackbar message shown after hiding a sidebar section. %1$s is the hidden section name (e.g. OneDrive). [CHAR_LIMIT=50]">Hidden %1$s in sidebar</string>
+    <string name="settings_section_integrations" description="Navigation category label in Settings for managing sidebar sections and cloud/device integrations. [CHAR_LIMIT=30]">Sidebar &amp; Integrations</string>
+    <string name="settings_section_appearance" description="Navigation category label in Settings for theme, zoom, and status bar options. [CHAR_LIMIT=25]">Appearance</string>
+    <string name="settings_section_files_view" description="Navigation category label in Settings for hidden files, grid thumbnail size, and Details columns. [CHAR_LIMIT=25]">Files &amp; View</string>
+    <string name="settings_section_system_about" description="Navigation category label in Settings for default file handler, keyboard shortcuts, and app info. [CHAR_LIMIT=25]">System &amp; About</string>
+
     <!-- System Keyboard Shortcuts Helper (Meta+/) -->
     <string name="shortcut_group_tabs_windows" description="Category heading in the system Keyboard Shortcuts Helper for tab and window shortcuts. [CHAR_LIMIT=30]">Tabs &amp; windows</string>
     <string name="shortcut_group_navigate" description="Category heading in the system Keyboard Shortcuts Helper for navigation shortcuts. [CHAR_LIMIT=25]">Navigate</string>
@@ -470,6 +483,7 @@
     <string name="shortcut_reopen_closed_tab" description="System Keyboard Shortcuts Helper label for reopening the last closed tab (Ctrl+Shift+T). [CHAR_LIMIT=35]">Reopen closed tab</string>
     <string name="shortcut_open_folder_new_tab" description="System Keyboard Shortcuts Helper label for opening the selected folder in a new tab (Ctrl+Enter). [CHAR_LIMIT=40]">Open folder in new tab</string>
     <string name="shortcut_command_palette" description="System Keyboard Shortcuts Helper label for opening the command palette (Ctrl+K). [CHAR_LIMIT=35]">Command palette</string>
+    <string name="shortcut_settings" description="System Keyboard Shortcuts Helper label for opening Wayfinder Settings (Ctrl+,). [CHAR_LIMIT=35]">Settings</string>
     <string name="shortcut_new_window" description="System Keyboard Shortcuts Helper label for opening a new Wayfinder window (Ctrl+N). [CHAR_LIMIT=35]">New window</string>
 
     <string name="shortcut_back" description="System Keyboard Shortcuts Helper label for navigating back in folder history (Alt+Left). [CHAR_LIMIT=35]">Back</string>

@@ -47,6 +47,7 @@ object KeyboardShortcuts {
                 KeyboardShortcutEntry(R.string.shortcut_reopen_closed_tab, KeyEvent.KEYCODE_T, CTRL_SHIFT),
                 KeyboardShortcutEntry(R.string.shortcut_open_folder_new_tab, KeyEvent.KEYCODE_ENTER, CTRL),
                 KeyboardShortcutEntry(R.string.shortcut_command_palette, KeyEvent.KEYCODE_K, CTRL),
+                KeyboardShortcutEntry(R.string.shortcut_settings, KeyEvent.KEYCODE_COMMA, CTRL),
                 KeyboardShortcutEntry(R.string.shortcut_new_window, KeyEvent.KEYCODE_N, CTRL),
             ),
         ),

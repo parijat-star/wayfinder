@@ -56,6 +56,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -514,6 +515,7 @@ fun AppRoot(vm: BrowserViewModel) {
                 k == Key.F || k == Key.E -> { vm.requestSearchFocus(); return true }
                 k == Key.K && shift -> { vm.showConnectDialog(); return true }
                 k == Key.K -> { vm.openPalette(); return true }
+                k == Key.Comma && !shift -> { vm.showSettings(); return true }
                 k == Key.N && !shift -> { vm.newWindow(); return true }
                 k == Key.Equals || k == Key.Plus || k == Key.NumPadAdd -> { vm.zoomBy(1); return true }
                 k == Key.Minus || k == Key.NumPadSubtract -> { vm.zoomBy(-1); return true }
@@ -958,14 +960,14 @@ fun AppRoot(vm: BrowserViewModel) {
 private fun CompactSidebarDrawer(vm: BrowserViewModel, s: AppState) {
     val cs = MaterialTheme.colorScheme
     val focusCoord = LocalFocusCoordinator.current
-    val closeDrawerRequester = remember { FocusRequester() }
+    val drawerHeaderFirstRequester = remember { FocusRequester() }
     val dismissInteraction = remember { MutableInteractionSource() }
     val drawerA11yLabel = stringResource(R.string.nav_drawer_label)
     val closeDrawerDesc = stringResource(R.string.nav_close_sidebar)
-    DisposableEffect(closeDrawerRequester) {
-        focusCoord.activeDrawerFirstRequester = closeDrawerRequester
+    DisposableEffect(drawerHeaderFirstRequester) {
+        focusCoord.activeDrawerFirstRequester = drawerHeaderFirstRequester
         onDispose {
-            if (focusCoord.activeDrawerFirstRequester === closeDrawerRequester) {
+            if (focusCoord.activeDrawerFirstRequester === drawerHeaderFirstRequester) {
                 focusCoord.activeDrawerFirstRequester = null
             }
         }
@@ -1003,10 +1005,22 @@ private fun CompactSidebarDrawer(vm: BrowserViewModel, s: AppState) {
                         style = MaterialTheme.typography.titleMedium,
                         color = cs.onSurface,
                     )
+                    val settingsDesc = stringResource(R.string.settings_title)
+                    ActionTooltip(settingsDesc) {
+                        IconButton(
+                            {
+                                vm.setCompactSidebarOpen(false)
+                                vm.showSettings()
+                            },
+                            Modifier.size(48.dp).focusRequester(drawerHeaderFirstRequester).focusRing(CircleShape),
+                        ) {
+                            Icon(Icons.Outlined.Settings, settingsDesc)
+                        }
+                    }
                     ActionTooltip(closeDrawerDesc) {
                         IconButton(
                             { vm.setCompactSidebarOpen(false) },
-                            Modifier.size(48.dp).focusRequester(closeDrawerRequester).focusRing(CircleShape),
+                            Modifier.size(48.dp).focusRing(CircleShape),
                         ) {
                             Icon(Icons.Outlined.Close, closeDrawerDesc)
                         }

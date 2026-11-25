@@ -78,6 +78,10 @@ sealed interface Dialog {
     data object About : Dialog
     /** First-install / on-demand guide for setting or resetting Wayfinder as the default file handler. */
     data object DefaultHandler : Dialog
+    /** Unified Settings modal/sheet (`Ctrl+,`), opening at [initialSection]. */
+    data class Settings(
+        val initialSection: com.droid.wayfinder.data.SettingsSection = com.droid.wayfinder.data.SettingsSection.Integrations,
+    ) : Dialog
 }
 
 sealed interface UiEvent {
@@ -227,6 +231,10 @@ data class AppState(
     val activeDetailsWidthDp: Float? = null,
     /** Effective font scale of the active Details-view pane. */
     val activeFontScale: Float = 1f,
+    /** Visibility flags for optional sidebar integrations and sections. */
+    val sidebarVisibility: com.droid.wayfinder.data.SidebarVisibility = com.droid.wayfinder.data.SidebarVisibility(),
+    /** Whether the pre-flight SAF folder-picker helper tip is enabled. */
+    val showSafMountTip: Boolean = true,
 ) {
     /** The tab selected in the tab strip (left pane in dual-pane mode). */
     val mainTab: TabState get() = tabs.firstOrNull { it.id == activeId } ?: tabs.first()
