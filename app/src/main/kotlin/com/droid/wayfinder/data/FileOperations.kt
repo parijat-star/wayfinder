@@ -190,7 +190,7 @@ class FileOperations(private val repo: FileRepository) {
             return state
         }
         sfs.openInput(src).use { input ->
-            dfs.openOutput(dst).use { output ->
+            dfs.openOutput(dst).useCommit { output ->
                 val buf = ByteArray(256 * 1024)
                 var lastReport = 0L
                 while (true) {
@@ -234,7 +234,8 @@ class FileOperations(private val repo: FileRepository) {
         onProgress(state)
         val self = FsPath.normalize(zipPath)
         try {
-            ZipOutputStream(repo.fs(zipPath).openOutput(zipPath)).use { zip ->
+            repo.fs(zipPath).openOutput(zipPath).useCommit { rawZip ->
+            ZipOutputStream(rawZip).use { zip ->
                 suspend fun add(path: String, entryName: String, depth: Int) {
                     check()
                     // The archive may be created inside a folder being compressed: never read it back into itself.
@@ -264,6 +265,7 @@ class FileOperations(private val repo: FileRepository) {
                     }
                 }
                 for (s in sources) add(s, FsPath.name(s), 0)
+            }
             }
         } catch (e: Throwable) {
             runCatching { repo.fs(zipPath).delete(zipPath) }
@@ -356,7 +358,7 @@ class FileOperations(private val repo: FileRepository) {
                         if (segs.isNotEmpty()) {
                             if (e.isDirectory) ensureDir(target) else {
                                 FsPath.parent(target)?.let { ensureDir(it) }
-                                fs.openOutput(target).use { out ->
+                                fs.openOutput(target).useCommit { out ->
                                     val buf = ByteArray(128 * 1024)
                                     while (true) {
                                         check()
@@ -409,7 +411,7 @@ class FileOperations(private val repo: FileRepository) {
                     if (segs.isNotEmpty()) {
                         if (e.isDirectory) ensureDir(target) else {
                             FsPath.parent(target)?.let { ensureDir(it) }
-                            fs.openOutput(target).use { out ->
+                            fs.openOutput(target).useCommit { out ->
                                 val buf = ByteArray(128 * 1024)
                                 while (true) {
                                     check()

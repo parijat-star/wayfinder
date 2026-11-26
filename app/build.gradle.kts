@@ -54,7 +54,20 @@ android {
     buildConfig = false
     shaders = false
   }
-  testOptions { unitTests.isReturnDefaultValues = true; unitTests.isIncludeAndroidResources = true }
+  testOptions {
+    unitTests.isReturnDefaultValues = true
+    unitTests.isIncludeAndroidResources = true
+    val roboRepoUrl = providers.systemProperty("robolectric.dependency.repo.url")
+      .orElse("https://maven-central.storage-download.googleapis.com/maven2/")
+    val roboRepoId = providers.systemProperty("robolectric.dependency.repo.id")
+      .orElse("mavenCentralGcsMirror")
+    unitTests.all { testTask ->
+      // Point Robolectric's runtime android-all SDK fetcher at the GCS Maven Central mirror
+      // instead of repo1.maven.org so CI runners avoid shared-IP HTTP 429 rate limits.
+      testTask.systemProperty("robolectric.dependency.repo.url", roboRepoUrl.get())
+      testTask.systemProperty("robolectric.dependency.repo.id", roboRepoId.get())
+    }
+  }
   bundle {
     language {
       // Keep all packaged locale resources inside the base AAB so Android 13+ per-app language switching works offline.

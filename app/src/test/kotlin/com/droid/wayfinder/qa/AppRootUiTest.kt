@@ -264,8 +264,9 @@ class AppRootUiTest {
         rule.waitForIdle()
         rule.onNodeWithText("Linux VM", useUnmergedTree = true).assertIsDisplayed()
         rule.onNodeWithText("Pixel 9", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithText("Dropbox", useUnmergedTree = true).assertIsDisplayed()
         val betaNodes = rule.onAllNodesWithText("Beta", useUnmergedTree = true).fetchSemanticsNodes()
-        assertEquals("Expected Beta badge on both Linux VM and Phone sidebar rows", 2, betaNodes.size)
+        assertEquals("Expected Beta badge on Linux VM, Phone, and Dropbox sidebar entries", 3, betaNodes.size)
     }
 
     @Test fun repeatedZoomUpdatesToastInRealTimeAndDismissesQuickly() {

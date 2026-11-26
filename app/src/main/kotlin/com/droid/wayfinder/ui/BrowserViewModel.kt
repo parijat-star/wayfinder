@@ -34,6 +34,10 @@ import com.droid.wayfinder.data.WorkProfileTarget
 import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.LocalFileSystem
 import com.droid.wayfinder.data.NetworkDiscovery
+import com.droid.wayfinder.data.DropboxAccount
+import com.droid.wayfinder.data.DropboxAccountStore
+import com.droid.wayfinder.data.DropboxAuthManager
+import com.droid.wayfinder.data.DropboxRestFileSystem
 import com.droid.wayfinder.data.OneDriveAccount
 import com.droid.wayfinder.data.OneDriveAccountStore
 import com.droid.wayfinder.data.OneDriveAuthManager
@@ -63,6 +67,9 @@ import com.droid.wayfinder.data.SavedServer
 import com.droid.wayfinder.data.SmbCred
 import com.droid.wayfinder.data.SmbFileSystem
 import com.droid.wayfinder.data.WebDavFileSystem
+import com.droid.wayfinder.data.SettingsSection
+import com.droid.wayfinder.data.SidebarModule
+import com.droid.wayfinder.data.SidebarVisibility
 import com.droid.wayfinder.data.SortKey
 import com.droid.wayfinder.data.ThemeMode
 import com.droid.wayfinder.data.Transfer
@@ -101,6 +108,7 @@ private sealed interface Undo {
     data class Moves(val items: List<Transfer>) : Undo
     data class TrashOp(val items: List<Trashed>) : Undo
     data class Created(val paths: List<String>) : Undo
+    data class SidebarModuleToggle(val module: SidebarModule, val previousVisible: Boolean) : Undo
 }
 
 /**
@@ -149,6 +157,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     internal val oneDriveStore = OneDriveAccountStore(app)
     internal val oneDriveAuth = OneDriveAuthManager(oneDriveStore)
     internal val onedrive = OneDriveRestFileSystem(app, oneDriveAuth)
+    internal val dropboxStore = DropboxAccountStore(app)
+    internal val dropboxAuth = DropboxAuthManager(dropboxStore)
+    internal val dropbox = DropboxRestFileSystem(app, dropboxStore, dropboxAuth)
     private val docFs = DocFileSystem(app)
     private val phoneFs = PhoneFileSystem(app)
     private val primary: String = Environment.getExternalStorageDirectory().path
@@ -160,6 +171,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             "dav" to dav, "davs" to dav, "ftp" to ftp, "ftps" to ftp,
             RemoteUri.SAF_SCHEME to saf, RemoteUri.GDRIVE_SCHEME to gdrive,
             RemoteUri.ONEDRIVE_SCHEME to onedrive,
+            RemoteUri.DROPBOX_SCHEME to dropbox,
             RemoteUri.DOC_SCHEME to docFs,
             RemoteUri.PHONE_SCHEME to phoneFs,
         ),
@@ -190,8 +202,11 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private val observedPhoneTreeUris = HashSet<String>()
     private var phoneRetryJob: Job? = null
     private var oneDriveAuthJob: Job? = null
+    private var dropboxAuthJob: Job? = null
     private var storageVolumeCallback: Any? = null
     private var pendingMountAccount: String? = null
+    private var returnToSettingsSection: SettingsSection? = null
+    internal val isNetworkDiscoveryRunning: Boolean get() = discovery.isStarted
     internal var phoneConnectRetryDelaysMs: LongArray = longArrayOf(0L, 1_000L, 3_000L, 6_000L)
     internal var phoneDisconnectRetryDelaysMs: LongArray = longArrayOf(0L, 1_000L)
     internal var safPhoneMountReachabilityOverride: ((SafMount) -> Boolean)? = null
@@ -207,7 +222,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             FsPath.isVirtual(it) ||
                 (FsPath.isRemote(it) &&
                     (!FsPath.isSaf(it) || safMounts.any { m -> FsPath.isWithin(m.path, it) }) &&
-                    (!FsPath.isOneDrive(it) || oneDriveStore.getAccount(it.removePrefix("onedrive://").substringBefore('/')) != null)) ||
+                    (!FsPath.isOneDrive(it) || oneDriveStore.getAccount(it.removePrefix("onedrive://").substringBefore('/')) != null) &&
+                    (!FsPath.isDropbox(it) || dropboxStore.getAccount(it.removePrefix("dropbox://").substringBefore('/')) != null)) ||
                 File(it).isDirectory || FsPath.zipSplit(it)?.let { z -> File(z.first).isFile } == true
         }
         // A requested file (e.g. an .apk from another app) opens its enclosing folder with the file selected.
@@ -234,6 +250,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val initialLinux = GooglebookEcosystem.discoverLinuxRoot(app, primary, safMounts = safMounts)?.path
         val initialLinuxProvider = GooglebookEcosystem.findInstalledLinuxProviderAuthority(app)
         val initialWorkProfiles = GooglebookEcosystem.discoverWorkProfiles(app)
+        val initialVisibility = SharedUi.sidebarVisibility.value
         _state.value = AppState(
             tabs = tabs,
             activeId = tabs[(if (secondaryWindow || picker != null || startPath != null) 0 else settings.activeTab).coerceIn(0, tabs.lastIndex)].id,
@@ -256,6 +273,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             driveAccounts = initialDrive,
             oneDriveAccounts = oneDriveStore.accounts(),
             oneDriveDefaultClientId = oneDriveStore.defaultClientId,
+            dropboxAccounts = dropboxStore.accounts(),
+            dropboxDefaultAppKey = dropboxStore.defaultAppKey,
             pairedPhone = initialPhone,
             phoneConnected = initialPhone != null,
             bluetoothPermissionGranted = initialBtGranted,
@@ -263,12 +282,16 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             linuxRootPath = initialLinux,
             linuxProviderAuthority = initialLinuxProvider,
             workProfiles = initialWorkProfiles,
+            sidebarVisibility = initialVisibility,
+            showSafMountTip = settings.showSafMountTip,
         )
         refreshMounts()
         tabs.forEachIndexed { i, t -> load(t.id, select = startFile?.second?.takeIf { i == 0 }) }
         revealInTree(_state.value.active.path)
         roots.firstOrNull()?.let { ensureChildren(it.path) }
-        discovery.start()
+        if (initialVisibility.networkAndCloud) {
+            discovery.start()
+        }
         viewModelScope.launch {
             discovery.hosts.collect { _state.update { s -> s.copy(network = networkEntries()) } }
         }
@@ -288,11 +311,17 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }
         viewModelScope.launch { SharedUi.theme.collect { t -> _state.update { it.copy(theme = t) } } }
         viewModelScope.launch { SharedUi.hideStatusBar.collect { h -> _state.update { it.copy(hideStatusBar = h) } } }
+        viewModelScope.launch { SharedUi.sidebarVisibility.collect { vis -> onSidebarVisibilityUpdated(vis) } }
 
-        PhoneDetector.warmConnectedClassicProfiles(app) { refreshPhoneStatus() }
-        refreshPhoneStatus()
+        if (initialVisibility.phone) {
+            PhoneDetector.warmConnectedClassicProfiles(app) {
+                if (_state.value.sidebarVisibility.phone) refreshPhoneStatus()
+            }
+            refreshPhoneStatus()
+        }
         phoneReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                if (!_state.value.sidebarVisibility.phone) return
                 val btDevice = intent?.let {
                     androidx.core.content.IntentCompat.getParcelableExtra(it, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
                 }
@@ -342,7 +371,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                     pkg.contains("virtualization.terminal")
                 ) {
                     refreshMounts()
-                    refreshPhoneStatus(stagedRetry = true)
+                    if (_state.value.sidebarVisibility.phone) {
+                        refreshPhoneStatus(stagedRetry = true)
+                    }
                 }
             }
         }
@@ -361,7 +392,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 val cb = object : StorageManager.StorageVolumeCallback() {
                     override fun onStateChanged(volume: android.os.storage.StorageVolume) {
                         _state.update { it.copy(roots = loadRoots()) }
-                        refreshPhoneStatus(stagedRetry = true)
+                        if (_state.value.sidebarVisibility.phone) {
+                            refreshPhoneStatus(stagedRetry = true)
+                        }
                     }
                 }
                 sm?.registerStorageVolumeCallback(ContextCompat.getMainExecutor(app), cb)
@@ -369,7 +402,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             }
         }
         val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                if (!_state.value.sidebarVisibility.phone && PhoneDetector.isPhoneAuthority(uri?.authority)) return
                 refreshMounts()
             }
         }
@@ -380,7 +414,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 app.contentResolver.registerContentObserver(rootsUri, true, observer)
             }
         }
-        registerPhoneTreeObservers()
+        if (initialVisibility.phone) {
+            registerPhoneTreeObservers()
+        }
     }
 
     /** Registers [rootsObserver] on persisted phone tree URIs so 3P installs receive live Cross-Device / MTP updates. */
@@ -407,6 +443,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         phoneRetryJob = null
         oneDriveAuthJob?.cancel()
         oneDriveAuthJob = null
+        dropboxAuthJob?.cancel()
+        dropboxAuthJob = null
         phoneReceiver?.let {
             runCatching { app.unregisterReceiver(it) }
             phoneReceiver = null
@@ -694,9 +732,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             Mount(sv.rootPath, sv.label, "${sv.protocol.label}${if (sv.user.isNotEmpty() && !sv.guest) " · ${sv.user}" else ""}", sv.key, saf = false)
         }
         val driveAccs = GoogleDriveManager.discoverAccounts(app, safMounts)
-        val phone = detectPhone(serverMounts, safMounts)
-        val btGranted = PhoneDetector.hasBluetoothConnectPermission(app)
-        val qaAvailable = PhoneDetector.isQuickAccessProviderAvailable(app)
+        val phoneVisible = _state.value.sidebarVisibility.phone
+        val phone = if (phoneVisible) detectPhone(serverMounts, safMounts) else null
+        val btGranted = if (phoneVisible) PhoneDetector.hasBluetoothConnectPermission(app) else _state.value.bluetoothPermissionGranted
+        val qaAvailable = if (phoneVisible) PhoneDetector.isQuickAccessProviderAvailable(app) else false
         val linuxPath = GooglebookEcosystem.discoverLinuxRoot(app, primary, safMounts = safMounts)?.path
         val linuxProvider = GooglebookEcosystem.findInstalledLinuxProviderAuthority(app)
         val currentMounts = computeMounts(saved, phone?.takeIf { it.isMounted }?.path, linuxPath)
@@ -712,6 +751,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             driveAccounts = driveAccs,
             oneDriveAccounts = oneDriveStore.accounts(),
             oneDriveDefaultClientId = oneDriveStore.defaultClientId,
+            dropboxAccounts = dropboxStore.accounts(),
+            dropboxDefaultAppKey = dropboxStore.defaultAppKey,
             pairedPhone = phone,
             phoneConnected = phone != null,
             bluetoothPermissionGranted = btGranted,
@@ -720,8 +761,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             linuxProviderAuthority = linuxProvider,
             workProfiles = workProfiles,
         ) }
-        registerPhoneTreeObservers()
-        applyPhoneTransition(prevPhone, phone)
+        if (phoneVisible) {
+            registerPhoneTreeObservers()
+            applyPhoneTransition(prevPhone, phone)
+        }
     }
 
     /** The Network root listing: mounts first, then servers seen this session or found on the LAN. */
@@ -923,6 +966,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             showConnectOneDriveDialog(accId)
             return
         }
+        if (FsPath.isDropbox(host)) {
+            if (_state.value.dialog is Dialog.ConnectDropbox) return
+            val accId = host.removePrefix("dropbox://").substringBefore('/').takeIf { it.isNotBlank() }
+            showConnectDropboxDialog(accId)
+            return
+        }
         if (_state.value.dialog is Dialog.SmbAuth) return
         val saved = servers.get(host)
         _state.update { it.copy(dialog = Dialog.SmbAuth(host, saved?.user.orEmpty(), saved?.domain.orEmpty())) }
@@ -930,9 +979,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun refresh() {
         val t = tab
-        if (t.path == FsPath.SMB_ROOT) discovery.scan(force = true)
+        if (t.path == FsPath.SMB_ROOT) {
+            if (!discovery.isStarted) discovery.start()
+            discovery.scan(force = true)
+        }
         if (t.path == FsPath.RECENTS_ROOT) recentsCache = null
-        refreshPhoneStatus()
+        if (_state.value.sidebarVisibility.phone) refreshPhoneStatus()
         load(t.id, keepSelection = true)
         _state.update { s -> s.copy(tree = s.tree.copy(children = s.tree.children.filterKeys { k -> k in s.tree.expanded })) }
         _state.value.tree.expanded.forEach { ensureChildren(it, force = true) }
@@ -940,8 +992,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun refreshAll() {
         refreshMounts()
-        PhoneDetector.warmConnectedClassicProfiles(app) { refreshPhoneStatus() }
-        refreshPhoneStatus()
+        if (_state.value.sidebarVisibility.phone) {
+            PhoneDetector.warmConnectedClassicProfiles(app) {
+                if (_state.value.sidebarVisibility.phone) refreshPhoneStatus()
+            }
+            refreshPhoneStatus()
+        }
         val s = _state.value
         s.tabs.filter { it.id != s.activeId }.forEach { stale += it.id }
         load(s.activeId, keepSelection = true)
@@ -1081,6 +1137,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }
         revealHiddenFor(p, requestedFile)
         if (p == FsPath.RECENTS_ROOT) recentsCache = null
+        if ((p == FsPath.SMB_ROOT || FsPath.isSmb(p)) && !discovery.isStarted) {
+            discovery.start()
+            if (p == FsPath.SMB_ROOT) discovery.scan(force = true)
+        }
         updateTab(id) { it.navigatedTo(p) }
         load(id, select = sel); persist(); noteRecent(p)
         if (id == tab.id) revealInTree(p)
@@ -1349,10 +1409,13 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                             val limit = if (e.kind == FileKind.Video) REMOTE_THUMB_VIDEO_PREFIX_BYTES else REMOTE_THUMB_MAX_IMAGE_BYTES
                             val tmp = File(dir, "${target.name}.part")
                             try {
-                                val fetchedGraphThumb = FsPath.isOneDrive(e.path) &&
+                                val fetchedCloudThumb = (FsPath.isOneDrive(e.path) &&
                                     e.kind == FileKind.Image &&
-                                    onedrive.downloadThumbnailToFile(e.path, tmp)
-                                if (!fetchedGraphThumb) {
+                                    onedrive.downloadThumbnailToFile(e.path, tmp)) ||
+                                    (FsPath.isDropbox(e.path) &&
+                                        e.kind == FileKind.Image &&
+                                        dropbox.downloadThumbnailToFile(e.path, tmp))
+                                if (!fetchedCloudThumb) {
                                     repo.fs(e.path).openInput(e.path).use { inp ->
                                         tmp.outputStream().use { out ->
                                             val buf = ByteArray(64 * 1024)
@@ -1497,9 +1560,97 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             mediaJob?.cancel(); mediaJob = null
             imageJob?.cancel(); imageJob = null
         }
+        val cur = _state.value.dialog
+        if (d != null && d !is Dialog.Settings && cur is Dialog.Settings) {
+            returnToSettingsSection = cur.initialSection
+        } else if (d == null || d is Dialog.Settings) {
+            returnToSettingsSection = null
+        }
         _state.update { it.copy(dialog = d, compactSidebarOpen = if (d != null) false else it.compactSidebarOpen) }
     }
-    fun dismissDialog() = showDialog(null)
+
+    fun dismissDialog() {
+        val cur = _state.value.dialog
+        if (cur is Dialog.Settings) {
+            returnToSettingsSection = null
+            showDialog(null)
+        } else {
+            val back = returnToSettingsSection
+            returnToSettingsSection = null
+            showDialog(back?.let { Dialog.Settings(it) })
+        }
+    }
+
+    fun showSettings(section: SettingsSection = SettingsSection.Integrations) {
+        returnToSettingsSection = null
+        showDialog(Dialog.Settings(section))
+    }
+
+    fun updateSettingsSection(section: SettingsSection) {
+        if (_state.value.dialog is Dialog.Settings) {
+            _state.update { it.copy(dialog = Dialog.Settings(section)) }
+        }
+    }
+
+    fun closeSettings() {
+        returnToSettingsSection = null
+        showDialog(null)
+    }
+
+    fun setShowSafMountTip(enabled: Boolean) {
+        settings.showSafMountTip = enabled
+        _state.update { it.copy(showSafMountTip = enabled) }
+    }
+
+    fun sidebarModuleTitle(module: SidebarModule): String = when (module) {
+        SidebarModule.GoogleDrive -> str(com.droid.wayfinder.R.string.google_drive_section)
+        SidebarModule.OneDrive -> str(com.droid.wayfinder.R.string.onedrive_section)
+        SidebarModule.Dropbox -> str(com.droid.wayfinder.R.string.dropbox_section)
+        SidebarModule.NetworkAndCloud -> str(com.droid.wayfinder.R.string.network_and_cloud_section)
+        SidebarModule.Phone -> "Phone"
+        SidebarModule.LinuxFiles -> "Linux files"
+        SidebarModule.ColorTags -> str(com.droid.wayfinder.R.string.color_tags_section)
+    }
+
+    private fun onSidebarVisibilityUpdated(vis: SidebarVisibility) {
+        val prev = _state.value.sidebarVisibility
+        if (prev != vis) {
+            _state.update { it.copy(sidebarVisibility = vis) }
+        }
+        if (!vis.networkAndCloud) {
+            discovery.stop()
+        } else if (!discovery.isStarted) {
+            discovery.start()
+        }
+        if (!vis.phone) {
+            phoneRetryJob?.cancel()
+            phoneRetryJob = null
+            if (prev.phone) refreshMounts()
+        } else if (!prev.phone) {
+            refreshMounts()
+            PhoneDetector.warmConnectedClassicProfiles(app) {
+                if (_state.value.sidebarVisibility.phone) refreshPhoneStatus()
+            }
+            refreshPhoneStatus()
+        }
+    }
+
+    fun setSidebarModuleVisible(module: SidebarModule, visible: Boolean, withUndoToast: Boolean = false) {
+        val prev = _state.value.sidebarVisibility.isVisible(module)
+        if (prev == visible) return
+        val next = SharedUi.setSidebarModuleVisible(module, visible)
+        onSidebarVisibilityUpdated(next)
+        if (withUndoToast && !visible) {
+            record(Undo.SidebarModuleToggle(module, previousVisible = true))
+            toast(
+                msg = str(com.droid.wayfinder.R.string.toast_sidebar_section_hidden, sidebarModuleTitle(module)),
+                undo = true,
+            )
+        }
+    }
+
+    fun hideSidebarModuleWithUndo(module: SidebarModule) =
+        setSidebarModuleVisible(module, visible = false, withUndoToast = true)
 
     /**
      * Shows the one-time "Make Wayfinder your default file handler?" onboarding dialog on first install
@@ -1527,6 +1678,22 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         toast(
             msg = str(com.droid.wayfinder.R.string.toast_zoom_percent, (z * 100).roundToInt()),
             key = "zoom",
+            durationMs = EPHEMERAL_TOAST_DURATION_MS,
+        )
+    }
+
+    fun setZoom(zoomFactor: Float) {
+        val z = ((zoomFactor * 20f).roundToInt().coerceIn(14, 32)) / 20f
+        settings.zoom = z
+        _state.update { it.copy(zoom = z) }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        if (_state.value.theme == mode) return
+        SharedUi.setTheme(mode)
+        toast(
+            msg = str(com.droid.wayfinder.R.string.toast_theme_changed, mode.label),
+            key = "theme",
             durationMs = EPHEMERAL_TOAST_DURATION_MS,
         )
     }
@@ -1840,6 +2007,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             _state.value.network.map { it.path } +
             _state.value.mounts.map { it.path } +
             _state.value.driveAccounts.mapNotNull { it.mountPath } +
+            _state.value.oneDriveAccounts.map { it.rootPath } +
+            _state.value.dropboxAccounts.map { it.rootPath } +
             listOfNotNull(_state.value.pairedPhone?.path).filter { it != FsPath.PHONE_ROOT }
         if (rootPaths.none { FsPath.isWithin(it, path) }) return
         var cur = FsPath.parent(path)
@@ -2455,13 +2624,20 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                     val target = FsPath.child(destDir, ops.uniqueName(destDir, name))
                     val input = cr.openInputStream(uri) ?: throw java.io.IOException("Can't read $name")
                     input.use { inp ->
-                        repo.fs(destDir).openOutput(target).use { o ->
-                            val buf = ByteArray(256 * 1024)
-                            while (true) {
-                                currentCoroutineContext().ensureActive() // cancellable (endless / huge streams)
-                                val n = inp.read(buf)
-                                if (n < 0) break
-                                o.write(buf, 0, n)
+                        repo.fs(destDir).openOutput(target).apply {
+                            try {
+                                val buf = ByteArray(256 * 1024)
+                                while (true) {
+                                    currentCoroutineContext().ensureActive() // cancellable (endless / huge streams)
+                                    val n = inp.read(buf)
+                                    if (n < 0) break
+                                    write(buf, 0, n)
+                                }
+                            } catch (t: Throwable) {
+                                (this as? com.droid.wayfinder.data.AbortableOutputStream)?.abort()
+                                throw t
+                            } finally {
+                                close()
                             }
                         }
                     }
@@ -2504,6 +2680,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     private fun replay(from: ArrayDeque<Undo>, to: ArrayDeque<Undo>, title: String) {
         val u = from.removeLastOrNull() ?: return
+        if (u is Undo.SidebarModuleToggle) {
+            setSidebarModuleVisible(u.module, u.previousVisible, withUndoToast = false)
+            to.addLast(Undo.SidebarModuleToggle(u.module, !u.previousVisible))
+            syncUndo()
+            return
+        }
         syncUndo()
         launchOp(title, { report -> reverse(u, report) }) { inverse ->
             if (inverse != null) to.addLast(inverse)
@@ -2513,6 +2695,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     /** Reverses [u] on disk and returns the record that would reverse it again (null if not reversible). */
     private suspend fun reverse(u: Undo, report: (Progress) -> Unit): Undo? = when (u) {
+        is Undo.SidebarModuleToggle -> {
+            setSidebarModuleVisible(u.module, u.previousVisible, withUndoToast = false)
+            Undo.SidebarModuleToggle(u.module, !u.previousVisible)
+        }
         is Undo.Renames -> Undo.Renames(applyRenames(u.pairs.map { (from, to) -> to to from }))
         is Undo.Moves -> Undo.Moves(
             u.items.groupBy { FsPath.parent(it.source)!! }.flatMap { (dir, list) ->
@@ -2585,7 +2771,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun connectMount(cfg: ConnectConfig) {
         val addr = cfg.address
         if (!RemoteUri.isValidHost(addr.host)) { toast(str(com.droid.wayfinder.R.string.toast_invalid_server_address)); return }
-        dismissDialog()
+        returnToSettingsSection = null
+        showDialog(null)
         val cred = effectiveCred(cfg)
         servers.save(
             SavedServer(
@@ -2606,7 +2793,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
      */
     fun openAddress(input: String): Boolean {
         val t = input.trim()
-        if (FsPath.isSaf(t) || FsPath.isDoc(t) || FsPath.isPhone(t) || FsPath.isOneDrive(t)) { navigate(t); return true }
+        if (FsPath.isSaf(t) || FsPath.isDoc(t) || FsPath.isPhone(t) || FsPath.isOneDrive(t) || FsPath.isDropbox(t)) { navigate(t); return true }
         val a = RemoteUri.parse(t) ?: return false
         if (a.user != null) {
             val stored = servers.get(a.credKey)
@@ -2670,8 +2857,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     fun showConnectOneDriveDialog(reauthAccountId: String? = null) {
+        val cur = _state.value.dialog
+        returnToSettingsSection = (cur as? Dialog.Settings)?.initialSection
         oneDriveAuthJob?.cancel()
         oneDriveAuthJob = null
+        dropboxAuthJob?.cancel()
+        dropboxAuthJob = null
         val savedClientId = reauthAccountId?.let { oneDriveStore.getAccount(it)?.clientId }
             ?.takeIf { it.isNotBlank() }
             ?: oneDriveStore.defaultClientId
@@ -2690,9 +2881,11 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun dismissOneDriveDialog() {
         oneDriveAuthJob?.cancel()
         oneDriveAuthJob = null
+        val back = returnToSettingsSection
+        returnToSettingsSection = null
         _state.update {
             it.copy(
-                dialog = null,
+                dialog = back?.let { sec -> Dialog.Settings(sec) },
                 oneDriveSigningIn = false,
                 oneDriveAuthError = null,
                 oneDriveDeviceSession = null,
@@ -2792,9 +2985,11 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     private fun onOneDriveAccountConnected(account: OneDriveAccount) {
         onedrive.disconnect(account.accountId)
+        val back = returnToSettingsSection
+        returnToSettingsSection = null
         _state.update {
             it.copy(
-                dialog = null,
+                dialog = back?.let { sec -> Dialog.Settings(sec) },
                 oneDriveSigningIn = false,
                 oneDriveAuthError = null,
                 oneDriveDeviceSession = null,
@@ -2856,6 +3051,226 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 emit(UiEvent.OpenExternalUrl(url))
             } else {
                 toast("Couldn't resolve OneDrive web link")
+            }
+        }
+    }
+
+    fun showConnectDropboxDialog(reauthAccountId: String? = null) {
+        val cur = _state.value.dialog
+        returnToSettingsSection = (cur as? Dialog.Settings)?.initialSection
+        oneDriveAuthJob?.cancel()
+        oneDriveAuthJob = null
+        dropboxAuthJob?.cancel()
+        dropboxAuthJob = null
+        val savedAppKey = reauthAccountId?.let { dropboxStore.getAccount(it)?.appKey }
+            ?.takeIf { it.isNotBlank() }
+            ?: dropboxStore.defaultAppKey
+        _state.update {
+            it.copy(
+                dialog = Dialog.ConnectDropbox(reauthAccountId),
+                dropboxDefaultAppKey = savedAppKey,
+                dropboxSigningIn = false,
+                dropboxAuthError = null,
+                dropboxCodeSession = null,
+                compactSidebarOpen = false,
+            )
+        }
+    }
+
+    fun dismissDropboxDialog() {
+        dropboxAuthJob?.cancel()
+        dropboxAuthJob = null
+        val back = returnToSettingsSection
+        returnToSettingsSection = null
+        _state.update {
+            it.copy(
+                dialog = back?.let { sec -> Dialog.Settings(sec) },
+                dropboxSigningIn = false,
+                dropboxAuthError = null,
+                dropboxCodeSession = null,
+            )
+        }
+    }
+
+    fun cancelDropboxSignIn() {
+        dropboxAuthJob?.cancel()
+        dropboxAuthJob = null
+        _state.update {
+            it.copy(
+                dropboxSigningIn = false,
+            )
+        }
+    }
+
+    fun startDropboxBrowserSignIn(appKey: String, aliasLabel: String) {
+        val key = appKey.trim()
+        if (!DropboxAuthManager.isValidAppKey(key)) {
+            _state.update { it.copy(dropboxAuthError = "Enter a valid Dropbox App Key") }
+            return
+        }
+        dropboxStore.defaultAppKey = key
+        dropboxAuthJob?.cancel()
+        _state.update {
+            it.copy(
+                dropboxDefaultAppKey = key,
+                dropboxSigningIn = true,
+                dropboxAuthError = null,
+                dropboxCodeSession = null,
+            )
+        }
+        dropboxAuthJob = viewModelScope.launch {
+            try {
+                val account = withContext(Dispatchers.IO) {
+                    dropboxAuth.authorizeViaRedirect(
+                        appKeyInput = key,
+                        aliasLabel = aliasLabel,
+                        onLaunchBrowser = { url -> emit(UiEvent.OpenExternalUrl(url)) },
+                    )
+                }
+                onDropboxAccountConnected(account)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        dropboxSigningIn = false,
+                        dropboxAuthError = e.message ?: "Dropbox sign-in failed",
+                    )
+                }
+            }
+        }
+    }
+
+    fun startDropboxCodePasteSession(appKey: String) {
+        val key = appKey.trim()
+        if (!DropboxAuthManager.isValidAppKey(key)) {
+            _state.update { it.copy(dropboxAuthError = "Enter a valid Dropbox App Key") }
+            return
+        }
+        try {
+            val session = dropboxAuth.startCodePasteSession(key)
+            _state.update {
+                it.copy(
+                    dropboxDefaultAppKey = key,
+                    dropboxAuthError = null,
+                    dropboxCodeSession = session,
+                )
+            }
+            emit(UiEvent.OpenExternalUrl(session.authorizeUrl))
+        } catch (e: Exception) {
+            _state.update {
+                it.copy(dropboxAuthError = e.message ?: "Couldn't start Dropbox sign-in")
+            }
+        }
+    }
+
+    fun completeDropboxCodePasteSignIn(pastedCode: String, aliasLabel: String) {
+        val session = _state.value.dropboxCodeSession
+        if (session == null) {
+            _state.update { it.copy(dropboxAuthError = "Please request a Dropbox sign-in code first") }
+            return
+        }
+        val code = pastedCode.trim()
+        if (!DropboxAuthManager.isValidAuthorizationCode(code)) {
+            _state.update { it.copy(dropboxAuthError = "Paste the valid authorization code shown by Dropbox") }
+            return
+        }
+        dropboxAuthJob?.cancel()
+        _state.update {
+            it.copy(
+                dropboxSigningIn = true,
+                dropboxAuthError = null,
+            )
+        }
+        dropboxAuthJob = viewModelScope.launch {
+            try {
+                val account = dropboxAuth.completeCodePasteSignIn(
+                    session = session,
+                    pastedCode = code,
+                    aliasLabel = aliasLabel,
+                )
+                onDropboxAccountConnected(account)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        dropboxSigningIn = false,
+                        dropboxAuthError = e.message ?: "Dropbox code verification failed",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun onDropboxAccountConnected(account: DropboxAccount) {
+        dropbox.disconnect(account.accountId)
+        val back = returnToSettingsSection
+        returnToSettingsSection = null
+        _state.update {
+            it.copy(
+                dialog = back?.let { sec -> Dialog.Settings(sec) },
+                dropboxSigningIn = false,
+                dropboxAuthError = null,
+                dropboxCodeSession = null,
+            )
+        }
+        refreshMounts()
+        val matchingTabs = (_state.value.tabs + listOfNotNull(_state.value.secondary))
+            .filter { FsPath.isWithin(account.rootPath, it.path) }
+        if (matchingTabs.isNotEmpty()) {
+            matchingTabs.forEach { load(it.id) }
+        } else {
+            navigate(account.rootPath)
+        }
+        toast(str(com.droid.wayfinder.R.string.toast_dropbox_connected, account.sidebarTitle))
+    }
+
+    fun signOutDropbox(accountId: String) {
+        val acc = dropboxStore.getAccount(accountId)
+        val rootPath = "dropbox://$accountId"
+        dropboxStore.remove(accountId)
+        dropbox.disconnect(accountId)
+        val fallback = roots().firstOrNull()?.path ?: FsPath.RECENTS_ROOT
+        val s = _state.value
+        (s.tabs + listOfNotNull(s.secondary))
+            .filter { FsPath.isWithin(rootPath, it.path) }
+            .forEach { navigate(fallback, it.id) }
+        _state.update { st ->
+            st.copy(
+                tree = st.tree.copy(
+                    children = st.tree.children.filterKeys { !FsPath.isWithin(rootPath, it) },
+                    expanded = st.tree.expanded.filterTo(HashSet()) { !FsPath.isWithin(rootPath, it) },
+                ),
+            )
+        }
+        refreshMounts()
+        toast(str(com.droid.wayfinder.R.string.toast_dropbox_signed_out, acc?.sidebarTitle ?: accountId))
+    }
+
+    fun refreshDropboxQuota(accountId: String) {
+        viewModelScope.launch {
+            val updated = withContext(Dispatchers.IO) {
+                runCatching { dropboxAuth.refreshAccountQuota(accountId) }.getOrNull()
+            }
+            refreshMounts()
+            if (updated != null) {
+                toast("${updated.sidebarTitle}: ${updated.sidebarSubtitle}")
+            } else {
+                toast("Couldn't refresh Dropbox storage quota")
+            }
+        }
+    }
+
+    fun openInDropboxWeb(path: String) {
+        viewModelScope.launch {
+            val url = withContext(Dispatchers.IO) {
+                runCatching { dropbox.resolveWebUrl(path) }.getOrNull()
+            }
+            if (!url.isNullOrBlank()) {
+                emit(UiEvent.OpenExternalUrl(url))
+            } else {
+                toast("Couldn't resolve Dropbox web link")
             }
         }
     }
@@ -3032,8 +3447,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     fun confirmSafMountTip(dontShowAgain: Boolean, accountEmail: String? = null) {
-        if (dontShowAgain) settings.showSafMountTip = false
-        dismissDialog()
+        if (dontShowAgain) setShowSafMountTip(false)
+        if (_state.value.dialog is Dialog.SafMountTip) {
+            dismissDialog()
+        }
         pendingMountAccount = accountEmail
         val initialUri = if (accountEmail != null) {
             runCatching {
@@ -3067,7 +3484,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (!persisted && cr.persistedUriPermissions.none { it.uri == uri }) {
             toast("Couldn't keep access to this location"); return
         }
-        safMounts.firstOrNull { it.uri == uri.toString() }?.let { refreshMounts(); navigate(it.path); return }
+        safMounts.firstOrNull { it.uri == uri.toString() }?.let {
+            if (_state.value.dialog is Dialog.Settings) closeSettings()
+            refreshMounts()
+            navigate(it.path)
+            return
+        }
         viewModelScope.launch {
             val targetAcc = pendingMountAccount
             pendingMountAccount = null
@@ -3085,6 +3507,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             val m = SafMount(java.util.UUID.randomUUID().toString().replace("-", "").take(8), label, uri.toString())
             safMounts = safMounts + m
             settings.safMounts = safMounts
+            if (_state.value.dialog is Dialog.Settings) closeSettings()
             refreshMounts()
             navigate(m.path)
             toast(str(com.droid.wayfinder.R.string.toast_mounted_label, label))

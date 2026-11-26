@@ -8,6 +8,8 @@ import com.droid.wayfinder.data.ConnectConfig
 import com.droid.wayfinder.data.PickerRequest
 import com.droid.wayfinder.data.SavedServer
 import com.droid.wayfinder.data.Conflict
+import com.droid.wayfinder.data.DropboxAccount
+import com.droid.wayfinder.data.DropboxCodeSession
 import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FsSpace
 import com.droid.wayfinder.data.ImageInfo
@@ -64,6 +66,8 @@ sealed interface Dialog {
     data class Connect(val initial: ConnectConfig? = null) : Dialog
     /** "Connect Microsoft OneDrive"; [reauthAccountId] pre-selects an existing account when re-signing in. */
     data class ConnectOneDrive(val reauthAccountId: String? = null) : Dialog
+    /** "Connect Dropbox"; [reauthAccountId] pre-selects an existing account when re-signing in. */
+    data class ConnectDropbox(val reauthAccountId: String? = null) : Dialog
     data class SmbAuth(val host: String, val user: String = "", val domain: String = "") : Dialog
     data object Shortcuts : Dialog
     /** Pre-flight guidance dialog shown before launching the system document tree picker. */
@@ -74,6 +78,10 @@ sealed interface Dialog {
     data object About : Dialog
     /** First-install / on-demand guide for setting or resetting Wayfinder as the default file handler. */
     data object DefaultHandler : Dialog
+    /** Unified Settings modal/sheet (`Ctrl+,`), opening at [initialSection]. */
+    data class Settings(
+        val initialSection: com.droid.wayfinder.data.SettingsSection = com.droid.wayfinder.data.SettingsSection.Integrations,
+    ) : Dialog
 }
 
 sealed interface UiEvent {
@@ -201,6 +209,16 @@ data class AppState(
     val oneDriveAuthError: String? = null,
     /** Active OAuth 2.0 Device Code session being polled in the ConnectOneDrive dialog, if any. */
     val oneDriveDeviceSession: OneDriveDeviceCodeSession? = null,
+    /** Connected Dropbox Personal / Business accounts. */
+    val dropboxAccounts: List<DropboxAccount> = emptyList(),
+    /** Saved default Dropbox App Key for OAuth 2.0 + PKCE. */
+    val dropboxDefaultAppKey: String = "",
+    /** True while an interactive Dropbox Browser PKCE or Code Paste sign-in flow is awaiting completion. */
+    val dropboxSigningIn: Boolean = false,
+    /** Non-null inline error message for the active ConnectDropbox dialog. */
+    val dropboxAuthError: String? = null,
+    /** Active no-redirect PKCE code-paste session in the ConnectDropbox dialog, if any. */
+    val dropboxCodeSession: DropboxCodeSession? = null,
     /** Paired smartphone (e.g. Pixel 9) details. */
     val pairedPhone: com.droid.wayfinder.data.PairedPhone? = null,
     /** Discovered Linux development environment root path (`doc://...`, `saf://...`, or local `LinuxFiles`), if available. */
@@ -213,6 +231,10 @@ data class AppState(
     val activeDetailsWidthDp: Float? = null,
     /** Effective font scale of the active Details-view pane. */
     val activeFontScale: Float = 1f,
+    /** Visibility flags for optional sidebar integrations and sections. */
+    val sidebarVisibility: com.droid.wayfinder.data.SidebarVisibility = com.droid.wayfinder.data.SidebarVisibility(),
+    /** Whether the pre-flight SAF folder-picker helper tip is enabled. */
+    val showSafMountTip: Boolean = true,
 ) {
     /** The tab selected in the tab strip (left pane in dual-pane mode). */
     val mainTab: TabState get() = tabs.firstOrNull { it.id == activeId } ?: tabs.first()
@@ -226,6 +248,7 @@ data class AppState(
             mounts.associate { com.droid.wayfinder.data.FsPath.normalize(it.path) to it.label } +
             driveAccounts.mapNotNull { acc -> acc.mountPath?.let { com.droid.wayfinder.data.FsPath.normalize(it) to "Drive (${acc.email})" } }.toMap() +
             oneDriveAccounts.associate { com.droid.wayfinder.data.FsPath.normalize(it.rootPath) to it.sidebarTitle } +
+            dropboxAccounts.associate { com.droid.wayfinder.data.FsPath.normalize(it.rootPath) to it.sidebarTitle } +
             pairedPhone?.takeIf { it.isMounted && it.path != com.droid.wayfinder.data.FsPath.PHONE_ROOT }
                 ?.let {
                     mapOf(

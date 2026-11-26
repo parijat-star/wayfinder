@@ -299,16 +299,16 @@ class QuickLookAndMenusCoverageTest {
         mountedDriveItems.single { it.label == "Unmount" }.action()
         mountedDriveItems.single { it.label == "Forget" }.action()
 
-        // phoneMenu: mounted vs unmounted actions
+        // phoneMenu: mounted vs unmounted actions (plus Hide Phone in sidebar & Customize sidebar…)
         val phone = PairedPhone(name = "Pixel 9 Pro", subtitle = "Internal Storage", path = dirFile.path, isConnected = true, isMounted = true)
         val phoneItems = phoneMenu(hh.vm, phone, safMount).filterIsInstance<MenuEntry.Item>()
-        assertEquals(7, phoneItems.size)
+        assertEquals(9, phoneItems.size)
         phoneItems.single { it.label == "Open" }.action()
         phoneItems.single { it.label == "Quick Share folder" }.action()
         phoneItems.single { it.label == "Phone Hub settings" }.action()
         val unmountedPhone = PairedPhone(name = "Pixel 9 Pro", subtitle = "Tap to connect", path = FsPath.PHONE_ROOT, isConnected = true, isMounted = false)
         val unmountedPhoneItems = phoneMenu(hh.vm, unmountedPhone).filterIsInstance<MenuEntry.Item>()
-        assertEquals(4, unmountedPhoneItems.size)
+        assertEquals(6, unmountedPhoneItems.size)
         idle()
 
         // backgroundMenu for collection, Trash root, and SMB root

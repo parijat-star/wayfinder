@@ -24,6 +24,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.rightClick
 import androidx.compose.ui.unit.Density
@@ -416,24 +417,31 @@ class DetailsColumnsCustomizationTest {
         rule.setContent {
             val s by harness.vm.state.collectAsState()
             WayfinderTheme(false) {
-                Box(Modifier.size(width = 960.dp, height = 360.dp)) {
+                Box(Modifier.size(width = 960.dp, height = 640.dp)) {
                     Toolbar(harness.vm, s)
+                    com.droid.wayfinder.ui.Dialogs(harness.vm, s)
                 }
             }
         }
         rule.waitForIdle()
 
-        // In Details view, OverflowMenu offers all 5 metadata column toggles
+        // OverflowMenu -> Settings… -> Files & View offers all 5 metadata column toggles
         rule.onNodeWithContentDescription("More").performClick()
-        rule.onNodeWithText("Date modified column").assertIsDisplayed()
-        rule.onNodeWithText("Type column").assertIsDisplayed()
-        rule.onNodeWithText("Size column").assertIsDisplayed()
-        rule.onNodeWithText("Tags column").assertIsDisplayed()
-        rule.onNodeWithText("Permissions column").assertIsDisplayed()
-        // Hide Type column from OverflowMenu
-        rule.onNodeWithText("Type column").performClick()
+        rule.onNodeWithText("Settings…").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Files & View").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Date modified column").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Type column").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Size column").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Tags column").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Permissions column").performScrollTo().assertIsDisplayed()
+        // Hide Type column from Settings -> Files & View
+        rule.onNodeWithText("Type column").performScrollTo().performClick()
         rule.waitForIdle()
         assertFalse(harness.s.typeColumn)
+        rule.onNodeWithContentDescription("Close").performClick()
+        rule.waitForIdle()
 
         // SortButton dropdown should NOT show "Type" (hidden) or "Tags" (hidden), but SHOULD show "Name", "Date modified", "Size"
         rule.onNodeWithText("Sort").performClick()
@@ -446,15 +454,8 @@ class DetailsColumnsCustomizationTest {
         rule.onNodeWithText("Name").performClick()
         rule.waitForIdle()
 
-        // Switch to Grid view -> OverflowMenu hides Details-only column toggles,
-        // while SortButton and CommandPalette restore ALL SortKey options (including hidden Type, Tags, Permissions).
+        // Switch to Grid view -> SortButton and CommandPalette restore ALL SortKey options (including hidden Type, Tags, Permissions).
         harness.vm.setViewMode(ViewMode.Grid)
-        rule.waitForIdle()
-        rule.onNodeWithContentDescription("More").performClick()
-        assertEquals(0, rule.onAllNodesWithText("Date modified column").fetchSemanticsNodes().size)
-        assertEquals(0, rule.onAllNodesWithText("Tags column").fetchSemanticsNodes().size)
-        // Dismiss OverflowMenu by toggling Show hidden files off/on or clicking Sort after closing
-        rule.onNodeWithText("Show hidden files").performClick()
         rule.waitForIdle()
 
         rule.onNodeWithText("Sort").performClick()

@@ -38,6 +38,7 @@ object FsPath {
     fun isDoc(p: String) = p.startsWith(RemoteUri.DOC_SCHEME + "://")
     fun isGdrive(p: String) = p.startsWith("gdrive://")
     fun isOneDrive(p: String) = p.startsWith(RemoteUri.ONEDRIVE_SCHEME + "://")
+    fun isDropbox(p: String) = p.startsWith(RemoteUri.DROPBOX_SCHEME + "://")
     fun isLocal(p: String) = p.startsWith("/")
     fun isVirtual(p: String) = p == SMB_ROOT || p == TRASH_ROOT || isCollection(p) || p == PHONE_ROOT
     /** Virtual listings gathered from many folders (Recents, Starred, color tags). */
@@ -127,6 +128,11 @@ object FsPath {
             }
             isOneDrive(n) -> {
                 val scheme = RemoteUri.ONEDRIVE_SCHEME + "://"
+                val rest = n.removePrefix(scheme)
+                if (!rest.contains('/')) null else scheme + rest.substringBeforeLast('/')
+            }
+            isDropbox(n) -> {
+                val scheme = RemoteUri.DROPBOX_SCHEME + "://"
                 val rest = n.removePrefix(scheme)
                 if (!rest.contains('/')) null else scheme + rest.substringBeforeLast('/')
             }
@@ -242,6 +248,16 @@ object FsPath {
         }
         if (isOneDrive(n)) {
             val root = RemoteUri.rootOf(n) ?: return listOf("OneDrive" to n)
+            val out = mutableListOf((rootLabels[root] ?: name(root)) to root)
+            var cur = root
+            n.removePrefix(root).split('/').filter { it.isNotEmpty() }.forEach { seg ->
+                cur = "$cur/$seg"
+                out += seg to cur
+            }
+            return out
+        }
+        if (isDropbox(n)) {
+            val root = RemoteUri.rootOf(n) ?: return listOf("Dropbox" to n)
             val out = mutableListOf((rootLabels[root] ?: name(root)) to root)
             var cur = root
             n.removePrefix(root).split('/').filter { it.isNotEmpty() }.forEach { seg ->

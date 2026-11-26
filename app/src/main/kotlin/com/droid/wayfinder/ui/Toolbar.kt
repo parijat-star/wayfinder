@@ -379,7 +379,7 @@ internal fun resolveAddress(input: String, s: AppState? = null): String? {
         t.equals("recents", true) || t == FsPath.RECENTS_ROOT -> return FsPath.RECENTS_ROOT
         t.equals("starred", true) || t == FsPath.STARRED_ROOT -> return FsPath.STARRED_ROOT
         t.startsWith(FsPath.TAG_PREFIX) && FsPath.tagOf(t) != null -> return t
-        FsPath.isDoc(t) || FsPath.isPhone(t) || FsPath.isOneDrive(t) -> return FsPath.normalize(t)
+        FsPath.isDoc(t) || FsPath.isPhone(t) || FsPath.isOneDrive(t) || FsPath.isDropbox(t) -> return FsPath.normalize(t)
     }
     if (t.equals("phone", ignoreCase = true) || t.startsWith("phone/", ignoreCase = true)) {
         val sub = if (t.length > 5) t.substring(6).trim('/') else ""
@@ -476,6 +476,8 @@ private fun PathBar(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                         if (i == 0) {
                             if (FsPath.isOneDrive(path)) {
                                 OneDriveIcon(Modifier.size(18.dp))
+                            } else if (FsPath.isDropbox(path)) {
+                                DropboxIcon(Modifier.size(18.dp))
                             } else {
                                 val ic = when {
                                     path == FsPath.SMB_ROOT -> Icons.Outlined.Dns
@@ -1077,18 +1079,12 @@ private fun OverflowMenu(
                 leadingIcon = check(if (isCompactViewport) s.compactSidebarOpen else s.sidebarVisible),
                 trailingIcon = { Hint("Ctrl+\\") },
             )
-            DropdownMenuItem({ Text(stringResource(R.string.menu_status_bar)) }, { open = false; vm.toggleStatusBar() }, leadingIcon = check(s.statusBarVisible))
             DropdownMenuItem({ Text("Dual pane") }, { open = false; vm.toggleDualPane() }, leadingIcon = check(s.dualPane), trailingIcon = { Hint("Ctrl+4") })
-            if (s.active.viewMode == ViewMode.Details) {
-                DropdownMenuItem({ Text(stringResource(R.string.menu_modified_column)) }, { open = false; vm.toggleModifiedColumn() }, leadingIcon = check(s.modifiedColumn))
-                DropdownMenuItem({ Text(stringResource(R.string.menu_type_column)) }, { open = false; vm.toggleTypeColumn() }, leadingIcon = check(s.typeColumn))
-                DropdownMenuItem({ Text(stringResource(R.string.menu_size_column)) }, { open = false; vm.toggleSizeColumn() }, leadingIcon = check(s.sizeColumn))
-                DropdownMenuItem({ Text(stringResource(R.string.menu_tags_column)) }, { open = false; vm.toggleTagsColumn() }, leadingIcon = check(s.tagsColumn))
-                DropdownMenuItem({ Text(stringResource(R.string.menu_perms_column)) }, { open = false; vm.togglePermsColumn() }, leadingIcon = check(s.permsColumn))
-            }
-            if (!hasDesktopCaption) {
-                DropdownMenuItem({ Text(stringResource(R.string.menu_hide_status_bar)) }, { open = false; vm.toggleHideStatusBar() }, leadingIcon = check(s.hideStatusBar))
-            }
+            HorizontalDivider()
+            DropdownMenuItem({ Text("New window") }, { open = false; vm.newWindow() }, trailingIcon = { Hint("Ctrl+N") })
+            DropdownMenuItem({ Text("Command palette…") }, { open = false; vm.openPalette() }, trailingIcon = { Hint("Ctrl+K") })
+            DropdownMenuItem({ Text(stringResource(R.string.action_settings)) }, { open = false; vm.showSettings() }, trailingIcon = { Hint("Ctrl+,") })
+            DropdownMenuItem({ Text("Keyboard shortcuts") }, { open = false; vm.showDialog(Dialog.Shortcuts) }, trailingIcon = { Hint("F1") })
             if (showViewItems) {
                 HorizontalDivider()
                 listOf(
@@ -1126,19 +1122,6 @@ private fun OverflowMenu(
                     leadingIcon = { Box(Modifier.size(18.dp)) },
                 )
             }
-            HorizontalDivider()
-            DropdownMenuItem({ Text("Theme: ${s.theme.label}") }, { vm.cycleTheme() }, leadingIcon = { Box(Modifier.size(18.dp)) }, trailingIcon = { Hint("Light / Dark / System") })
-            DropdownMenuItem({ Text("Zoom in") }, { vm.zoomBy(1) }, leadingIcon = { Box(Modifier.size(18.dp)) }, trailingIcon = { Hint("Ctrl+=") })
-            DropdownMenuItem({ Text("Zoom out") }, { vm.zoomBy(-1) }, leadingIcon = { Box(Modifier.size(18.dp)) }, trailingIcon = { Hint("Ctrl+-") })
-            DropdownMenuItem({ Text("Reset zoom (${(s.zoom * 100).toInt()}%)") }, { open = false; vm.zoomBy(0) }, leadingIcon = { Box(Modifier.size(18.dp)) }, trailingIcon = { Hint("Ctrl+0") })
-            HorizontalDivider()
-            DropdownMenuItem({ Text("New window") }, { open = false; vm.newWindow() }, trailingIcon = { Hint("Ctrl+N") })
-            DropdownMenuItem({ Text("Command palette…") }, { open = false; vm.openPalette() }, trailingIcon = { Hint("Ctrl+K") })
-            DropdownMenuItem({ Text("Connect to server…") }, { open = false; vm.showConnectDialog() }, trailingIcon = { Hint("Ctrl+Shift+K") })
-            DropdownMenuItem({ Text(stringResource(R.string.palette_connect_onedrive)) }, { open = false; vm.showConnectOneDriveDialog() })
-            DropdownMenuItem({ Text(stringResource(R.string.action_default_file_handler)) }, { open = false; vm.showDefaultHandlerDialog() })
-            DropdownMenuItem({ Text("Keyboard shortcuts") }, { open = false; vm.showDialog(Dialog.Shortcuts) }, trailingIcon = { Hint("F1") })
-            DropdownMenuItem({ Text("About Wayfinder") }, { open = false; vm.showDialog(Dialog.About) })
         }
     }
 }

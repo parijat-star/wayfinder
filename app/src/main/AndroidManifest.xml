@@ -157,6 +157,23 @@
             </intent-filter>
         </activity-alias>
 
+        <activity
+            android:name=".DropboxOAuthCallbackActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="com.droid.wayfinder.dropbox"
+                    android:host="oauth" />
+            </intent-filter>
+        </activity>
+
         <provider
             android:name=".WayfinderFileProvider"
             android:authorities="${applicationId}.fileprovider"

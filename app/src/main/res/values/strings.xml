@@ -413,7 +413,32 @@
     <string name="palette_kind_onedrive" description="Category badge in command palette folder jump entries for connected OneDrive roots. [CHAR_LIMIT=20]">OneDrive</string>
     <string name="toast_onedrive_connected" description="Toast notification shown after connecting a Microsoft OneDrive account. %1$s is the account email or label. [CHAR_LIMIT=50]">Connected %1$s</string>
     <string name="toast_onedrive_signed_out" description="Toast notification shown after signing out of a Microsoft OneDrive account. %1$s is the account email or label. [CHAR_LIMIT=50]">Signed out of %1$s</string>
-    <string name="badge_beta" description="Compact pill badge label shown next to experimental sidebar locations such as Phone and Linux VM to indicate beta status. [CHAR_LIMIT=12]">Beta</string>
+
+    <!-- Dropbox integration -->
+    <string name="dropbox_section" description="Section header in the left navigation sidebar above connected Dropbox accounts. [CHAR_LIMIT=25]">Dropbox</string>
+    <string name="dropbox_add_account" description="Accessibility label and context menu item to connect a Dropbox account. [CHAR_LIMIT=40]">Add Dropbox account</string>
+    <string name="dropbox_sign_in_prompt" description="Empty-state row label in the Dropbox sidebar section prompting the user to sign in. [CHAR_LIMIT=35]">Sign in to Dropbox…</string>
+    <string name="dropbox_sign_in_subtitle" description="Subtitle under the Sign in to Dropbox sidebar item describing supported account types. [CHAR_LIMIT=55]">Personal or Business / Team Space</string>
+    <string name="dropbox_dialog_title" description="Modal dialog title when connecting or re-authenticating a Dropbox account. [CHAR_LIMIT=40]">Connect Dropbox</string>
+    <string name="dropbox_dialog_subtitle" description="Subtitle in the Connect Dropbox dialog listing supported personal and business accounts. [CHAR_LIMIT=80]">Personal (Basic / Plus / Professional) or Dropbox Business</string>
+    <string name="dropbox_tab_browser" description="Mode chip label in Connect Dropbox dialog for OAuth 2.0 PKCE system browser redirect sign-in. [CHAR_LIMIT=40]">Browser Sign-In (Recommended)</string>
+    <string name="dropbox_tab_code_paste" description="Mode chip label in Connect Dropbox dialog for no-redirect OAuth 2.0 PKCE authorization code paste sign-in. [CHAR_LIMIT=35]">Paste Sign-In Code</string>
+    <string name="dropbox_label_optional" description="Text field label in Connect Dropbox dialog for an optional custom sidebar display name. [CHAR_LIMIT=35]">Sidebar Label (optional)</string>
+    <string name="dropbox_app_key_label" description="Text field label in Connect Dropbox dialog for the Dropbox public client App key. [CHAR_LIMIT=40]">Dropbox App Key</string>
+    <string name="dropbox_auth_code_label" description="Text field label in Connect Dropbox dialog where the user pastes the authorization code shown by Dropbox. [CHAR_LIMIT=40]">Authorization Code</string>
+    <string name="dropbox_action_sign_in_browser" description="Primary button label in Connect Dropbox dialog to start OAuth 2.0 browser sign-in. [CHAR_LIMIT=30]">Sign in with Dropbox</string>
+    <string name="dropbox_action_get_code" description="Primary button label in Connect Dropbox dialog to open Dropbox authorization page for code copy-paste sign-in. [CHAR_LIMIT=30]">Get Sign-In Code</string>
+    <string name="dropbox_action_complete_code" description="Primary button label in Connect Dropbox dialog to verify and exchange a pasted authorization code. [CHAR_LIMIT=30]">Complete Sign-In</string>
+    <string name="dropbox_action_open_web" description="Context menu action on Dropbox files and folders to open the item in Dropbox on the web. [CHAR_LIMIT=35]">Open in Dropbox Web</string>
+    <string name="dropbox_action_refresh_quota" description="Sidebar context menu action on a connected Dropbox account to refresh its used and total storage quota. [CHAR_LIMIT=35]">Refresh storage quota</string>
+    <string name="dropbox_action_sign_out" description="Sidebar context menu action to sign out and disconnect a Dropbox account. [CHAR_LIMIT=35]">Sign out of Dropbox</string>
+    <string name="palette_connect_dropbox" description="Command palette command title to open the Connect Dropbox dialog. [CHAR_LIMIT=40]">Connect Dropbox…</string>
+    <string name="palette_connect_dropbox_desc" description="Command palette subtitle describing the Connect Dropbox command. [CHAR_LIMIT=65]">Mount a Personal or Business Dropbox account</string>
+    <string name="palette_kind_dropbox" description="Category badge in command palette folder jump entries for connected Dropbox roots. [CHAR_LIMIT=20]">Dropbox</string>
+    <string name="dropbox_beta_cap_note" description="Informational note in the Connect Dropbox dialog explaining the 50-user Beta cap and custom App Key fallback while Dropbox Production review is pending. [CHAR_LIMIT=NONE]">Beta: Shared sign-in currently supports up to 50 tester accounts. If Dropbox says its user limit is reached, expand \"Advanced: Custom Dropbox App Key\" below to connect with your own free key.</string>
+    <string name="toast_dropbox_connected" description="Toast notification shown after connecting a Dropbox account. %1$s is the account email or label. [CHAR_LIMIT=50]">Connected %1$s</string>
+    <string name="toast_dropbox_signed_out" description="Toast notification shown after signing out of a Dropbox account. %1$s is the account email or label. [CHAR_LIMIT=50]">Signed out of %1$s</string>
+    <string name="badge_beta" description="Compact pill badge label shown next to beta sidebar features and dialogs such as Phone, Linux VM, and Dropbox to indicate beta status. [CHAR_LIMIT=12]">Beta</string>
 
     <!-- Default file handler guide -->
     <string name="action_default_file_handler" description="Overflow menu item and command palette action title to open the Default File Handler guide dialog. [CHAR_LIMIT=35]">Default file handler…</string>
@@ -430,6 +455,19 @@
     <string name="default_handler_app_settings" description="Primary button in the Default File Handler dialog that opens Android App Info or Default Apps settings for Wayfinder. [CHAR_LIMIT=30]">App Default Settings</string>
     <string name="default_handler_not_now" description="Dismiss button in the Default File Handler dialog to close the prompt without changing settings. [CHAR_LIMIT=20]">Not now</string>
 
+    <!-- Settings & Sidebar customization -->
+    <string name="action_settings" description="Overflow menu item and command palette action title to open the Settings dialog (Ctrl+,). [CHAR_LIMIT=30]">Settings…</string>
+    <string name="settings_title" description="Header title of the Settings modal dialog and compact full-screen Settings sheet. [CHAR_LIMIT=25]">Settings</string>
+    <string name="palette_settings_desc" description="Command palette subtitle describing the Settings command. [CHAR_LIMIT=70]">Manage integrations, appearance, columns, and app defaults</string>
+    <string name="action_customize_sidebar" description="Sidebar footer item and context menu option that opens Settings to the Sidebar &amp; Integrations section. [CHAR_LIMIT=35]">Customize sidebar…</string>
+    <string name="palette_customize_sidebar_desc" description="Command palette subtitle describing the Customize sidebar command. [CHAR_LIMIT=75]">Show or hide cloud integrations, network, phone, Linux, and tags</string>
+    <string name="action_hide_in_sidebar" description="Context menu item on optional sidebar section headers to hide that section. %1$s is the section name (e.g. Dropbox). [CHAR_LIMIT=45]">Hide %1$s in sidebar</string>
+    <string name="toast_sidebar_section_hidden" description="Undoable snackbar message shown after hiding a sidebar section. %1$s is the hidden section name (e.g. OneDrive). [CHAR_LIMIT=50]">Hidden %1$s in sidebar</string>
+    <string name="settings_section_integrations" description="Navigation category label in Settings for managing sidebar sections and cloud/device integrations. [CHAR_LIMIT=30]">Sidebar &amp; Integrations</string>
+    <string name="settings_section_appearance" description="Navigation category label in Settings for theme, zoom, and status bar options. [CHAR_LIMIT=25]">Appearance</string>
+    <string name="settings_section_files_view" description="Navigation category label in Settings for hidden files, grid thumbnail size, and Details columns. [CHAR_LIMIT=25]">Files &amp; View</string>
+    <string name="settings_section_system_about" description="Navigation category label in Settings for default file handler, keyboard shortcuts, and app info. [CHAR_LIMIT=25]">System &amp; About</string>
+
     <!-- System Keyboard Shortcuts Helper (Meta+/) -->
     <string name="shortcut_group_tabs_windows" description="Category heading in the system Keyboard Shortcuts Helper for tab and window shortcuts. [CHAR_LIMIT=30]">Tabs &amp; windows</string>
     <string name="shortcut_group_navigate" description="Category heading in the system Keyboard Shortcuts Helper for navigation shortcuts. [CHAR_LIMIT=25]">Navigate</string>
@@ -445,6 +483,7 @@
     <string name="shortcut_reopen_closed_tab" description="System Keyboard Shortcuts Helper label for reopening the last closed tab (Ctrl+Shift+T). [CHAR_LIMIT=35]">Reopen closed tab</string>
     <string name="shortcut_open_folder_new_tab" description="System Keyboard Shortcuts Helper label for opening the selected folder in a new tab (Ctrl+Enter). [CHAR_LIMIT=40]">Open folder in new tab</string>
     <string name="shortcut_command_palette" description="System Keyboard Shortcuts Helper label for opening the command palette (Ctrl+K). [CHAR_LIMIT=35]">Command palette</string>
+    <string name="shortcut_settings" description="System Keyboard Shortcuts Helper label for opening Wayfinder Settings (Ctrl+,). [CHAR_LIMIT=35]">Settings</string>
     <string name="shortcut_new_window" description="System Keyboard Shortcuts Helper label for opening a new Wayfinder window (Ctrl+N). [CHAR_LIMIT=35]">New window</string>
 
     <string name="shortcut_back" description="System Keyboard Shortcuts Helper label for navigating back in folder history (Alt+Left). [CHAR_LIMIT=35]">Back</string>

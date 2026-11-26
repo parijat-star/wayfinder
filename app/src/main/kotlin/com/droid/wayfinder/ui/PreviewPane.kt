@@ -133,6 +133,11 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                                 Text(stringResource(R.string.onedrive_action_open_web), maxLines = 1, softWrap = false)
                             }
                         }
+                        if (FsPath.isDropbox(e.path)) {
+                            FilledTonalButton({ vm.openInDropboxWeb(e.path) }, modifier = btnMod, contentPadding = btnPadding) {
+                                Text(stringResource(R.string.dropbox_action_open_web), maxLines = 1, softWrap = false)
+                            }
+                        }
                         if (FsPath.isLocalFile(e.path) && !e.isDir && !inTrash) FilledTonalButton({ vm.share() }, modifier = btnMod, contentPadding = btnPadding) { Text("Share", maxLines = 1, softWrap = false) }
                         if (!e.isServer && !e.isShare && !FsPath.isZip(e.path) && !FsPath.isVirtual(e.path) && !inTrash) {
                             val pinned = e.path in s.pins

@@ -56,6 +56,8 @@ class NetworkDiscovery @JvmOverloads constructor(
     val scanning: StateFlow<Boolean> = _scanning
 
     private var listener: NsdManager.DiscoveryListener? = null
+    val isStarted: Boolean
+        @Synchronized get() = listener != null
     private val pending = ArrayDeque<NsdServiceInfo>()
     private var resolving = false
     private var sessionGen = 0

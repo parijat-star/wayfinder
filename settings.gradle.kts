@@ -7,6 +7,9 @@ pluginManagement {
         includeGroupByRegex("com\\.google.*")
       }
     }
+    // Use Google's GCS-backed Maven Central mirror ahead of repo.maven.apache.org so shared
+    // GitHub Actions runner egress IPs do not fail with HTTP 429 Too Many Requests.
+    maven("https://maven-central.storage-download.googleapis.com/maven2/")
     mavenCentral()
     gradlePluginPortal()
   }
@@ -22,6 +25,7 @@ dependencyResolutionManagement {
         includeGroupByRegex("com\\.google.*")
       }
     }
+    maven("https://maven-central.storage-download.googleapis.com/maven2/")
     mavenCentral()
   }
 }

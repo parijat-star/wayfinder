@@ -54,6 +54,7 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SelectAll
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material.icons.outlined.SortByAlpha
 import androidx.compose.material.icons.outlined.SwapHoriz
@@ -179,10 +180,20 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState, hasDesktopCaption: Boolea
             else -> if (pinned) vm.str(R.string.palette_unpin_folder) else vm.str(R.string.palette_pin_folder)
         }
         add(c(pinLabel, vm.str(R.string.palette_pin_desc), "Ctrl+B", Icons.Outlined.PushPin) { vm.togglePins(effectivePinTargets) })
-        add(c(vm.str(R.string.palette_connect_server), vm.str(R.string.palette_connect_server_desc), "Ctrl+Shift+K", Icons.Outlined.Dns) { vm.showConnectDialog() })
-        add(c(vm.str(R.string.palette_connect_onedrive), vm.str(R.string.palette_connect_onedrive_desc), null, Icons.Outlined.Cloud) { vm.showConnectOneDriveDialog() })
-        add(c(vm.str(R.string.palette_mount_provider), vm.str(R.string.palette_mount_provider_desc), null, Icons.Outlined.Dns) { vm.requestMountSaf() })
-        add(c(vm.str(R.string.palette_network), vm.str(R.string.palette_network_desc), null, Icons.Outlined.Dns) { vm.navigate(FsPath.SMB_ROOT) })
+        val vis = s.sidebarVisibility
+        if (vis.networkAndCloud) {
+            add(c(vm.str(R.string.palette_connect_server), vm.str(R.string.palette_connect_server_desc), "Ctrl+Shift+K", Icons.Outlined.Dns) { vm.showConnectDialog() })
+        }
+        if (vis.oneDrive) {
+            add(c(vm.str(R.string.palette_connect_onedrive), vm.str(R.string.palette_connect_onedrive_desc), null, Icons.Outlined.Cloud) { vm.showConnectOneDriveDialog() })
+        }
+        if (vis.dropbox) {
+            add(c(vm.str(R.string.palette_connect_dropbox), vm.str(R.string.palette_connect_dropbox_desc), null, Icons.Outlined.Cloud) { vm.showConnectDropboxDialog() })
+        }
+        if (vis.networkAndCloud) {
+            add(c(vm.str(R.string.palette_mount_provider), vm.str(R.string.palette_mount_provider_desc), null, Icons.Outlined.Dns) { vm.requestMountSaf() })
+            add(c(vm.str(R.string.palette_network), vm.str(R.string.palette_network_desc), null, Icons.Outlined.Dns) { vm.navigate(FsPath.SMB_ROOT) })
+        }
         add(c(vm.str(R.string.nav_trash), vm.str(R.string.palette_trash_desc), null, Icons.Outlined.Delete) { vm.navigate(FsPath.TRASH_ROOT) })
         add(c(vm.str(R.string.action_empty_trash), vm.str(R.string.palette_empty_trash_desc), null, Icons.Outlined.DeleteForever) { vm.emptyTrash() })
         listOf(
@@ -204,22 +215,26 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState, hasDesktopCaption: Boolea
         add(c(vm.str(R.string.palette_collapse_tree), vm.str(R.string.palette_collapse_tree_desc), null, Icons.Outlined.UnfoldLess) { vm.collapseTree() })
         add(c(vm.str(R.string.nav_recents), vm.str(R.string.palette_recents_desc), null, Icons.Outlined.History) { vm.navigate(FsPath.RECENTS_ROOT) })
         add(c(vm.str(R.string.nav_starred), vm.str(R.string.palette_starred_desc), null, Icons.Outlined.StarOutline) { vm.navigate(FsPath.STARRED_ROOT) })
-        if (s.phoneConnected) {
+        if (vis.phone && s.phoneConnected) {
             add(c(vm.str(R.string.palette_phone_quick_access), vm.str(R.string.palette_phone_quick_access_desc), null, Icons.Outlined.Smartphone) { vm.navigate(FsPath.PHONE_ROOT) })
         }
-        s.linuxRootPath?.let { linuxPath ->
-            add(c(vm.str(R.string.palette_linux_files), vm.str(R.string.palette_linux_files_desc), null, Icons.Outlined.Dns) { vm.navigate(linuxPath) })
-            if (tab.selection.isNotEmpty() && tab.path != linuxPath) {
-                add(c(vm.str(R.string.action_copy_to_linux_files), vm.str(R.string.palette_copy_linux_desc), null, Icons.AutoMirrored.Outlined.DriveFileMove) { vm.shareWithLinux() })
+        if (vis.linuxFiles) {
+            s.linuxRootPath?.let { linuxPath ->
+                add(c(vm.str(R.string.palette_linux_files), vm.str(R.string.palette_linux_files_desc), null, Icons.Outlined.Dns) { vm.navigate(linuxPath) })
+                if (tab.selection.isNotEmpty() && tab.path != linuxPath) {
+                    add(c(vm.str(R.string.action_copy_to_linux_files), vm.str(R.string.palette_copy_linux_desc), null, Icons.AutoMirrored.Outlined.DriveFileMove) { vm.shareWithLinux() })
+                }
             }
         }
         s.workProfiles.forEach { wp ->
             add(c(wp.label, vm.str(R.string.palette_work_profile_desc, wp.label), null, Icons.Outlined.Folder) { vm.openWorkProfile(wp) })
         }
         add(c(vm.str(R.string.palette_toggle_star), vm.str(R.string.palette_toggle_star_desc), null, Icons.Outlined.StarOutline) { vm.toggleStar() })
-        ColorTag.entries.forEach { t ->
-            add(c("Tag: ${t.label}", "Toggle the ${t.label} color tag on the selection", null, Icons.AutoMirrored.Outlined.Label) { vm.toggleTag(t) })
-            add(c("Show ${t.label} items", "Open the ${t.label} color tag view", null, Icons.Filled.Circle) { vm.navigate(FsPath.tagPath(t)) })
+        if (vis.colorTags) {
+            ColorTag.entries.forEach { t ->
+                add(c("Tag: ${t.label}", "Toggle the ${t.label} color tag on the selection", null, Icons.AutoMirrored.Outlined.Label) { vm.toggleTag(t) })
+                add(c("Show ${t.label} items", "Open the ${t.label} color tag view", null, Icons.Filled.Circle) { vm.navigate(FsPath.tagPath(t)) })
+            }
         }
         add(c(if (s.modifiedColumn) vm.str(R.string.palette_hide_modified_column) else vm.str(R.string.palette_show_modified_column), vm.str(R.string.palette_details_column_desc), null, Icons.Outlined.History) { vm.toggleModifiedColumn() })
         add(c(if (s.typeColumn) vm.str(R.string.palette_hide_type_column) else vm.str(R.string.palette_show_type_column), vm.str(R.string.palette_details_column_desc), null, Icons.Outlined.ViewColumn) { vm.toggleTypeColumn() })
@@ -253,6 +268,8 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState, hasDesktopCaption: Boolea
         if (one != null && (tab.searchResults != null || FsPath.isCollection(tab.path))) {
             add(c("Show in enclosing folder", "Go to the folder that contains ${one.name}", null, Icons.Outlined.FindInPage) { vm.showInEnclosingFolder(one.path) })
         }
+        add(c(vm.str(R.string.action_settings), vm.str(R.string.palette_settings_desc), "Ctrl+,", Icons.Outlined.Settings) { vm.showSettings() })
+        add(c(vm.str(R.string.action_customize_sidebar), vm.str(R.string.palette_customize_sidebar_desc), null, Icons.Outlined.Settings) { vm.showSettings(com.droid.wayfinder.data.SettingsSection.Integrations) })
         add(c(vm.str(R.string.action_default_file_handler), vm.str(R.string.palette_default_file_handler_desc), null, Icons.Outlined.AppRegistration) { vm.showDefaultHandlerDialog() })
         add(c("Keyboard shortcuts", "Show all shortcuts", "F1", Icons.Outlined.Keyboard) { vm.showDialog(Dialog.Shortcuts) })
         add(c("About Wayfinder", "Version and open-source licenses", null, Icons.Outlined.Info) { vm.showDialog(Dialog.About) })
@@ -267,10 +284,14 @@ fun paletteFolders(vm: BrowserViewModel, s: AppState): List<PaletteItem> {
         if (!seen.add(path)) return
         out += PaletteItem(s.titleOf(path), "$kind • $path", null, Icons.Outlined.Folder) { vm.navigate(path) }
     }
+    val vis = s.sidebarVisibility
     s.pins.forEach { add(it, vm.str(R.string.pinned_section)) }
-    s.roots.forEach { add(it.path, vm.str(R.string.palette_kind_storage)) }
-    s.oneDriveAccounts.forEach { add(it.rootPath, vm.str(R.string.palette_kind_onedrive)) }
-    if (s.phoneConnected) add(FsPath.PHONE_ROOT, vm.str(R.string.quick_access_section))
+    s.roots.filter {
+        vis.linuxFiles || !com.droid.wayfinder.data.GooglebookEcosystem.isLinuxLocation(it.path, it.label, s.linuxRootPath)
+    }.forEach { add(it.path, vm.str(R.string.palette_kind_storage)) }
+    if (vis.oneDrive) s.oneDriveAccounts.forEach { add(it.rootPath, vm.str(R.string.palette_kind_onedrive)) }
+    if (vis.dropbox) s.dropboxAccounts.forEach { add(it.rootPath, vm.str(R.string.palette_kind_dropbox)) }
+    if (vis.phone && s.phoneConnected) add(FsPath.PHONE_ROOT, vm.str(R.string.quick_access_section))
     s.recentFolders.forEach { add(it, vm.str(R.string.nav_recents)) }
     s.active.visible(s.showHidden).filter { it.isDir && !it.isServer }.forEach { add(it.path, vm.str(R.string.palette_kind_current_folder)) }
     return out
@@ -294,6 +315,7 @@ fun CommandPalette(vm: BrowserViewModel, s: AppState) {
         s.dualPane,
         s.pins,
         s.oneDriveAccounts,
+        s.dropboxAccounts,
         s.recentFolders,
         s.showHidden,
         s.theme,
@@ -305,6 +327,7 @@ fun CommandPalette(vm: BrowserViewModel, s: AppState) {
         s.permsColumn,
         s.columnOrder,
         s.columnWidths,
+        s.sidebarVisibility,
         s.activeDetailsWidthDp,
         s.activeFontScale,
         s.statusBarVisible,

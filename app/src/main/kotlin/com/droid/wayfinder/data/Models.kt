@@ -46,6 +46,53 @@ val SortKey.headerLabel: String
 
 enum class ThemeMode(val label: String) { System("System"), Light("Light"), Dark("Dark") }
 
+enum class SidebarModule {
+    GoogleDrive,
+    OneDrive,
+    Dropbox,
+    NetworkAndCloud,
+    Phone,
+    LinuxFiles,
+    ColorTags,
+}
+
+data class SidebarVisibility(
+    val hidden: Set<SidebarModule> = emptySet(),
+) {
+    fun isVisible(module: SidebarModule): Boolean = module !in hidden
+
+    val googleDrive: Boolean get() = isVisible(SidebarModule.GoogleDrive)
+    val oneDrive: Boolean get() = isVisible(SidebarModule.OneDrive)
+    val dropbox: Boolean get() = isVisible(SidebarModule.Dropbox)
+    val networkAndCloud: Boolean get() = isVisible(SidebarModule.NetworkAndCloud)
+    val phone: Boolean get() = isVisible(SidebarModule.Phone)
+    val linuxFiles: Boolean get() = isVisible(SidebarModule.LinuxFiles)
+    val colorTags: Boolean get() = isVisible(SidebarModule.ColorTags)
+
+    fun withVisible(module: SidebarModule, visible: Boolean): SidebarVisibility =
+        copy(hidden = if (visible) hidden - module else hidden + module)
+
+    fun serialize(): String = hidden.joinToString(",") { it.name }
+
+    companion object {
+        fun parse(raw: String?): SidebarVisibility {
+            if (raw.isNullOrBlank()) return SidebarVisibility()
+            val parsed = raw.split(',', '\n').mapNotNull { token ->
+                val t = token.trim()
+                SidebarModule.entries.firstOrNull { it.name.equals(t, ignoreCase = true) }
+            }.toSet()
+            return SidebarVisibility(parsed)
+        }
+    }
+}
+
+enum class SettingsSection {
+    Integrations,
+    Appearance,
+    FilesAndView,
+    SystemAndAbout,
+}
+
 /** Google Drive account discovered on the device. */
 data class DriveAccount(
     val email: String,

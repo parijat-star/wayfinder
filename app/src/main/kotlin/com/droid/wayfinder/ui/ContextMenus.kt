@@ -49,6 +49,7 @@ import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Smartphone
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AddToDrive
 import androidx.compose.material.icons.outlined.StarOutline
@@ -221,6 +222,9 @@ fun fileMenu(vm: BrowserViewModel, s: AppState, entry: FileEntry): List<MenuEntr
         if (single && FsPath.isOneDrive(entry.path)) {
             add(item(vm.str(R.string.onedrive_action_open_web), Icons.AutoMirrored.Outlined.OpenInNew) { vm.openInOneDriveWeb(entry.path) })
         }
+        if (single && FsPath.isDropbox(entry.path)) {
+            add(item(vm.str(R.string.dropbox_action_open_web), Icons.AutoMirrored.Outlined.OpenInNew) { vm.openInDropboxWeb(entry.path) })
+        }
         if (single && (tab.searchResults != null || FsPath.isCollection(tab.path))) {
             add(item(vm.str(R.string.action_show_in_enclosing_folder), Icons.Outlined.FindInPage) { vm.showInEnclosingFolder(entry.path) })
         }
@@ -308,6 +312,8 @@ fun backgroundMenu(vm: BrowserViewModel, s: AppState): List<MenuEntry> {
         item(vm.str(R.string.action_open_in_new_window), Icons.Outlined.Web, "Ctrl+N") { vm.newWindow() },
     ) + (if (FsPath.isOneDrive(tab.path)) {
         listOf(item(vm.str(R.string.onedrive_action_open_web), Icons.AutoMirrored.Outlined.OpenInNew) { vm.openInOneDriveWeb(tab.path) })
+    } else if (FsPath.isDropbox(tab.path)) {
+        listOf(item(vm.str(R.string.dropbox_action_open_web), Icons.AutoMirrored.Outlined.OpenInNew) { vm.openInDropboxWeb(tab.path) })
     } else {
         emptyList()
     }) + listOf(
@@ -381,6 +387,18 @@ fun oneDriveAccountMenu(vm: BrowserViewModel, acc: com.droid.wayfinder.data.OneD
     add(item(vm.str(R.string.onedrive_action_sign_out), Icons.Outlined.Eject) { vm.signOutOneDrive(acc.accountId) })
 }
 
+fun dropboxAccountMenu(vm: BrowserViewModel, acc: com.droid.wayfinder.data.DropboxAccount): List<MenuEntry> = buildList {
+    add(item(vm.str(R.string.action_open), Icons.Outlined.FolderOpen) { vm.navigate(acc.rootPath) })
+    add(item(vm.str(R.string.action_open_in_new_tab), Icons.Outlined.Tab) { vm.newTab(acc.rootPath, activate = true) })
+    add(item(vm.str(R.string.action_open_in_new_window), Icons.Outlined.Web) { vm.newWindow(acc.rootPath) })
+    add(item(vm.str(R.string.dropbox_action_open_web), Icons.AutoMirrored.Outlined.OpenInNew) { vm.openInDropboxWeb(acc.rootPath) })
+    add(MenuEntry.Divider)
+    add(item(vm.str(R.string.dropbox_action_refresh_quota), Icons.Outlined.Refresh) { vm.refreshDropboxQuota(acc.accountId) })
+    add(item(vm.str(R.string.dropbox_add_account), Icons.Outlined.Add) { vm.showConnectDropboxDialog() })
+    add(MenuEntry.Divider)
+    add(item(vm.str(R.string.dropbox_action_sign_out), Icons.Outlined.Eject) { vm.signOutDropbox(acc.accountId) })
+}
+
 fun phoneMenu(vm: BrowserViewModel, phone: com.droid.wayfinder.data.PairedPhone, mount: Mount? = null): List<MenuEntry> = buildList {
     add(item(vm.str(R.string.action_open), Icons.Outlined.Smartphone) { vm.openPairedPhone(phone) })
     if (phone.isMounted && phone.path != FsPath.PHONE_ROOT) {
@@ -397,5 +415,21 @@ fun phoneMenu(vm: BrowserViewModel, phone: com.droid.wayfinder.data.PairedPhone,
     add(MenuEntry.Divider)
     add(item(vm.str(R.string.action_quick_share_folder), Icons.Outlined.Folder) { vm.openQuickShareFolder() })
     add(item(vm.str(R.string.action_phone_hub_settings), Icons.Outlined.Settings) { vm.openPhoneHubSettings() })
+    add(MenuEntry.Divider)
+    add(item(vm.str(R.string.action_hide_in_sidebar, vm.sidebarModuleTitle(com.droid.wayfinder.data.SidebarModule.Phone)), Icons.Outlined.VisibilityOff) {
+        vm.hideSidebarModuleWithUndo(com.droid.wayfinder.data.SidebarModule.Phone)
+    })
+    add(item(vm.str(R.string.action_customize_sidebar), Icons.Outlined.Settings) {
+        vm.showSettings(com.droid.wayfinder.data.SettingsSection.Integrations)
+    })
 }
+
+fun sidebarSectionMenu(vm: BrowserViewModel, module: com.droid.wayfinder.data.SidebarModule): List<MenuEntry> = listOf(
+    item(vm.str(R.string.action_hide_in_sidebar, vm.sidebarModuleTitle(module)), Icons.Outlined.VisibilityOff) {
+        vm.hideSidebarModuleWithUndo(module)
+    },
+    item(vm.str(R.string.action_customize_sidebar), Icons.Outlined.Settings) {
+        vm.showSettings(com.droid.wayfinder.data.SettingsSection.Integrations)
+    },
+)
 
