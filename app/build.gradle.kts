@@ -54,7 +54,13 @@ android {
     buildConfig = false
     shaders = false
   }
-  testOptions { unitTests.isReturnDefaultValues = true; unitTests.isIncludeAndroidResources = true }
+  testOptions {
+    unitTests.isReturnDefaultValues = true
+    unitTests.isIncludeAndroidResources = true
+    unitTests.all {
+      it.maxHeapSize = "1536m"
+    }
+  }
   bundle {
     language {
       // Keep all packaged locale resources inside the base AAB so Android 13+ per-app language switching works offline.

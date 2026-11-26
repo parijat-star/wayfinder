@@ -146,8 +146,11 @@ private class Media3PreviewController(
         muted = p.volume <= 0f
         speed = p.playbackParameters.speed
         val nextMeta = p.mediaMetadata.toAudioTrackMetadata()
-        if (nextMeta.hasAnyMetadata && nextMeta != mediaMetadata) {
-            mediaMetadata = nextMeta
+        if (nextMeta.hasAnyMetadata) {
+            val merged = MediaPreviewSupport.mergeAudioMetadata(nextMeta, mediaMetadata)
+            if (merged != mediaMetadata) {
+                mediaMetadata = merged
+            }
         }
     }
 
@@ -269,7 +272,10 @@ private fun rememberMedia3PreviewController(uri: Uri, isVideo: Boolean): Media3P
             override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
                 val parsed = mediaMetadata.toAudioTrackMetadata()
                 if (parsed.hasAnyMetadata) {
-                    controller.mediaMetadata = parsed
+                    val merged = MediaPreviewSupport.mergeAudioMetadata(parsed, controller.mediaMetadata)
+                    if (merged != controller.mediaMetadata) {
+                        controller.mediaMetadata = merged
+                    }
                 }
             }
 
@@ -394,6 +400,7 @@ internal fun VideoPlayerPreview(vm: BrowserViewModel, e: FileEntry, uri: Uri) {
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             MediaSeekBar(
+                mediaKey = uri,
                 positionMs = controller.positionMs,
                 durationMs = controller.durationMs,
                 onSeekTo = controller::seekTo,
@@ -439,9 +446,10 @@ internal fun AudioPlayerPreview(vm: BrowserViewModel, e: FileEntry, uri: Uri) {
     val mergedMeta = remember(controller.mediaMetadata, fallbackMeta) {
         MediaPreviewSupport.mergeAudioMetadata(controller.mediaMetadata, fallbackMeta)
     }
-    val artworkBitmap by produceState<ImageBitmap?>(null, mergedMeta) {
+    val artworkKey = remember(mergedMeta) { ArtworkBytesKey(mergedMeta.artworkBytes) }
+    val artworkBitmap by produceState<ImageBitmap?>(null, artworkKey) {
         value = withContext(Dispatchers.IO) {
-            MediaPreviewLoader.decodeArtworkBitmap(mergedMeta.artworkBytes)?.asImageBitmap()
+            MediaPreviewLoader.decodeArtworkBitmap(artworkKey.bytes)?.asImageBitmap()
         }
     }
 
@@ -539,6 +547,7 @@ internal fun AudioPlayerPreview(vm: BrowserViewModel, e: FileEntry, uri: Uri) {
                         CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
                     }
                     MediaSeekBar(
+                        mediaKey = uri,
                         positionMs = controller.positionMs,
                         durationMs = controller.durationMs,
                         onSeekTo = controller::seekTo,
@@ -583,8 +592,16 @@ private fun MediaErrorFallback(
     }
 }
 
+private class ArtworkBytesKey(val bytes: ByteArray?) {
+    override fun equals(other: Any?): Boolean =
+        this === other || (other is ArtworkBytesKey && bytes.contentEquals(other.bytes))
+
+    override fun hashCode(): Int = bytes?.contentHashCode() ?: 0
+}
+
 @Composable
 private fun MediaSeekBar(
+    mediaKey: Any,
     positionMs: Long,
     durationMs: Long,
     onSeekTo: (Long) -> Unit,
@@ -592,7 +609,7 @@ private fun MediaSeekBar(
     darkOverlay: Boolean,
 ) {
     val cs = MaterialTheme.colorScheme
-    var scrubFraction by remember { mutableStateOf<Float?>(null) }
+    var scrubFraction by remember(mediaKey) { mutableStateOf<Float?>(null) }
     val activeFraction = scrubFraction ?: MediaPreviewSupport.positionToFraction(positionMs, durationMs)
     val displayedPositionMs = scrubFraction?.let { MediaPreviewSupport.fractionToPositionMs(it, durationMs) } ?: positionMs
     val seekable = durationMs > 0L

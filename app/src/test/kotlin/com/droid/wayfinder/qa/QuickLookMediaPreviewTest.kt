@@ -59,6 +59,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -74,6 +75,12 @@ import java.io.ByteArrayOutputStream
 class QuickLookMediaPreviewTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
     private var h: VmHarness? = null
+
+    @Before
+    fun setUp() {
+        quickLookMediaPlayerFactory = null
+        quickLookAnimatedDrawableFactory = null
+    }
 
     @After
     fun tearDown() {
@@ -516,6 +523,37 @@ class QuickLookMediaPreviewTest {
         rule.onNodeWithContentDescription("Pause").assertIsDisplayed()
         rule.onNodeWithContentDescription("Playback position").assertIsDisplayed()
         assertTrue(rule.onAllNodesWithText("1:00").fetchSemanticsNodes().isNotEmpty())
+    }
+
+    @Test
+    fun compactViewportVideoPreviewMeetsTouchTargetsWithoutRelayoutIssues() {
+        val harness = VmHarness().also { h = it }
+        harness.file("tiny/clip.mp4", "video")
+        harness.navigate(harness.pathOf("tiny"))
+        harness.select("tiny/clip.mp4")
+
+        quickLookMediaPlayerFactory = { _, _ ->
+            FakeMedia3Player(durationMs = 95_000L, videoSize = VideoSize(1280, 720))
+        }
+        harness.vm.toggleQuickLook()
+        harness.settle()
+
+        rule.setContent {
+            val s by harness.vm.state.collectAsState()
+            WayfinderTheme(false) {
+                Box(Modifier.size(width = 360.dp, height = 560.dp)) {
+                    QuickLook(harness.vm, s)
+                }
+            }
+        }
+        idle(harness)
+        listOf("Pause", "Rewind 10 seconds", "Fast-forward 10 seconds", "Mute").forEach { desc ->
+            rule.onNodeWithContentDescription(desc)
+                .assertIsDisplayed()
+                .assertWidthIsAtLeast(48.dp)
+                .assertHeightIsAtLeast(48.dp)
+        }
+        rule.onNodeWithContentDescription("Playback position").assertIsDisplayed()
     }
 
     @Test
