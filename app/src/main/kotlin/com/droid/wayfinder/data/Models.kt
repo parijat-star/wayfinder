@@ -126,6 +126,8 @@ data class FileEntry(
     val mode: Int = 0,
     /** True for symbolic links (local files): recursive operations never descend into linked folders. */
     val isLink: Boolean = false,
+    /** True for password-protected entries inside an archive. */
+    val isEncrypted: Boolean = false,
 ) {
     val kind: FileKind get() = if (isDir) FileKind.Folder else FileKind.fromName(name)
     val extension: String get() = if (isDir) "" else name.substringAfterLast('.', "")

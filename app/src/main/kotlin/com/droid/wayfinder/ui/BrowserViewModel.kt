@@ -53,6 +53,9 @@ import com.droid.wayfinder.data.PhoneDetector
 import com.droid.wayfinder.data.PhoneFileSystem
 import com.droid.wayfinder.data.PickerRequest
 import com.droid.wayfinder.data.Protocol
+import com.droid.wayfinder.data.ZipCompressOptions
+import com.droid.wayfinder.data.ZipCrypto
+import com.droid.wayfinder.data.ZipPasswordRequiredException
 import com.droid.wayfinder.data.RemoteAuthException
 import com.droid.wayfinder.data.RemoteFileSystem
 import com.droid.wayfinder.data.RemoteUri
@@ -183,6 +186,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private var hashJob: Job? = null
     private var mediaJob: Job? = null
     private var imageJob: Job? = null
+    private var zipVerifyJob: Job? = null
+    private var pendingZipAction: (() -> Unit)? = null
+    private var pendingZipCancel: (() -> Unit)? = null
     private var recentsCache: Pair<Long, List<FileEntry>>? = null
     private var phoneReceiver: BroadcastReceiver? = null
     private var packageReceiver: BroadcastReceiver? = null
@@ -403,6 +409,11 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     override fun onCleared() {
         discovery.stop()
+        zipVerifyJob?.cancel()
+        zipVerifyJob = null
+        pendingZipAction = null
+        pendingZipCancel = null
+        repo.zip.clearAllPasswords()
         phoneRetryJob?.cancel()
         phoneRetryJob = null
         oneDriveAuthJob?.cancel()
@@ -1296,11 +1307,36 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private fun stageAndOpenFile(path: String, chooser: Boolean) {
         // Network files, archive entries, and removable/Linux local volumes outside FileProvider roots
         // are staged into cacheDir first so external apps receive a valid FileProvider URI.
+        if (FsPath.isZip(path)) {
+            viewModelScope.launch {
+                val needsPw = withContext(Dispatchers.IO) { repo.zip.needsPassword(path) }
+                if (needsPw) {
+                    val archivePath = FsPath.zipSplit(path)?.first ?: path
+                    promptZipPassword(archivePath) { runStageAndOpenFile(path, chooser) }
+                } else {
+                    runStageAndOpenFile(path, chooser)
+                }
+            }
+            return
+        }
+        runStageAndOpenFile(path, chooser)
+    }
+
+    private fun runStageAndOpenFile(path: String, chooser: Boolean) {
         val zip = FsPath.isZip(path)
         val dir = File(app.cacheDir, "${if (zip) "zip-open" else "remote-open"}/${cacheKeyFor(path)}").apply { mkdirs() }
-        launchOp(if (zip) "Extracting" else if (FsPath.isLocalFile(path)) "Preparing" else "Downloading", { report ->
-            ops.transfer(listOf(path), dir.path, move = false, conflict = Conflict.Replace, onProgress = report)
-        }) { res ->
+        launchOp(
+            title = if (zip) "Extracting" else if (FsPath.isLocalFile(path)) "Preparing" else "Downloading",
+            work = { report ->
+                ops.transfer(listOf(path), dir.path, move = false, conflict = Conflict.Replace, onProgress = report)
+            },
+            onPasswordRequired = { e ->
+                promptZipPassword(
+                    archivePath = e.archivePath,
+                    error = if (e.wrongPassword) str(com.droid.wayfinder.R.string.dialog_zip_password_incorrect) else null,
+                ) { runStageAndOpenFile(path, chooser) }
+            },
+        ) { res ->
             val target = res.firstOrNull()?.target ?: File(dir, FileInfo.sanitizeFileName(FsPath.name(path), "file")).path
             emit(UiEvent.OpenFile(target, chooser))
         }
@@ -1497,9 +1533,65 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             mediaJob?.cancel(); mediaJob = null
             imageJob?.cancel(); imageJob = null
         }
+        if (d !is Dialog.ZipPassword) {
+            zipVerifyJob?.cancel(); zipVerifyJob = null
+            val onCancel = pendingZipCancel
+            pendingZipAction = null
+            pendingZipCancel = null
+            onCancel?.invoke()
+        }
         _state.update { it.copy(dialog = d, compactSidebarOpen = if (d != null) false else it.compactSidebarOpen) }
     }
     fun dismissDialog() = showDialog(null)
+
+    private fun promptZipPassword(
+        archivePath: String,
+        error: String? = null,
+        onCancel: (() -> Unit)? = null,
+        retry: () -> Unit,
+    ) {
+        pendingZipAction = retry
+        pendingZipCancel = onCancel
+        showDialog(Dialog.ZipPassword(archivePath, FsPath.name(archivePath), error = error))
+    }
+
+    fun submitZipPassword(archivePath: String, password: String) {
+        val cur = _state.value.dialog as? Dialog.ZipPassword ?: return
+        if (cur.archivePath != archivePath || cur.verifying || password.isEmpty()) return
+        _state.update { s ->
+            val d = s.dialog as? Dialog.ZipPassword
+            if (d?.archivePath == archivePath) s.copy(dialog = d.copy(verifying = true, error = null)) else s
+        }
+        zipVerifyJob?.cancel()
+        zipVerifyJob = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    if (FsPath.isLocal(archivePath) && File(archivePath).isFile) {
+                        ZipCrypto.verifyPassword(File(archivePath), archivePath, password)
+                    }
+                }
+                if ((_state.value.dialog as? Dialog.ZipPassword)?.archivePath != archivePath) return@launch
+                repo.zip.setPassword(archivePath, password)
+                val action = pendingZipAction
+                pendingZipAction = null
+                pendingZipCancel = null
+                dismissDialog()
+                action?.invoke()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: ZipPasswordRequiredException) {
+                _state.update { s ->
+                    val d = s.dialog as? Dialog.ZipPassword
+                    if (d?.archivePath == archivePath) {
+                        s.copy(dialog = d.copy(verifying = false, error = str(com.droid.wayfinder.R.string.dialog_zip_password_incorrect)))
+                    } else s
+                }
+            } catch (e: Throwable) {
+                dismissDialog()
+                toast(e.message ?: "Couldn't unlock archive")
+            }
+        }
+    }
 
     /**
      * Shows the one-time "Make Wayfinder your default file handler?" onboarding dialog on first install
@@ -1937,7 +2029,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     // ---------------------------------------------------------------- operations
 
-    private fun <T> launchOp(title: String, work: suspend (report: (Progress) -> Unit) -> T, after: (T) -> Unit = {}) {
+    private fun <T> launchOp(
+        title: String,
+        work: suspend (report: (Progress) -> Unit) -> T,
+        onPasswordRequired: ((ZipPasswordRequiredException) -> Unit)? = null,
+        after: (T) -> Unit = {},
+    ) {
         val id = ++opSeq
         _state.update { it.copy(ops = it.ops + OpStatus(id, Progress(title))) }
         opJobs[id] = viewModelScope.launch {
@@ -1949,6 +2046,10 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 after(result)
             } catch (e: CancellationException) {
                 toast("Cancelled")
+            } catch (e: ZipPasswordRequiredException) {
+                if (e.wrongPassword) repo.zip.clearPassword(e.archivePath)
+                if (onPasswordRequired != null) onPasswordRequired(e)
+                else toast(e.message ?: "$title failed")
             } catch (e: Throwable) {
                 toast(e.message ?: "$title failed")
             } finally {
@@ -2029,7 +2130,34 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     private fun runTransfer(sources: List<String>, dest: String, move: Boolean, how: Conflict) {
-        launchOp(if (move) str(com.droid.wayfinder.R.string.op_moving) else str(com.droid.wayfinder.R.string.op_copying), { report -> ops.transfer(sources, dest, move, how, report) }) { res ->
+        val zipSources = sources.filter { FsPath.isZip(it) }
+        if (zipSources.isNotEmpty()) {
+            viewModelScope.launch {
+                val lockedArchive = withContext(Dispatchers.IO) {
+                    zipSources.firstOrNull { repo.zip.needsPassword(it) }?.let { FsPath.zipSplit(it)?.first }
+                }
+                if (lockedArchive != null) {
+                    promptZipPassword(lockedArchive) { runTransfer(sources, dest, move, how) }
+                } else {
+                    executeTransfer(sources, dest, move, how)
+                }
+            }
+            return
+        }
+        executeTransfer(sources, dest, move, how)
+    }
+
+    private fun executeTransfer(sources: List<String>, dest: String, move: Boolean, how: Conflict) {
+        launchOp(
+            title = if (move) str(com.droid.wayfinder.R.string.op_moving) else str(com.droid.wayfinder.R.string.op_copying),
+            work = { report -> ops.transfer(sources, dest, move, how, report) },
+            onPasswordRequired = { e ->
+                promptZipPassword(
+                    archivePath = e.archivePath,
+                    error = if (e.wrongPassword) str(com.droid.wayfinder.R.string.dialog_zip_password_incorrect) else null,
+                ) { executeTransfer(sources, dest, move, how) }
+            },
+        ) { res ->
             if (res.isNotEmpty()) {
                 record(if (move) Undo.Moves(res) else Undo.Created(res.map { it.target }))
                 if (move) remapMarks(res.map { it.source to it.target })
@@ -2198,7 +2326,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         showDialog(Dialog.Compress(paths, suggested))
     }
 
-    fun compress(sources: List<String>, name: String) {
+    fun compress(sources: List<String>, name: String, options: ZipCompressOptions = ZipCompressOptions()) {
         dismissDialog()
         val dir = tab.path
         if (FsPath.isReadOnly(dir) || trash.isInTrash(dir) || sources.any { trash.isInTrash(it) }) return
@@ -2206,7 +2334,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         FsPath.nameError(wanted)?.let { toast(it); return }
         launchOp("Compressing", { report ->
             val fileName = ops.uniqueName(dir, wanted)
-            ops.compress(sources, FsPath.child(dir, fileName), report)
+            ops.compress(sources, FsPath.child(dir, fileName), options, report)
         }) { zip ->
             record(Undo.Created(listOf(zip)))
             updateTab(tab.id) { it.copy(selection = setOf(zip), focused = zip) }
@@ -2216,10 +2344,70 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun extractSelection() {
         val z = tab.selectedEntries(hidden).filter { isBrowsableArchive(it) }
         if (z.isEmpty() || FsPath.isReadOnly(tab.path) || trash.isInTrash(tab.path) || z.any { trash.isInTrash(it.path) }) return
-        val dir = tab.path
-        launchOp("Extracting", { report -> z.map { ops.extract(it.path, dir, report) } }) { out ->
-            record(Undo.Created(out))
-            updateTab(tab.id) { it.copy(selection = out.toSet()) }
+        extractArchives(z, tab.path, emptyList())
+    }
+
+    private fun extractArchives(remaining: List<FileEntry>, dir: String, doneSoFar: List<String>) {
+        if (remaining.isEmpty()) {
+            if (doneSoFar.isNotEmpty()) {
+                record(Undo.Created(doneSoFar))
+                updateTab(tab.id) { it.copy(selection = doneSoFar.toSet()) }
+            }
+            return
+        }
+        viewModelScope.launch {
+            val first = remaining.first()
+            val needsPw = withContext(Dispatchers.IO) {
+                FsPath.isLocal(first.path) && repo.zip.needsPassword(first.path)
+            }
+            if (needsPw) {
+                promptZipPassword(
+                    archivePath = first.path,
+                    onCancel = {
+                        if (doneSoFar.isNotEmpty()) {
+                            record(Undo.Created(doneSoFar))
+                            updateTab(tab.id) { it.copy(selection = doneSoFar.toSet()) }
+                        }
+                    },
+                ) {
+                    extractArchives(remaining, dir, doneSoFar)
+                }
+                return@launch
+            }
+            var idx = 0
+            val newlyDone = ArrayList<String>()
+            launchOp(
+                title = "Extracting",
+                work = { report ->
+                    while (idx < remaining.size) {
+                        val item = remaining[idx]
+                        newlyDone += ops.extract(item.path, dir, report)
+                        idx++
+                    }
+                    doneSoFar + newlyDone
+                },
+                onPasswordRequired = { e ->
+                    val combined = doneSoFar + newlyDone
+                    val rest = remaining.drop(idx)
+                    promptZipPassword(
+                        archivePath = e.archivePath,
+                        error = if (e.wrongPassword) str(com.droid.wayfinder.R.string.dialog_zip_password_incorrect) else null,
+                        onCancel = {
+                            if (combined.isNotEmpty()) {
+                                record(Undo.Created(combined))
+                                updateTab(tab.id) { it.copy(selection = combined.toSet()) }
+                            }
+                        },
+                    ) {
+                        extractArchives(rest, dir, combined)
+                    }
+                },
+            ) { out ->
+                if (out.isNotEmpty()) {
+                    record(Undo.Created(out))
+                    updateTab(tab.id) { it.copy(selection = out.toSet()) }
+                }
+            }
         }
     }
 

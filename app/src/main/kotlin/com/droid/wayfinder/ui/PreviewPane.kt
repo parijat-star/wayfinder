@@ -113,6 +113,7 @@ fun PreviewPane(vm: BrowserViewModel, s: AppState, modifier: Modifier) {
                     val e = sel[0]
                     Preview(null, e.name, e.kind.label, e, vm)
                     Fact("Type", e.typeLabel)
+                    if (e.isEncrypted) Fact(stringResource(R.string.preview_encryption_label), stringResource(R.string.archive_password_protected))
                     e.subtitle?.takeIf { it.isNotBlank() }?.let { Fact("Summary", it) }
                     if (!e.isDir) Fact("Size", formatSize(e.size))
                     Fact("Modified", formatDateFull(e.modified))

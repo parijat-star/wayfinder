@@ -46,29 +46,50 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import android.view.View
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentDataType
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalAutofillManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDataType
+import androidx.compose.ui.semantics.isSensitiveData
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import com.droid.wayfinder.data.Conflict
 import com.droid.wayfinder.data.FileInfo
 import com.droid.wayfinder.data.FsPath
@@ -76,6 +97,8 @@ import com.droid.wayfinder.data.ImageFormatters
 import com.droid.wayfinder.data.ImageInfo
 import com.droid.wayfinder.data.MediaFormatters
 import com.droid.wayfinder.data.MediaInfo
+import com.droid.wayfinder.data.ZipCompressOptions
+import com.droid.wayfinder.data.ZipCompressionLevel
 import com.droid.wayfinder.data.formatItemCount
 import com.droid.wayfinder.data.formatSize
 
@@ -90,7 +113,8 @@ fun Dialogs(vm: BrowserViewModel, s: AppState) {
             stringResource(R.string.action_create),
             selectBase = true, onDismiss = vm::dismissDialog,
         ) { vm.createItem(it, d.folder) }
-        is Dialog.Compress -> NameDialog(stringResource(R.string.action_compress_to_zip), d.suggested, stringResource(R.string.action_compress), selectBase = false, onDismiss = vm::dismissDialog, suffix = ".zip") { vm.compress(d.sources, it) }
+        is Dialog.Compress -> CompressDialog(d, onDismiss = vm::dismissDialog) { name, options -> vm.compress(d.sources, name, options) }
+        is Dialog.ZipPassword -> ZipPasswordDialog(d, onDismiss = vm::dismissDialog) { pw -> vm.submitZipPassword(d.archivePath, pw) }
         is Dialog.Delete -> AlertDialog(
             onDismissRequest = vm::dismissDialog,
             title = { Text(stringResource(R.string.dialog_delete_permanent_title)) },
@@ -170,6 +194,348 @@ private fun NameDialog(
         confirmButton = { TextButton({ onConfirm(tf.text) }, enabled = tf.text.isNotBlank()) { Text(confirm) } },
         dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CompressDialog(
+    d: Dialog.Compress,
+    onDismiss: () -> Unit,
+    onConfirm: (name: String, options: ZipCompressOptions) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val fr = remember { FocusRequester() }
+    var tf by remember(d.suggested) { mutableStateOf(TextFieldValue(d.suggested, TextRange(0, d.suggested.length))) }
+    var showAdvanced by remember { mutableStateOf(false) }
+    var level by remember { mutableStateOf(ZipCompressionLevel.Normal) }
+    var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+    var excludeHidden by remember { mutableStateOf(false) }
+
+    val passwordMismatch = password.isNotEmpty() && confirmPassword != password
+    val canConfirm = tf.text.isNotBlank() && !passwordMismatch
+    val submit = {
+        if (canConfirm) {
+            onConfirm(
+                tf.text,
+                ZipCompressOptions(
+                    level = level,
+                    password = password.ifEmpty { null },
+                    excludeHidden = excludeHidden,
+                ),
+            )
+        }
+    }
+
+    val levelLabel: @Composable (ZipCompressionLevel) -> String = { l ->
+        when (l) {
+            ZipCompressionLevel.None -> stringResource(R.string.compress_level_none)
+            ZipCompressionLevel.Fast -> stringResource(R.string.compress_level_fast)
+            ZipCompressionLevel.Normal -> stringResource(R.string.compress_level_normal)
+            ZipCompressionLevel.Maximum -> stringResource(R.string.compress_level_maximum)
+        }
+    }
+
+    val summaryParts = buildList {
+        if (level != ZipCompressionLevel.Normal) add(levelLabel(level))
+        if (password.isNotEmpty()) add("AES-256")
+        if (excludeHidden) add(stringResource(R.string.compress_exclude_hidden_label))
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            securePolicy = if (password.isNotEmpty() || showPassword) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit,
+        ),
+        modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 520.dp).fillMaxWidth(),
+        title = { Text(stringResource(R.string.action_compress_to_zip)) },
+        text = {
+            DisableDialogAutofill()
+            LaunchedEffect(Unit) { fr.requestFocus() }
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = tf,
+                    onValueChange = { tf = it },
+                    modifier = Modifier.fillMaxWidth().focusRequester(fr),
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.compress_archive_name_label)) },
+                    suffix = { Text(".zip") },
+                    keyboardOptions = KeyboardOptions(imeAction = if (showAdvanced) ImeAction.Next else ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { showAdvanced = !showAdvanced }
+                        .focusRing(RoundedCornerShape(10.dp))
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(Icons.Outlined.Tune, null, Modifier.size(18.dp), tint = cs.primary)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.compress_advanced_options),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = cs.primary,
+                        )
+                        if (!showAdvanced && summaryParts.isNotEmpty()) {
+                            Text(
+                                summaryParts.joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = cs.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Icon(
+                        if (showAdvanced) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                        contentDescription = stringResource(if (showAdvanced) R.string.action_collapse else R.string.action_expand),
+                        modifier = Modifier.size(20.dp),
+                        tint = cs.onSurfaceVariant,
+                    )
+                }
+
+                if (showAdvanced) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            stringResource(R.string.compress_level_label),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = cs.onSurfaceVariant,
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            ZipCompressionLevel.entries.forEach { candidate ->
+                                FilterChip(
+                                    selected = candidate == level,
+                                    onClick = { level = candidate },
+                                    // Material 3's default FilterChip elevation applies 1.dp shadowElevation on hover
+                                    // even for transparent unselected chips, causing HWUI's opaque-occluder shadow
+                                    // cutout to show a white inner rectangle surrounded by gray edges.
+                                    elevation = null,
+                                    label = { Text(levelLabel(candidate), maxLines = 1, softWrap = false) },
+                                )
+                            }
+                        }
+
+                        val togglePwLabel = stringResource(if (showPassword) R.string.action_hide_password else R.string.action_show_password)
+                        val visTransform = if (showPassword) VisualTransformation.None else PasswordVisualTransformation()
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = {
+                                password = it
+                                if (it.isEmpty()) confirmPassword = ""
+                            },
+                            modifier = Modifier.fillMaxWidth().semantics {
+                                contentDataType = ContentDataType.None
+                                isSensitiveData = true
+                            },
+                            singleLine = true,
+                            label = { Text(stringResource(R.string.compress_password_optional_label)) },
+                            visualTransformation = visTransform,
+                            trailingIcon = {
+                                ActionTooltip(togglePwLabel) {
+                                    IconButton(
+                                        onClick = { showPassword = !showPassword },
+                                        modifier = Modifier.size(48.dp).focusRing(CircleShape),
+                                    ) {
+                                        Icon(
+                                            if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                            contentDescription = togglePwLabel,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                }
+                            },
+                            supportingText = {
+                                Text(
+                                    stringResource(
+                                        if (password.isEmpty()) R.string.compress_password_hint else R.string.compress_password_aes_note,
+                                    ),
+                                )
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                autoCorrectEnabled = false,
+                                keyboardType = KeyboardType.Password,
+                                imeAction = if (password.isNotEmpty()) ImeAction.Next else ImeAction.Done,
+                            ),
+                            keyboardActions = KeyboardActions(onDone = { submit() }),
+                        )
+
+                        if (password.isNotEmpty()) {
+                            OutlinedTextField(
+                                value = confirmPassword,
+                                onValueChange = { confirmPassword = it },
+                                modifier = Modifier.fillMaxWidth().semantics {
+                                    contentDataType = ContentDataType.None
+                                    isSensitiveData = true
+                                },
+                                singleLine = true,
+                                label = { Text(stringResource(R.string.compress_password_confirm_label)) },
+                                visualTransformation = visTransform,
+                                isError = confirmPassword.isNotEmpty() && passwordMismatch,
+                                supportingText = if (confirmPassword.isNotEmpty() && passwordMismatch) {
+                                    { Text(stringResource(R.string.compress_password_mismatch)) }
+                                } else null,
+                                keyboardOptions = KeyboardOptions(
+                                    autoCorrectEnabled = false,
+                                    keyboardType = KeyboardType.Password,
+                                    imeAction = ImeAction.Done,
+                                ),
+                                keyboardActions = KeyboardActions(onDone = { submit() }),
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .toggleable(value = excludeHidden, role = Role.Checkbox, onValueChange = { excludeHidden = it })
+                                .focusRing(RoundedCornerShape(10.dp))
+                                .padding(horizontal = 4.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Checkbox(checked = excludeHidden, onCheckedChange = null)
+                            Column(Modifier.weight(1f)) {
+                                Text(stringResource(R.string.compress_exclude_hidden_label), style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    stringResource(R.string.compress_exclude_hidden_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = cs.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = submit, enabled = canConfirm) {
+                Text(stringResource(R.string.action_compress))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun ZipPasswordDialog(
+    d: Dialog.ZipPassword,
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val fr = remember { FocusRequester() }
+    var password by remember(d.archivePath) { mutableStateOf("") }
+    var showPassword by remember(d.archivePath) { mutableStateOf(false) }
+
+    val submit = {
+        if (password.isNotEmpty() && !d.verifying) onSubmit(password)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
+        icon = { Icon(Icons.Outlined.Lock, null, Modifier.size(28.dp), tint = cs.primary) },
+        title = { Text(stringResource(R.string.dialog_zip_password_title)) },
+        text = {
+            DisableDialogAutofill()
+            LaunchedEffect(d.archivePath, d.error) { fr.requestFocus() }
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    stringResource(R.string.dialog_zip_password_message, d.archiveName),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = cs.onSurface,
+                )
+                val togglePwLabel = stringResource(if (showPassword) R.string.action_hide_password else R.string.action_show_password)
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    modifier = Modifier.fillMaxWidth().focusRequester(fr).semantics {
+                        contentDataType = ContentDataType.None
+                        isSensitiveData = true
+                    },
+                    singleLine = true,
+                    enabled = !d.verifying,
+                    label = { Text(stringResource(R.string.dialog_password_label)) },
+                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    isError = d.error != null,
+                    supportingText = {
+                        Text(d.error ?: stringResource(R.string.dialog_zip_password_session_note))
+                    },
+                    trailingIcon = {
+                        ActionTooltip(togglePwLabel) {
+                            IconButton(
+                                onClick = { showPassword = !showPassword },
+                                modifier = Modifier.size(48.dp).focusRing(CircleShape),
+                            ) {
+                                Icon(
+                                    if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                    contentDescription = togglePwLabel,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        autoCorrectEnabled = false,
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = submit, enabled = password.isNotEmpty() && !d.verifying) {
+                Text(stringResource(R.string.action_unlock))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        },
+    )
+}
+
+/**
+ * Opts this dialog's isolated window out of Android Autofill (preventing autofill popups and
+ * "Save password?" offers) while keeping standard clipboard copy/paste fully intact.
+ */
+@Composable
+private fun DisableDialogAutofill() {
+    val view = LocalView.current
+    val autofillManager = LocalAutofillManager.current
+    SideEffect {
+        view.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        view.rootView?.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+    }
+    DisposableEffect(view, autofillManager) {
+        view.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        view.rootView?.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        autofillManager?.cancel()
+        onDispose {
+            autofillManager?.cancel()
+        }
+    }
 }
 
 @Composable

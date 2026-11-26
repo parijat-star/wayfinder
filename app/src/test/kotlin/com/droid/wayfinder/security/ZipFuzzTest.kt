@@ -9,7 +9,11 @@ import com.droid.wayfinder.data.FileOperations
 import com.droid.wayfinder.data.FileRepository
 import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.LocalFileSystem
+import com.droid.wayfinder.data.ZipCompressOptions
+import com.droid.wayfinder.data.ZipCompressionLevel
+import com.droid.wayfinder.data.ZipCrypto
 import com.droid.wayfinder.data.ZipFileSystem
+import com.droid.wayfinder.data.ZipWriter
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -451,6 +455,53 @@ class ZipFuzzTest {
                 assertNothingEscaped("tar.mutation")
             } finally {
                 FileInfo.deleteTree(dest); dest.mkdirs(); tar.delete()
+            }
+        }
+    }
+
+    @Test
+    fun mutatedEncryptedZipArchivesOnlyFailWithIOException() {
+        val pw = "fuzz-pass-123"
+        val aesDeflated = ByteArrayOutputStream().also { bo ->
+            runBlocking {
+                ZipWriter(bo, level = ZipCompressionLevel.Normal, password = pw).use { z ->
+                    z.addDirectory("docs/", 1_700_000_000_000L)
+                    z.addFile("docs/secret.txt", 1_700_000_000_000L, 400L, { "secret-line\n".repeat(40).byteInputStream() })
+                    z.addFile("empty.bin", 1_700_000_000_000L, 0L, { ByteArray(0).inputStream() })
+                    z.finish()
+                }
+            }
+        }.toByteArray()
+        val aesStored = ByteArrayOutputStream().also { bo ->
+            runBlocking {
+                ZipWriter(bo, level = ZipCompressionLevel.None, password = pw).use { z ->
+                    z.addFile("raw.bin", 1_700_000_000_000L, 64L, { ByteArray(64) { it.toByte() }.inputStream() })
+                    z.finish()
+                }
+            }
+        }.toByteArray()
+        val encSeeds = listOf(aesDeflated, aesStored)
+        val limits = ExtractLimits(maxEntries = 2_000, maxTotalBytes = 16L shl 20, maxRatio = 1_000, ratioFloorBytes = 4L shl 20)
+
+        k.run(
+            "zip.encrypted.mutation", 2_000,
+            { r -> mutateBytes(r, encSeeds[r.nextInt(encSeeds.size)]) },
+            encSeeds,
+            budgetMs = 240_000,
+            show = ::hex,
+            allowed = { it is IOException },
+        ) { bytes ->
+            val zip = file(bytes, "me.zip")
+            try {
+                runCatching { ZipFileSystem.summary(zip) }.exceptionOrNull()?.let { if (it !is IOException) throw it }
+                runCatching { ZipCrypto.verifyPassword(zip, zip.path, pw) }.exceptionOrNull()?.let { if (it !is IOException) throw it }
+                val zfs = ZipFileSystem().apply { setPassword(zip.path, pw) }
+                runCatching { walk(zfs, FsPath.zipRoot(zip.path), 0) }.exceptionOrNull()?.let { if (it !is IOException) throw it }
+                runCatching { runBlocking { ops.extract(zip.path, dest.path, {}, limits, password = pw) } }
+                    .exceptionOrNull()?.let { if (it !is IOException) throw it }
+                assertNothingEscaped("encrypted mutation")
+            } finally {
+                FileInfo.deleteTree(dest); dest.mkdirs(); zip.delete()
             }
         }
     }

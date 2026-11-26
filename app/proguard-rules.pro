@@ -30,3 +30,8 @@
     public <init>();
     public <init>(org.apache.commons.net.ftp.FTPClientConfig);
 }
+
+# Apache Commons Compress ExtraFieldUtils instantiates ZipExtraField subclasses via reflection.
+-keep class org.apache.commons.compress.archivers.zip.* implements org.apache.commons.compress.archivers.zip.ZipExtraField {
+    public <init>();
+}
