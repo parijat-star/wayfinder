@@ -36,4 +36,38 @@ class CiWorkflowConfigTest {
             assertTrue("Every GitHub Action in ci.yml must be pinned to a 40-char commit SHA: '$line'", pinnedShaRegex.matches(line))
         }
     }
+
+    @Test
+    fun gradleAndRobolectricUseMavenCentralGcsMirrorAndHttpRetryGuards() {
+        val repoRoot = sequenceOf(File("."), File(".."))
+            .map { it.canonicalFile }
+            .first { File(it, "app/build.gradle.kts").isFile }
+        val gcsMirror = "https://maven-central.storage-download.googleapis.com/maven2/"
+
+        val settingsKts = File(repoRoot, "settings.gradle.kts").readText()
+        val pluginBlock = settingsKts.substringAfter("pluginManagement").substringBefore("dependencyResolutionManagement")
+        val depBlock = settingsKts.substringAfter("dependencyResolutionManagement")
+        for ((label, block) in listOf("pluginManagement" to pluginBlock, "dependencyResolutionManagement" to depBlock)) {
+            val mirrorIdx = block.indexOf(gcsMirror)
+            val centralIdx = block.indexOf("mavenCentral()")
+            assertTrue("$label must declare GCS Maven Central mirror ($gcsMirror)", mirrorIdx >= 0)
+            assertTrue("$label must retain mavenCentral() as fallback after GCS mirror", centralIdx > mirrorIdx)
+        }
+
+        val appGradleKts = File(repoRoot, "app/build.gradle.kts").readText()
+        assertTrue(
+            "app/build.gradle.kts must configure robolectric.dependency.repo.url to avoid repo1.maven.org 429s",
+            appGradleKts.contains("robolectric.dependency.repo.url") && appGradleKts.contains(gcsMirror),
+        )
+
+        val gradleProps = File(repoRoot, "gradle.properties").readText()
+        assertTrue(
+            "gradle.properties must configure Gradle repository retry attempts",
+            gradleProps.contains("systemProp.org.gradle.internal.repository.max.tentatives="),
+        )
+        assertTrue(
+            "gradle.properties must configure Gradle HTTP socket timeout",
+            gradleProps.contains("systemProp.org.gradle.internal.http.socketTimeout="),
+        )
+    }
 }
