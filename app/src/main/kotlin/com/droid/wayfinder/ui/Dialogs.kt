@@ -457,7 +457,13 @@ private fun ZipPasswordDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
+        // Disable platform WRAP_CONTENT width to avoid Android's two-pass measureHierarchy loop
+        // oscillating CoreTextField's layoutResult on narrow portrait viewports (e.g. 360dp).
+        properties = DialogProperties(
+            securePolicy = SecureFlagPolicy.SecureOn,
+            usePlatformDefaultWidth = false,
+        ),
+        modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 460.dp).fillMaxWidth(),
         icon = { Icon(Icons.Outlined.Lock, null, Modifier.size(28.dp), tint = cs.primary) },
         title = { Text(stringResource(R.string.dialog_zip_password_title)) },
         text = {
