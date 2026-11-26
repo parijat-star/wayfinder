@@ -33,6 +33,7 @@ internal class ZipWriter(
     rawOut: OutputStream,
     private val level: ZipCompressionLevel = ZipCompressionLevel.Normal,
     password: String? = null,
+    private val forceZip64: Boolean = false,
 ) : Closeable {
 
     private class CdEntry(
@@ -68,10 +69,13 @@ internal class ZipWriter(
         check(!finished && !closed) { "ZipWriter already finished" }
         val normalized = if (name.endsWith("/")) name else "$name/"
         val nameBytes = normalized.toByteArray(Charsets.UTF_8)
+        if (nameBytes.size > MAX_NAME_BYTES) {
+            throw IOException("Archive entry name exceeds ZIP 65,535-byte limit")
+        }
         val (dosTime, dosDate) = toDosDateTime(modifiedMs)
         val offset = bytesWritten
         val flags = FLAG_UTF8
-        val versionNeeded = VERSION_STANDARD
+        val versionNeeded = if (forceZip64) VERSION_ZIP64 else VERSION_STANDARD
 
         writeLocalFileHeader(
             versionNeeded = versionNeeded,
@@ -115,6 +119,9 @@ internal class ZipWriter(
     ) {
         check(!finished && !closed) { "ZipWriter already finished" }
         val nameBytes = name.toByteArray(Charsets.UTF_8)
+        if (nameBytes.size > MAX_NAME_BYTES) {
+            throw IOException("Archive entry name exceeds ZIP 65,535-byte limit")
+        }
         val (dosTime, dosDate) = toDosDateTime(modifiedMs)
         val pw = passwordBytes
 
@@ -150,7 +157,7 @@ internal class ZipWriter(
             }
         }
         val crcVal = preCrc.value
-        val useZip64 = exactSize >= ZIP64_LIMIT
+        val useZip64 = forceZip64 || exactSize >= ZIP64_LIMIT
         val versionNeeded = if (useZip64) VERSION_ZIP64 else VERSION_STANDARD
         val flags = FLAG_UTF8
         val extra = if (useZip64) buildZip64Extra(exactSize, exactSize, null) else EMPTY_BYTES
@@ -214,14 +221,15 @@ internal class ZipWriter(
         checkCancel: suspend () -> Unit,
         onBytesRead: (Int) -> Unit,
     ) {
-        val useZip64 = expectedSize >= ZIP64_PRE_LIMIT
-        val versionNeeded = if (useZip64) VERSION_ZIP64 else VERSION_STANDARD
+        // Following OpenJDK ZipOutputStream and APPNOTE.TXT §4.5.3, bit-3 streaming entries omit the
+        // ZIP64 extra field from the Local File Header (LFH sizes stay 0) and emit a 64-bit Data
+        // Descriptor iff actual compressed or uncompressed length reaches 0xFFFFFFFF.
+        val lfhVersion = if (forceZip64 || expectedSize >= ZIP64_PRE_LIMIT) VERSION_ZIP64 else VERSION_STANDARD
         val flags = FLAG_UTF8 or FLAG_DATA_DESCRIPTOR
-        val lfhExtra = if (useZip64) buildZip64Extra(0L, 0L, null) else EMPTY_BYTES
         val offset = bytesWritten
 
         writeLocalFileHeader(
-            versionNeeded = versionNeeded,
+            versionNeeded = lfhVersion,
             flags = flags,
             method = ZipCrypto.METHOD_DEFLATED,
             dosTime = dosTime,
@@ -230,7 +238,7 @@ internal class ZipWriter(
             compSize = 0L,
             uncompSize = 0L,
             nameBytes = nameBytes,
-            extra = lfhExtra,
+            extra = EMPTY_BYTES,
         )
 
         val crc = CRC32()
@@ -270,11 +278,10 @@ internal class ZipWriter(
             deflater.end()
         }
 
-        if (!useZip64 && (compSize >= ZIP64_LIMIT || uncompSize >= ZIP64_LIMIT)) {
-            throw IOException("Entry exceeded 4 GiB without ZIP64 header")
-        }
+        val actualZip64 = compSize >= ZIP64_LIMIT || uncompSize >= ZIP64_LIMIT
+        val versionNeeded = if (actualZip64) VERSION_ZIP64 else lfhVersion
         val crcVal = crc.value
-        writeDataDescriptor(crcVal, compSize, uncompSize, useZip64)
+        writeDataDescriptor(crcVal, compSize, uncompSize, actualZip64)
 
         entries += CdEntry(
             nameBytes = nameBytes,
@@ -303,13 +310,13 @@ internal class ZipWriter(
         onBytesRead: (Int) -> Unit,
     ) {
         val actualMethod = if (level == ZipCompressionLevel.None) ZipCrypto.METHOD_STORED else ZipCrypto.METHOD_DEFLATED
-        val useZip64 = expectedSize >= ZIP64_PRE_LIMIT
         val versionNeeded = VERSION_WINZIP_AES
         val flags = FLAG_ENCRYPTED or FLAG_DATA_DESCRIPTOR or FLAG_UTF8
         val aesExtra = ZipCrypto.buildAesExtraField(AesStrength.AES256, actualMethod, version = 2)
-        val lfhExtra = if (useZip64) buildZip64Extra(0L, 0L, null) + aesExtra else aesExtra
         val offset = bytesWritten
 
+        // Bit-3 streaming entry: LFH carries only the 0x9901 AES extra field (no 0x0001 placeholder);
+        // 64-bit Data Descriptor & CDH ZIP64 extra are emitted automatically if sizes reach 4 GiB.
         writeLocalFileHeader(
             versionNeeded = versionNeeded,
             flags = flags,
@@ -320,7 +327,7 @@ internal class ZipWriter(
             compSize = 0L,
             uncompSize = 0L,
             nameBytes = nameBytes,
-            extra = lfhExtra,
+            extra = aesExtra,
         )
 
         val salt = ByteArray(AesStrength.AES256.saltBytes).also { SECURE_RANDOM.nextBytes(it) }
@@ -405,11 +412,9 @@ internal class ZipWriter(
             pvv.fill(0)
         }
 
-        if (!useZip64 && (compSize >= ZIP64_LIMIT || uncompSize >= ZIP64_LIMIT)) {
-            throw IOException("Entry exceeded 4 GiB without ZIP64 header")
-        }
+        val actualZip64 = compSize >= ZIP64_LIMIT || uncompSize >= ZIP64_LIMIT
         // Per WinZip AE-2 spec, CRC-32 in standard ZIP headers and data descriptor is always 0.
-        writeDataDescriptor(0L, compSize, uncompSize, useZip64)
+        writeDataDescriptor(0L, compSize, uncompSize, actualZip64)
 
         entries += CdEntry(
             nameBytes = nameBytes,
@@ -434,9 +439,9 @@ internal class ZipWriter(
         val cdOffset = bytesWritten
 
         for (e in entries) {
-            val needUncomp64 = e.uncompressedSize >= ZIP64_LIMIT
-            val needComp64 = e.compressedSize >= ZIP64_LIMIT
-            val needOffset64 = e.localHeaderOffset >= ZIP64_LIMIT
+            val needUncomp64 = forceZip64 || e.uncompressedSize >= ZIP64_LIMIT
+            val needComp64 = forceZip64 || e.compressedSize >= ZIP64_LIMIT
+            val needOffset64 = forceZip64 || e.localHeaderOffset >= ZIP64_LIMIT
             val zip64Extra = if (needUncomp64 || needComp64 || needOffset64) {
                 buildZip64Extra(
                     uncomp = if (needUncomp64) e.uncompressedSize else null,
@@ -476,7 +481,7 @@ internal class ZipWriter(
 
         val cdSize = bytesWritten - cdOffset
         val count = entries.size.toLong()
-        val needZip64Eocd = count >= ZIP64_COUNT_LIMIT || cdSize >= ZIP64_LIMIT || cdOffset >= ZIP64_LIMIT
+        val needZip64Eocd = forceZip64 || count >= ZIP64_COUNT_LIMIT || cdSize >= ZIP64_LIMIT || cdOffset >= ZIP64_LIMIT
 
         if (needZip64Eocd) {
             val zip64EocdOffset = bytesWritten
@@ -503,14 +508,17 @@ internal class ZipWriter(
             writeBytes(loc)
         }
 
+        val eocdCount = if (forceZip64 || count >= ZIP64_COUNT_LIMIT) ZIP64_COUNT_LIMIT else count
+        val eocdCdSize = if (forceZip64 || cdSize >= ZIP64_LIMIT) ZIP64_LIMIT else cdSize
+        val eocdCdOffset = if (forceZip64 || cdOffset >= ZIP64_LIMIT) ZIP64_LIMIT else cdOffset
         val eocd = ByteBuffer.allocate(22).order(ByteOrder.LITTLE_ENDIAN)
             .putInt(SIG_EOCD)
             .putShort(0) // disk number
             .putShort(0) // disk with start of CD
-            .putShort(minOf(count, ZIP64_COUNT_LIMIT).toInt().toShort())
-            .putShort(minOf(count, ZIP64_COUNT_LIMIT).toInt().toShort())
-            .putInt(minOf(cdSize, ZIP64_LIMIT).toInt())
-            .putInt(minOf(cdOffset, ZIP64_LIMIT).toInt())
+            .putShort(eocdCount.toInt().toShort())
+            .putShort(eocdCount.toInt().toShort())
+            .putInt(eocdCdSize.toInt())
+            .putInt(eocdCdOffset.toInt())
             .putShort(0) // comment length
             .array()
         writeBytes(eocd)
@@ -599,8 +607,9 @@ internal class ZipWriter(
 
         private const val ZIP64_EXTRA_ID = 0x0001
         private const val ZIP64_LIMIT = 0xFFFFFFFFL
-        private const val ZIP64_PRE_LIMIT = 0xFFFFFF00L
+        private const val ZIP64_PRE_LIMIT = 0xFFF00000L // 4 GiB - 1 MiB
         private const val ZIP64_COUNT_LIMIT = 0xFFFFL
+        private const val MAX_NAME_BYTES = 0xFFFF
 
         private const val IO_BUF_SIZE = 128 * 1024
         private const val DEFLATE_BUF_SIZE = 64 * 1024

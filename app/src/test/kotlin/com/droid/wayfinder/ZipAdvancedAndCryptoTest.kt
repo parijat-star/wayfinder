@@ -4,6 +4,8 @@
 package com.droid.wayfinder
 
 import com.droid.wayfinder.data.AesStrength
+import com.droid.wayfinder.data.CacheJanitor
+import com.droid.wayfinder.data.Conflict
 import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FileInfo
 import com.droid.wayfinder.data.FileOperations
@@ -574,6 +576,607 @@ class ZipAdvancedAndCryptoTest {
         ).redirectErrorStream(true).start()
         val out = proc.inputStream.readBytes().decodeToString()
         assertEquals("python3 ZipCrypto interop failed: $out", 0, proc.waitFor())
+    }
+
+    // ------------------------------------------------------------------ Independent reference vectors & security regressions
+
+    private fun fromHex(s: String): ByteArray =
+        ByteArray(s.length / 2) { i -> s.substring(i * 2, i * 2 + 2).toInt(16).toByte() }
+
+    @Test
+    fun committedOpenSslWinZipAe1AndAe2ReferenceVectorsDecryptAndReverseVerify() = runBlocking {
+        // Independent WinZip AE-2 (AES-256, DEFLATED) & AE-1 (AES-128, STORED) reference vectors
+        // generated outside Wayfinder via OpenSSL (`openssl enc -aes-*-ecb`) + Python stdlib PBKDF2/HMAC/zlib.
+        val ae2Hex =
+            "504b03043300010863000040215a00000000550000003a0000000e000b00766563746f722d6165322e7478740199070002004145030800" +
+                "00112233445566778899aabbccddeeffaed94b6d90c7ea199aa0722b5318ad95513bae648a83889188912144588985aefd0adb11a847474fd741a157a5e02f3619aacff46414229f35389e210a2ab3634f0f91a6f9" +
+                "504b010233033300010863000040215a00000000550000003a0000000e000b000000000000000000a48100000000766563746f722d6165322e7478740199070002004145030800" +
+                "504b05060000000001000100470000008c0000000000"
+        val ae1Hex =
+            "504b03043300010863000040215a082fd662400000002c0000000e000b00766563746f722d6165312e7478740199070001004145010000" +
+                "fedcba987654321000ddc4321f8a6f1988e7e27f9499e58b33011f71ef876c7801d4c6c0845a573c061c825730ac9c693738e0a38c93fa654769f66c4bb08000" +
+                "504b010233033300010863000040215a082fd662400000002c0000000e000b000000000000000000a48100000000766563746f722d6165312e7478740199070001004145010000" +
+                "504b0506000000000100010047000000770000000000"
+
+        val ae2File = File(sandbox, "ref-ae2.zip").apply { writeBytes(fromHex(ae2Hex)) }
+        val ae1File = File(sandbox, "ref-ae1.zip").apply { writeBytes(fromHex(ae1Hex)) }
+
+        val outAe2 = ops.extract(ae2File.path, File(sandbox, "ext-ref-ae2").apply { mkdirs() }.path, {}, password = "RefVector#256")
+        assertEquals("WinZip AES-256 AE-2 reference vector verified via OpenSSL!", File(outAe2, "vector-ae2.txt").readText())
+
+        val outAe1 = ops.extract(ae1File.path, File(sandbox, "ext-ref-ae1").apply { mkdirs() }.path, {}, password = "RefVector#128")
+        assertEquals("WinZip AES-128 AE-1 stored reference vector!", File(outAe1, "vector-ae1.txt").readText())
+
+        // Reverse check: verify ZipWriter AES-256 output independently using python3 + openssl CLI when available.
+        val hasPy = runCatching { ProcessBuilder("python3", "--version").start().waitFor() }.getOrNull() == 0
+        val hasSsl = runCatching { ProcessBuilder("openssl", "version").start().waitFor() }.getOrNull() == 0
+        if (hasPy && hasSsl) {
+            val plain = "Independent OpenSSL decryption of ZipWriter AES-256 output!\n".repeat(40)
+            val src = File(sandbox, "ssl-check.txt").apply { writeText(plain) }
+            val zipOut = File(sandbox, "ssl-check.zip")
+            ops.compress(listOf(src.path), zipOut.path, ZipCompressOptions(ZipCompressionLevel.Normal, password = "SslVerify!99")) {}
+
+            val pyScript = """
+                import hashlib, hmac, struct, subprocess, sys, zipfile, zlib
+                zpath, pw, expected = sys.argv[1], sys.argv[2], sys.argv[3].encode('utf-8')
+                with zipfile.ZipFile(zpath) as zf:
+                    info = zf.getinfo('ssl-check.txt')
+                    assert info.compress_type == 99
+                    with open(zpath, 'rb') as f:
+                        f.seek(info.header_offset)
+                        sig, _, _, _, _, _, _, _, _, nlen, elen = struct.unpack('<IHHHHHIIIHH', f.read(30))
+                        assert sig == 0x04034B50
+                        f.seek(nlen + elen, 1)
+                        raw = f.read(info.compress_size)
+                salt, pvv, ct, tag = raw[:16], raw[16:18], raw[18:-10], raw[-10:]
+                d = hashlib.pbkdf2_hmac('sha1', pw.encode('utf-8'), salt, 1000, 66)
+                aes_k, hmac_k, exp_pvv = d[:32], d[32:64], d[64:66]
+                assert pvv == exp_pvv, 'PVV mismatch'
+                assert hmac.new(hmac_k, ct, 'sha1').digest()[:10] == tag, 'HMAC mismatch'
+                nblocks = (len(ct) + 15) // 16
+                counters = b''.join(struct.pack('<QQ', i + 1, 0) for i in range(nblocks))
+                ks = subprocess.run(['openssl', 'enc', '-aes-256-ecb', '-K', aes_k.hex(), '-nopad'], input=counters, capture_output=True, check=True).stdout[:len(ct)]
+                comp = bytes(a ^ b for a, b in zip(ct, ks))
+                dec = zlib.decompress(comp, -15)
+                assert dec == expected, 'Plaintext mismatch'
+            """.trimIndent()
+            val p = ProcessBuilder("python3", "-c", pyScript, zipOut.path, "SslVerify!99", plain).redirectErrorStream(true).start()
+            val out = p.inputStream.readBytes().decodeToString()
+            assertEquals("Independent OpenSSL/Python verification of ZipWriter AES-256 failed: $out", 0, p.waitFor())
+        }
+
+        // Bidirectional 7-Zip CLI interop test whenever `7z` is installed (e.g. GitHub Actions ubuntu-latest).
+        val has7z = runCatching { ProcessBuilder("7z").start().waitFor() }.getOrNull() != null
+        if (has7z) {
+            val src = File(sandbox, "sevenz-src.txt").apply { writeText("Roundtrip with 7-Zip CLI!\n".repeat(30)) }
+            val wfZip = File(sandbox, "from-wayfinder.zip")
+            ops.compress(listOf(src.path), wfZip.path, ZipCompressOptions(ZipCompressionLevel.Normal, password = "7z-Interop!")) {}
+            val out7z = File(sandbox, "7z-extracted").apply { mkdirs() }
+            val extProc = ProcessBuilder("7z", "x", "-y", "-p7z-Interop!", "-o${out7z.path}", wfZip.path).redirectErrorStream(true).start()
+            val extLog = extProc.inputStream.readBytes().decodeToString()
+            assertEquals("7z failed to extract Wayfinder AES-256 ZIP: $extLog", 0, extProc.waitFor())
+            assertEquals(src.readText(), File(out7z, "sevenz-src.txt").readText())
+
+            val sevenZipFile = File(sandbox, "from-7z.zip")
+            val createProc = ProcessBuilder("7z", "a", "-tzip", "-mem=AES256", "-p7z-Interop!", sevenZipFile.path, src.path).redirectErrorStream(true).start()
+            val createLog = createProc.inputStream.readBytes().decodeToString()
+            assertEquals("7z failed to create AES-256 ZIP: $createLog", 0, createProc.waitFor())
+            val wfOut = ops.extract(sevenZipFile.path, File(sandbox, "wf-from-7z").apply { mkdirs() }.path, {}, password = "7z-Interop!")
+            assertEquals(src.readText(), File(wfOut, "sevenz-src.txt").readText())
+        }
+    }
+
+    @Test
+    fun duplicateNormalizedEntryPathsAbortExtractionWithoutOverwritingAesEntry() = runBlocking {
+        // Build a ZIP with an authenticated AES-256 "secret.txt" followed by an unencrypted "./secret.txt"
+        // that normalizes to the same relative path. Extraction MUST reject it and leave no output.
+        val pw = "dup-guard-pw"
+        val secretBytes = "authenticated content".toByteArray(Charsets.UTF_8)
+        val spoofBytes = "unauthenticated attacker payload".toByteArray(Charsets.UTF_8)
+        val salt = ByteArray(16) { (0x30 + it).toByte() }
+        val derived = ZipCrypto.pbkdf2HmacSha1(pw.toByteArray(Charsets.UTF_8), salt, 1000, 66)
+        val aesKey = derived.copyOfRange(0, 32)
+        val hmacKey = derived.copyOfRange(32, 64)
+        val pvv = derived.copyOfRange(64, 66)
+        val ct = deflateRaw(secretBytes).also { WinZipAesCtrCipher(aesKey).processInPlace(it, 0, it.size) }
+        val tag = Mac.getInstance("HmacSHA1").apply { init(SecretKeySpec(hmacKey, "HmacSHA1")) }.doFinal(ct).copyOf(10)
+        val encPayload = salt + pvv + ct + tag
+
+        val zipBytes = buildMultiEntryZip(
+            listOf(
+                RawZipSpec("secret.txt", 0x0801, 99, 0L, encPayload, secretBytes.size.toLong(), ZipCrypto.buildAesExtraField(AesStrength.AES256, 8, 2), 51),
+                RawZipSpec("./secret.txt", 0x0800, 0, CRC32().apply { update(spoofBytes) }.value, spoofBytes, spoofBytes.size.toLong(), ByteArray(0), 20),
+            ),
+        )
+        val dupZip = File(sandbox, "dup-collision.zip").apply { writeBytes(zipBytes) }
+        val dest = File(sandbox, "dup-dest").apply { mkdirs() }
+        try {
+            ops.extract(dupZip.path, dest.path, {}, password = pw)
+            fail("Duplicate normalized entry path (./secret.txt) must be rejected")
+        } catch (e: IOException) {
+            assertTrue("Expected duplicate error, got: ${e.message}", e.message.orEmpty().contains("Duplicate", ignoreCase = true))
+        }
+        assertEquals("Failed extraction must leave destination empty", 0, dest.list()!!.size)
+    }
+
+    @Test
+    fun spoofedEntrySizeAndLongMaxValueZipBombAreStoppedByZipFileSystemOpenInput() {
+        // 1. Entry claiming Long.MAX_VALUE with small real data must not overflow or read 1 byte at a time.
+        val smallData = "tiny legitimate bytes".toByteArray(Charsets.UTF_8)
+        val spoofLongMax = File(sandbox, "spoof-maxlong.zip").apply {
+            writeBytes(
+                buildSingleEntryZipWithZip64Size(
+                    name = "lie.txt",
+                    compressed = deflateRaw(smallData),
+                    declaredUncompSize = Long.MAX_VALUE,
+                    crc = CRC32().apply { update(smallData) }.value,
+                ),
+            )
+        }
+        val zfs = ZipFileSystem()
+        try {
+            zfs.openInput(FsPath.child(FsPath.zipRoot(spoofLongMax.path), "lie.txt")).use { it.readBytes() }
+            fail("Size mismatch against spoofed Long.MAX_VALUE must fail cleanly")
+        } catch (_: IOException) {
+            // Expected size mismatch IOException (and importantly, NO ArithmeticException or hang).
+        }
+
+        // 2. 40 MiB all-zero DEFLATE bomb claiming Long.MAX_VALUE (1000:1 compression ratio) must be stopped
+        // by ZipFileSystem.openInput's BoundedInputStream ratio guard (~32 MiB floor).
+        val bombPlain = ByteArray(40 shl 20)
+        val bombCompressed = deflateRaw(bombPlain)
+        assertTrue("Bomb must compress tightly", bombCompressed.size < 128 * 1024)
+        val bombZip = File(sandbox, "bomb-maxlong.zip").apply {
+            writeBytes(
+                buildSingleEntryZipWithZip64Size(
+                    name = "bomb.bin",
+                    compressed = bombCompressed,
+                    declaredUncompSize = Long.MAX_VALUE,
+                    crc = CRC32().apply { update(bombPlain) }.value,
+                ),
+            )
+        }
+        var totalRead = 0L
+        try {
+            zfs.openInput(FsPath.child(FsPath.zipRoot(bombZip.path), "bomb.bin")).use { inp ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = inp.read(buf)
+                    if (n < 0) break
+                    totalRead += n
+                }
+            }
+            fail("Zip bomb with spoofed Long.MAX_VALUE size must be aborted by ZipFileSystem.openInput")
+        } catch (e: IOException) {
+            assertTrue("Expected zip bomb rejection, got: ${e.message}", e.message.orEmpty().contains("zip bomb", ignoreCase = true))
+        }
+        assertTrue("Must abort promptly near ratio floor, read $totalRead bytes", totalRead < (34L shl 20))
+    }
+
+    @Test
+    fun conflictReplacePreservesExistingFileOnWrongPasswordAndTamperedHmac() = runBlocking {
+        val src = File(sandbox, "replace-src.txt").apply { writeText("new decrypted contents") }
+        val zipFile = File(sandbox, "replace.zip")
+        ops.compress(listOf(src.path), zipFile.path, ZipCompressOptions(ZipCompressionLevel.Normal, password = "good-pw")) {}
+
+        val destDir = File(sandbox, "replace-dest").apply { mkdirs() }
+        val existing = File(destDir, "replace-src.txt").apply { writeText("precious existing file") }
+
+        val entryPath = FsPath.child(FsPath.zipRoot(zipFile.path), "replace-src.txt")
+
+        // 1. Wrong password with Conflict.Replace must preserve existing destination file.
+        repo.zip.setPassword(zipFile.path, "wrong-pw")
+        try {
+            ops.transfer(listOf(entryPath), destDir.path, move = false, conflict = Conflict.Replace) {}
+            fail("Expected ZipPasswordRequiredException")
+        } catch (e: ZipPasswordRequiredException) {
+            assertTrue(e.wrongPassword)
+        }
+        assertEquals("Existing file must remain intact on wrong password", "precious existing file", existing.readText())
+        assertEquals("No temp staging files may linger", listOf("replace-src.txt"), destDir.list()!!.toList())
+
+        // 2. Tampered HMAC with Conflict.Replace must also preserve existing destination file.
+        val tampered = File(sandbox, "replace-tampered.zip").apply { writeBytes(zipFile.readBytes()) }
+        val (dataOffset, compSize) = ZipCrypto.openZipFile(tampered).use { z ->
+            val e = z.getEntry("replace-src.txt")
+            e.dataOffset to e.compressedSize
+        }
+        val rawBytes = tampered.readBytes()
+        rawBytes[(dataOffset + compSize - 1).toInt()] = (rawBytes[(dataOffset + compSize - 1).toInt()].toInt() xor 0xFF).toByte()
+        tampered.writeBytes(rawBytes)
+        repo.zip.setPassword(tampered.path, "good-pw")
+        try {
+            ops.transfer(
+                listOf(FsPath.child(FsPath.zipRoot(tampered.path), "replace-src.txt")),
+                destDir.path,
+                move = false,
+                conflict = Conflict.Replace,
+            ) {}
+            fail("Expected authentication failure for tampered HMAC")
+        } catch (_: IOException) {
+        }
+        assertEquals("Existing file must remain intact on tampered HMAC", "precious existing file", existing.readText())
+        assertEquals("No temp staging files may linger", listOf("replace-src.txt"), destDir.list()!!.toList())
+
+        // 3. Correct password atomically replaces the existing file.
+        repo.zip.setPassword(zipFile.path, "good-pw")
+        ops.transfer(listOf(entryPath), destDir.path, move = false, conflict = Conflict.Replace) {}
+        assertEquals("new decrypted contents", existing.readText())
+    }
+
+    @Test
+    fun partialReadOfTamperedAesCiphertextIsRejectedBeforeReturningAnyPlaintext() = runBlocking {
+        val src = File(sandbox, "prefix.txt").apply { writeText("0123456789ABCDEF".repeat(200)) }
+        val zipFile = File(sandbox, "prefix.zip")
+        ops.compress(listOf(src.path), zipFile.path, ZipCompressOptions(ZipCompressionLevel.None, password = "auth-first")) {}
+
+        val (dataOffset, compSize) = ZipCrypto.openZipFile(zipFile).use { z ->
+            val e = z.getEntry("prefix.txt")
+            e.dataOffset to e.compressedSize
+        }
+        // Flip a bit near the END of the ciphertext (well beyond the first 8 bytes).
+        val bytes = zipFile.readBytes()
+        val flipIdx = (dataOffset + compSize - ZipCrypto.AES_HMAC_BYTES - 2).toInt()
+        bytes[flipIdx] = (bytes[flipIdx].toInt() xor 0x01).toByte()
+        val tampered = File(sandbox, "prefix-tampered.zip").apply { writeBytes(bytes) }
+
+        val zfs = ZipFileSystem().apply { setPassword(tampered.path, "auth-first") }
+        val innerPath = FsPath.child(FsPath.zipRoot(tampered.path), "prefix.txt")
+        // Verify-before-decrypt must reject during openInput BEFORE returning even 8 bytes of plaintext!
+        try {
+            zfs.openInput(innerPath).use { inp ->
+                val prefix = ByteArray(8)
+                val n = inp.read(prefix)
+                fail("Partial read must not receive unauthenticated plaintext (got $n bytes)")
+            }
+        } catch (e: ZipPasswordRequiredException) {
+            assertTrue(e.wrongPassword)
+        }
+    }
+
+    @Test
+    fun compressSkipsFileSymlinksAndTopLevelDirectorySymlinks() = runBlocking {
+        val outside = File(sandbox, "outside-secret").apply {
+            mkdirs()
+            File(this, "secret.txt").writeText("top secret outside")
+        }
+        val work = File(sandbox, "sym-work").apply { mkdirs() }
+        File(work, "real.txt").writeText("real")
+        val nestedFileLink = Files.createSymbolicLink(File(work, "link-file.txt").toPath(), File(outside, "secret.txt").toPath()).toFile()
+        val topDirLink = Files.createSymbolicLink(File(sandbox, "top-dir-link").toPath(), outside.toPath()).toFile()
+        val topFileLink = Files.createSymbolicLink(File(sandbox, "top-file-link.txt").toPath(), File(outside, "secret.txt").toPath()).toFile()
+
+        assertTrue(FileInfo.isSymlink(nestedFileLink.path))
+        val zipFile = File(sandbox, "no-symlinks.zip")
+        ops.compress(listOf(work.path, topDirLink.path, topFileLink.path), zipFile.path) {}
+
+        val names = JdkZipFile(zipFile).use { z -> z.entries().toList().map { it.name } }
+        assertTrue("Real file must be included: $names", "sym-work/real.txt" in names)
+        assertFalse("Nested file symlink must be skipped: $names", names.any { it.contains("link-file") })
+        assertFalse("Top-level dir symlink must be skipped: $names", names.any { it.contains("top-dir-link") || it.contains("secret.txt") })
+        assertFalse("Top-level file symlink must be skipped: $names", names.any { it.contains("top-file-link") })
+    }
+
+    @Test
+    fun unixSymlinkAndSpecialModeZipEntriesAreIgnoredInBrowseSummaryAndExtract() = runBlocking {
+        val okData = "safe content".toByteArray(Charsets.UTF_8)
+        val linkTarget = "../../etc/passwd".toByteArray(Charsets.UTF_8)
+        val zipBytes = buildMultiEntryZip(
+            listOf(
+                RawZipSpec("ok.txt", 0x0800, 0, CRC32().apply { update(okData) }.value, okData, okData.size.toLong(), ByteArray(0), 20, externalAttrs = 0x81A40000L),
+                RawZipSpec("sym_escape", 0x0800, 0, CRC32().apply { update(linkTarget) }.value, linkTarget, linkTarget.size.toLong(), ByteArray(0), 20, externalAttrs = 0xA1FF0000L),
+                RawZipSpec("fifo_node", 0x0800, 0, 0L, ByteArray(0), 0L, ByteArray(0), 20, externalAttrs = 0x11A40000L),
+            ),
+        )
+        val specialZip = File(sandbox, "unix-special.zip").apply { writeBytes(zipBytes) }
+
+        val zfs = ZipFileSystem()
+        val listed = zfs.list(FsPath.zipRoot(specialZip.path)).map { it.name }
+        assertEquals(listOf("ok.txt"), listed)
+
+        val summary = ZipFileSystem.summary(specialZip)
+        assertEquals(1, summary.total)
+        assertEquals(listOf("ok.txt"), summary.entries.map { it.first })
+
+        val outDir = ops.extract(specialZip.path, File(sandbox, "special-out").apply { mkdirs() }.path, {})
+        assertEquals(listOf("ok.txt"), File(outDir).list()!!.toList())
+        assertEquals("safe content", File(outDir, "ok.txt").readText())
+    }
+
+    @Test
+    fun zipWriterForceZip64ProducesCompliantArchivesReadableByJdkAndCommonsCompress() = runBlocking {
+        val payload = "ZIP64 compliance test payload!\n".repeat(120).toByteArray(Charsets.UTF_8)
+        val rawBytes = ByteArray(1024) { (it * 13).toByte() }
+
+        // 1. Unencrypted STORED & DEFLATED with forceZip64 = true.
+        for (level in listOf(ZipCompressionLevel.None, ZipCompressionLevel.Normal)) {
+            val zf = File(sandbox, "z64-${level.name}.zip")
+            zf.outputStream().use { fos ->
+                ZipWriter(fos, level = level, password = null, forceZip64 = true).use { zw ->
+                    zw.addDirectory("sub/", 1_700_000_000_000L)
+                    zw.addFile("sub/text.txt", 1_700_000_000_000L, payload.size.toLong(), { payload.inputStream() })
+                    zw.addFile("sub/raw.bin", 1_700_000_000_000L, rawBytes.size.toLong(), { rawBytes.inputStream() })
+                    zw.finish()
+                }
+            }
+
+            // Readable by java.util.zip.ZipInputStream (validates LFH + DD).
+            val streamed = HashMap<String, ByteArray>()
+            ZipInputStream(zf.inputStream()).use { zis ->
+                var e = zis.nextEntry
+                while (e != null) {
+                    if (!e.isDirectory) streamed[e.name] = zis.readBytes()
+                    zis.closeEntry()
+                    e = zis.nextEntry
+                }
+            }
+            assertArrayEquals("ZipInputStream text ($level)", payload, streamed["sub/text.txt"])
+            assertArrayEquals("ZipInputStream raw ($level)", rawBytes, streamed["sub/raw.bin"])
+
+            // Readable by java.util.zip.ZipFile (validates ZIP64 EOCD + Locator + CDH).
+            JdkZipFile(zf).use { jf ->
+                assertArrayEquals("JdkZipFile text ($level)", payload, jf.getInputStream(jf.getEntry("sub/text.txt")).readBytes())
+                assertArrayEquals("JdkZipFile raw ($level)", rawBytes, jf.getInputStream(jf.getEntry("sub/raw.bin")).readBytes())
+            }
+
+            // Readable by commons-compress ZipFile + FileOperations.extract.
+            val outDir = ops.extract(zf.path, File(sandbox, "ext-z64-${level.name}").apply { mkdirs() }.path, {})
+            assertArrayEquals(payload, File(outDir, "sub/text.txt").readBytes())
+            assertArrayEquals(rawBytes, File(outDir, "sub/raw.bin").readBytes())
+        }
+
+        // 2. AES-256 encrypted with forceZip64 = true.
+        val aesZ64 = File(sandbox, "z64-aes.zip")
+        aesZ64.outputStream().use { fos ->
+            ZipWriter(fos, level = ZipCompressionLevel.Normal, password = "z64-secret", forceZip64 = true).use { zw ->
+                zw.addFile("vault.txt", 1_700_000_000_000L, payload.size.toLong(), { payload.inputStream() })
+                zw.finish()
+            }
+        }
+        val outAes = ops.extract(aesZ64.path, File(sandbox, "ext-z64-aes").apply { mkdirs() }.path, {}, password = "z64-secret")
+        assertArrayEquals(payload, File(outAes, "vault.txt").readBytes())
+    }
+
+    @Test
+    fun zipWriterRejectsEntryNamesExceeding65535Bytes() = runBlocking {
+        val tooLong = "a".repeat(65_536)
+        val out = ByteArrayOutputStream()
+        ZipWriter(out).use { zw ->
+            try {
+                zw.addDirectory(tooLong, 0L)
+                fail("addDirectory must reject > 65,535-byte names")
+            } catch (_: IOException) {
+            }
+            try {
+                zw.addFile(tooLong, 0L, 1L, { byteArrayOf(1).inputStream() })
+                fail("addFile must reject > 65,535-byte names")
+            } catch (_: IOException) {
+            }
+        }
+    }
+
+    @Test
+    fun multiPasswordZipUnlocksAndExtractsEntriesWithDistinctPasswords() = runBlocking {
+        val p1 = "alpha content".toByteArray(Charsets.UTF_8)
+        val p2 = "beta content".toByteArray(Charsets.UTF_8)
+        val pw1 = "first-secret"
+        val pw2 = "second-secret"
+
+        fun makeAesSpec(name: String, plain: ByteArray, pw: String, saltSeed: Int): RawZipSpec {
+            val salt = ByteArray(16) { (saltSeed + it).toByte() }
+            val d = ZipCrypto.pbkdf2HmacSha1(pw.toByteArray(Charsets.UTF_8), salt, 1000, 66)
+            val ct = deflateRaw(plain).also { WinZipAesCtrCipher(d.copyOfRange(0, 32)).processInPlace(it, 0, it.size) }
+            val tag = Mac.getInstance("HmacSHA1").apply { init(SecretKeySpec(d.copyOfRange(32, 64), "HmacSHA1")) }.doFinal(ct).copyOf(10)
+            return RawZipSpec(name, 0x0801, 99, 0L, salt + d.copyOfRange(64, 66) + ct + tag, plain.size.toLong(), ZipCrypto.buildAesExtraField(AesStrength.AES256, 8, 2), 51)
+        }
+
+        val multiZip = File(sandbox, "multi-pw.zip").apply {
+            writeBytes(buildMultiEntryZip(listOf(makeAesSpec("one.txt", p1, pw1, 0x10), makeAesSpec("two.txt", p2, pw2, 0x60))))
+        }
+
+        // Per-entry password verification targets the requested entry.
+        ZipCrypto.verifyPassword(multiZip, multiZip.path, pw1, targetInnerPath = "one.txt")
+        ZipCrypto.verifyPassword(multiZip, multiZip.path, pw2, targetInnerPath = "two.txt")
+        try {
+            ZipCrypto.verifyPassword(multiZip, multiZip.path, pw1, targetInnerPath = "two.txt")
+            fail("pw1 must not validate two.txt")
+        } catch (e: ZipPasswordRequiredException) {
+            assertTrue(e.wrongPassword)
+            assertEquals("two.txt", e.targetInnerPath)
+        }
+
+        // Open one.txt with pw1, then hit wrong password on two.txt (must preserve one.txt's per-entry password),
+        // then set pw2 for two.txt and verify BOTH entries open and full archive extracts cleanly!
+        val zfs = repo.zip
+        val root = FsPath.zipRoot(multiZip.path)
+        zfs.setPassword(multiZip.path, pw1, innerPath = "one.txt")
+        assertArrayEquals(p1, zfs.openInput(FsPath.child(root, "one.txt")).use { it.readBytes() })
+
+        try {
+            zfs.openInput(FsPath.child(root, "two.txt")).use { it.readBytes() }
+            fail("two.txt must reject pw1")
+        } catch (e: ZipPasswordRequiredException) {
+            assertTrue(e.wrongPassword)
+            assertEquals("two.txt", e.targetInnerPath)
+        }
+
+        zfs.setPassword(multiZip.path, pw2, innerPath = "two.txt")
+        assertArrayEquals(p2, zfs.openInput(FsPath.child(root, "two.txt")).use { it.readBytes() })
+        assertArrayEquals(p1, zfs.openInput(FsPath.child(root, "one.txt")).use { it.readBytes() })
+
+        val outDir = ops.extract(multiZip.path, File(sandbox, "multi-out").apply { mkdirs() }.path, {})
+        assertArrayEquals(p1, File(outDir, "one.txt").readBytes())
+        assertArrayEquals(p2, File(outDir, "two.txt").readBytes())
+    }
+
+    @Test
+    fun wrongZipCryptoPasswordExpansionThrowsZipPasswordRequiredException() {
+        // Synthesize an encrypted ZipCrypto entry whose declared uncompressed size is smaller than the
+        // actual inflated stream (mirroring a wrong password that collides on the 1-in-256 check byte
+        // and expands past declared size): VerifyingInputStream must raise ZipPasswordRequiredException(wrongPassword = true).
+        val realPlain = ByteArray(4096) { 0x41 }
+        val pw = "zc-expand"
+        val crc = CRC32().apply { update(realPlain) }.value
+        val checkByte = ((crc ushr 24) and 0xFF).toInt()
+        val header = ByteArray(12) { i -> if (i == 11) checkByte.toByte() else (0x10 + i).toByte() }
+        val compressed = deflateRaw(realPlain)
+        val engine = ZipCryptoEngine(pw.toByteArray(Charsets.UTF_8))
+        engine.encryptInPlace(header, 0, header.size)
+        engine.encryptInPlace(compressed, 0, compressed.size)
+        val payload = header + compressed
+        val zcFile = File(sandbox, "zc-expand.zip").apply {
+            writeBytes(
+                buildSingleEntryZip(
+                    name = "expand.txt",
+                    flags = 0x0801,
+                    method = 8,
+                    dosTime = 0x4000,
+                    dosDate = 0x5A21,
+                    crc = crc,
+                    compSize = payload.size.toLong(),
+                    uncompSize = 10L, // smaller than inflated length
+                    extra = ByteArray(0),
+                    payload = payload,
+                    versionNeeded = 20,
+                ),
+            )
+        }
+        val zfs = ZipFileSystem().apply { setPassword(zcFile.path, pw) }
+        try {
+            zfs.openInput(FsPath.child(FsPath.zipRoot(zcFile.path), "expand.txt")).use { it.readBytes() }
+            fail("Expected ZipPasswordRequiredException on encrypted entry expansion")
+        } catch (e: ZipPasswordRequiredException) {
+            assertTrue(e.wrongPassword)
+        }
+    }
+
+    @Test
+    fun remoteArchiveStagingRespectsSizeCapAndCacheJanitorWipesEncryptedStaging() = runBlocking {
+        // 1. stageRemoteArchive caps both declared oversized archives and lying-size streams, and stages inside stagingRoot.
+        val stagingRoot = File(sandbox, "cache/zip-stage")
+        val bigBytes = ByteArray(4096) { it.toByte() }
+        var remoteModified = 1000L
+        var reportDeclaredSize = 4096L
+        val fakeRemote = object : FileSystem {
+            override fun list(path: String) = emptyList<FileEntry>()
+            override fun stat(path: String) = FileEntry(path, "big.zip", false, size = reportDeclaredSize, modified = remoteModified)
+            override fun mkdir(path: String) = throw IOException("ro")
+            override fun createFile(path: String) = throw IOException("ro")
+            override fun delete(path: String) = throw IOException("ro")
+            override fun rename(path: String, newName: String) = throw IOException("ro")
+            override fun openInput(path: String): InputStream = bigBytes.inputStream()
+            override fun openOutput(path: String): OutputStream = throw IOException("ro")
+        }
+        val remoteRepo = FileRepository(LocalFileSystem(), LocalFileSystem(), null, byScheme = mapOf("dav" to fakeRemote))
+        val remoteOps = FileOperations(remoteRepo, stagingRoot = stagingRoot)
+
+        // Declared size > maxBytes -> rejected before writing.
+        try {
+            remoteOps.stageRemoteArchive("dav://nas/big.zip", maxBytes = 1024L)
+            fail("Oversized declared remote archive must be rejected")
+        } catch (_: IOException) {
+        }
+        assertEquals(0, stagingRoot.listFiles()?.size ?: 0)
+
+        // Lying declared size (100 bytes) with 4096-byte stream -> rejected and partial file deleted.
+        reportDeclaredSize = 100L
+        try {
+            remoteOps.stageRemoteArchive("dav://nas/big.zip", maxBytes = 1024L)
+            fail("Lying oversized remote stream must be rejected")
+        } catch (_: IOException) {
+        }
+        assertEquals(0, stagingRoot.listFiles()?.size ?: 0)
+
+        // Remote password stamp invalidates when remote modified/size changes.
+        remoteRepo.zip.setPassword("dav://nas/big.zip", "pw-v1", remoteStamp = 1000L * 31 + 4096L)
+        assertEquals("pw-v1", remoteRepo.zip.passwordFor("dav://nas/big.zip", remoteStamp = 1000L * 31 + 4096L))
+        assertEquals(null, remoteRepo.zip.passwordFor("dav://nas/big.zip", remoteStamp = 2000L * 31 + 4096L))
+
+        // 2. CacheJanitor.wipeEncryptedStaging wipes zip-open/enc, zip-stage, and (optionally) picker/enc,
+        // without touching regular zip-open entries or unrelated caches.
+        val cacheDir = File(sandbox, "cache-janitor-test").apply { mkdirs() }
+        val encOpen = File(cacheDir, "zip-open/enc/h1/secret.txt").apply { parentFile!!.mkdirs(); writeText("s1") }
+        val plainOpen = File(cacheDir, "zip-open/h2/public.txt").apply { parentFile!!.mkdirs(); writeText("p1") }
+        val encPicker = File(cacheDir, "picker/enc/123/picked.txt").apply { parentFile!!.mkdirs(); writeText("s2") }
+        val zipStage = File(cacheDir, "zip-stage/wf-extract-1.zip").apply { parentFile!!.mkdirs(); writeText("s3") }
+
+        CacheJanitor.wipeEncryptedStaging(cacheDir, includePicker = false)
+        assertFalse(encOpen.exists())
+        assertFalse(zipStage.exists())
+        assertTrue("picker/enc preserved when includePicker=false", encPicker.exists())
+        assertTrue("Unencrypted zip-open preserved", plainOpen.exists())
+
+        CacheJanitor.wipeEncryptedStaging(cacheDir, includePicker = true)
+        assertFalse(encPicker.exists())
+        assertTrue(plainOpen.exists())
+    }
+
+    private data class RawZipSpec(
+        val name: String,
+        val flags: Int,
+        val method: Int,
+        val crc: Long,
+        val payload: ByteArray,
+        val uncompSize: Long,
+        val extra: ByteArray,
+        val versionNeeded: Int,
+        val externalAttrs: Long = 0x81A40000L,
+    )
+
+    private fun buildMultiEntryZip(specs: List<RawZipSpec>): ByteArray {
+        val out = ByteArrayOutputStream()
+        val cd = ByteArrayOutputStream()
+        fun u16(v: Int) = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN).putShort(v.toShort()).array()
+        fun u32(v: Long) = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(v.toInt()).array()
+        for (s in specs) {
+            val offset = out.size().toLong()
+            val nameBytes = s.name.toByteArray(Charsets.UTF_8)
+            out.write(u32(0x04034B50)); out.write(u16(s.versionNeeded)); out.write(u16(s.flags)); out.write(u16(s.method))
+            out.write(u16(0x4000)); out.write(u16(0x5A21)); out.write(u32(s.crc)); out.write(u32(s.payload.size.toLong()))
+            out.write(u32(s.uncompSize)); out.write(u16(nameBytes.size)); out.write(u16(s.extra.size))
+            out.write(nameBytes); out.write(s.extra); out.write(s.payload)
+
+            cd.write(u32(0x02014B50)); cd.write(u16((3 shl 8) or s.versionNeeded)); cd.write(u16(s.versionNeeded))
+            cd.write(u16(s.flags)); cd.write(u16(s.method)); cd.write(u16(0x4000)); cd.write(u16(0x5A21))
+            cd.write(u32(s.crc)); cd.write(u32(s.payload.size.toLong())); cd.write(u32(s.uncompSize))
+            cd.write(u16(nameBytes.size)); cd.write(u16(s.extra.size)); cd.write(u16(0))
+            cd.write(u16(0)); cd.write(u16(0)); cd.write(u32(s.externalAttrs)); cd.write(u32(offset))
+            cd.write(nameBytes); cd.write(s.extra)
+        }
+        val cdOffset = out.size().toLong()
+        val cdBytes = cd.toByteArray()
+        out.write(cdBytes)
+        out.write(u32(0x06054B50)); out.write(u16(0)); out.write(u16(0))
+        out.write(u16(specs.size)); out.write(u16(specs.size))
+        out.write(u32(cdBytes.size.toLong())); out.write(u32(cdOffset)); out.write(u16(0))
+        return out.toByteArray()
+    }
+
+    private fun buildSingleEntryZipWithZip64Size(
+        name: String,
+        compressed: ByteArray,
+        declaredUncompSize: Long,
+        crc: Long,
+    ): ByteArray {
+        val z64Extra = ByteBuffer.allocate(20).order(ByteOrder.LITTLE_ENDIAN)
+            .putShort(0x0001)
+            .putShort(16)
+            .putLong(declaredUncompSize)
+            .putLong(compressed.size.toLong())
+            .array()
+        return buildSingleEntryZip(
+            name = name,
+            flags = 0x0800,
+            method = 8,
+            dosTime = 0x4000,
+            dosDate = 0x5A21,
+            crc = crc,
+            compSize = 0xFFFFFFFFL,
+            uncompSize = 0xFFFFFFFFL,
+            extra = z64Extra,
+            payload = compressed,
+            versionNeeded = 45,
+        )
     }
 
     private fun buildMixedZip(publicData: ByteArray, secretData: ByteArray, password: String): ByteArray {

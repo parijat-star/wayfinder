@@ -59,6 +59,7 @@ class ZipPasswordRequiredException(
     val archivePath: String,
     val wrongPassword: Boolean = false,
     message: String = if (wrongPassword) "Incorrect password" else "Password required to read this archive",
+    val targetInnerPath: String? = null,
 ) : IOException(message)
 
 /** WinZip AES strength codes from extra field `0x9901`. */
@@ -382,7 +383,18 @@ object ZipCrypto {
         return null
     }
 
-    /** Returns true if any non-directory entry in [file] is encrypted. */
+    /**
+     * Rejects UNIX symbolic links and special device/FIFO/socket nodes inside ZIP archives
+     * (matching [ZipFileSystem.isSafeTarEntry]). Regular files, directories, and entries without
+     * a UNIX file-type mask (e.g. MS-DOS / Windows archives) are accepted.
+     */
+    fun isSafeZipEntry(entry: ZipArchiveEntry): Boolean {
+        if (entry.isUnixSymlink) return false
+        val type = entry.unixMode and 0xF000
+        return type == 0 || type == 0x8000 || type == 0x4000
+    }
+
+    /** Returns true if any safe non-directory entry in [file] is encrypted. */
     fun isArchiveEncrypted(file: File): Boolean = wrapZipIo {
         openZipFile(file).use { z ->
             val en = z.entries
@@ -390,6 +402,7 @@ object ZipCrypto {
             while (en.hasMoreElements()) {
                 if (++count > ZipFileSystem.MAX_ENTRIES) return@use false
                 val e = en.nextElement()
+                if (!isSafeZipEntry(e)) continue
                 if (!e.isDirectory && e.generalPurposeBit.usesEncryption()) return@use true
             }
             false
@@ -398,23 +411,55 @@ object ZipCrypto {
 
     /**
      * Verifies [password] against [file] before starting extraction or file transfer.
+     * When [targetInnerPath] is provided (e.g., for multi-password ZIPs), verifies against the
+     * matching encrypted entry (or an encrypted entry under that folder) instead of an arbitrary
+     * entry in the archive.
+     *
      * Throws [ZipPasswordRequiredException] (`wrongPassword = true`) if the password is incorrect,
      * or another [IOException] if the archive is unreadable or uses an unsupported encryption method.
      */
-    fun verifyPassword(file: File, archivePath: String, password: String) {
+    fun verifyPassword(
+        file: File,
+        archivePath: String,
+        password: String,
+        targetInnerPath: String? = null,
+    ) {
         wrapZipIo {
             openZipFile(file).use { z ->
                 var chosen: ZipArchiveEntry? = null
                 var chosenIsAes = false
+                var targetMatch: ZipArchiveEntry? = null
+                var targetMatchIsAes = false
+                val targetPrefix = targetInnerPath?.let { "$it/" }
                 val en = z.entries
                 var count = 0
                 while (en.hasMoreElements()) {
                     if (++count > ZipFileSystem.MAX_ENTRIES) break
                     val e = en.nextElement()
+                    if (!isSafeZipEntry(e)) continue
                     if (e.isDirectory || !e.generalPurposeBit.usesEncryption()) continue
                     val enc = detectEncryption(e)
-                    if (enc is ZipEntryEncryption.Unsupported) throw IOException(enc.description)
                     val isAes = enc is ZipEntryEncryption.WinZipAes
+                    if (targetInnerPath != null) {
+                        val safe = FileInfo.safeZipEntryPath(decodeEntryName(e))
+                        if (safe == targetInnerPath || (targetPrefix != null && safe != null && safe.startsWith(targetPrefix))) {
+                            if (enc is ZipEntryEncryption.Unsupported) throw IOException(enc.description)
+                            val betterTarget = targetMatch == null ||
+                                (safe == targetInnerPath) ||
+                                (isAes && !targetMatchIsAes) ||
+                                (isAes == targetMatchIsAes && e.compressedSize in 0 until targetMatch.compressedSize)
+                            if (betterTarget) {
+                                targetMatch = e
+                                targetMatchIsAes = isAes
+                            }
+                            if (safe == targetInnerPath) break
+                            continue
+                        }
+                    }
+                    if (enc is ZipEntryEncryption.Unsupported) {
+                        if (targetInnerPath == null) throw IOException(enc.description)
+                        continue
+                    }
                     // Prefer a small entry so we can validate HMAC / CRC completely, and prefer AES over ZipCrypto.
                     val better = chosen == null ||
                         (isAes && !chosenIsAes) ||
@@ -424,11 +469,11 @@ object ZipCrypto {
                         chosenIsAes = isAes
                     }
                 }
-                val entry = chosen ?: return@use
+                val entry = targetMatch ?: chosen ?: return@use
                 val enc = detectEncryption(entry)
                 when (enc) {
-                    is ZipEntryEncryption.WinZipAes -> verifyAesEntry(z, entry, enc, archivePath, password)
-                    is ZipEntryEncryption.ZipCrypto -> verifyZipCryptoEntry(z, file, entry, archivePath, password)
+                    is ZipEntryEncryption.WinZipAes -> verifyAesEntry(z, entry, enc, archivePath, password, targetInnerPath)
+                    is ZipEntryEncryption.ZipCrypto -> verifyZipCryptoEntry(z, file, entry, archivePath, password, targetInnerPath)
                     is ZipEntryEncryption.Unsupported -> throw IOException(enc.description)
                     ZipEntryEncryption.None -> Unit
                 }
@@ -442,6 +487,7 @@ object ZipCrypto {
         enc: ZipEntryEncryption.WinZipAes,
         archivePath: String,
         password: String,
+        targetInnerPath: String? = null,
     ) {
         val rawSize = entry.compressedSize
         val overhead = enc.strength.saltBytes + AES_PVV_BYTES + AES_HMAC_BYTES
@@ -458,26 +504,13 @@ object ZipCrypto {
                 derived = d
                 val expectedPvv = d.copyOfRange(enc.strength.keyBytes * 2, enc.strength.keyBytes * 2 + AES_PVV_BYTES)
                 if (!MessageDigest.isEqual(expectedPvv, filePvv)) {
-                    throw ZipPasswordRequiredException(archivePath, wrongPassword = true)
+                    throw ZipPasswordRequiredException(archivePath, wrongPassword = true, targetInnerPath = targetInnerPath)
                 }
                 // For entries up to 4 MiB, also verify the 10-byte HMAC-SHA1-80 tag to eliminate the 1-in-65536 PVV collision.
                 if (cipherLen <= MAX_VERIFY_DECRYPT_BYTES) {
                     val hmacKey = d.copyOfRange(enc.strength.keyBytes, enc.strength.keyBytes * 2)
                     try {
-                        val mac = Mac.getInstance("HmacSHA1").apply { init(SecretKeySpec(hmacKey, "HmacSHA1")) }
-                        val buf = ByteArray(16 * 1024)
-                        var left = cipherLen
-                        while (left > 0) {
-                            val n = inp.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
-                            if (n < 0) throw IOException("Encrypted archive entry is truncated")
-                            mac.update(buf, 0, n)
-                            left -= n
-                        }
-                        val storedTag = readExact(inp, AES_HMAC_BYTES)
-                        val computedTag = mac.doFinal().copyOf(AES_HMAC_BYTES)
-                        if (!MessageDigest.isEqual(computedTag, storedTag)) {
-                            throw ZipPasswordRequiredException(archivePath, wrongPassword = true)
-                        }
+                        verifyAesHmac(inp, cipherLen, hmacKey, archivePath, targetInnerPath)
                     } finally {
                         hmacKey.fill(0)
                     }
@@ -489,24 +522,59 @@ object ZipCrypto {
         }
     }
 
+    private fun verifyAesHmac(
+        inp: InputStream,
+        cipherLen: Long,
+        hmacKey: ByteArray,
+        archivePath: String,
+        targetInnerPath: String? = null,
+    ) {
+        val mac = Mac.getInstance("HmacSHA1").apply { init(SecretKeySpec(hmacKey, "HmacSHA1")) }
+        val buf = ByteArray(64 * 1024)
+        var left = cipherLen
+        while (left > 0L) {
+            val n = inp.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+            if (n < 0) throw IOException("Encrypted archive entry is truncated")
+            mac.update(buf, 0, n)
+            left -= n
+        }
+        val storedTag = try {
+            readExact(inp, AES_HMAC_BYTES)
+        } catch (e: EOFException) {
+            throw IOException("Encrypted archive entry is truncated", e)
+        }
+        val computedTag = mac.doFinal().copyOf(AES_HMAC_BYTES)
+        if (!MessageDigest.isEqual(computedTag, storedTag)) {
+            throw ZipPasswordRequiredException(
+                archivePath = archivePath,
+                wrongPassword = true,
+                message = "Incorrect password or corrupted archive",
+                targetInnerPath = targetInnerPath,
+            )
+        }
+    }
+
     private fun verifyZipCryptoEntry(
         z: ZipFile,
         file: File,
         entry: ZipArchiveEntry,
         archivePath: String,
         password: String,
+        targetInnerPath: String? = null,
     ) {
         // Opening performs the 12-byte header check immediately; for entries <= 4 MiB also drain to confirm full CRC-32.
-        openEntryInputStream(z, file, entry, archivePath, password, verifyCrc = true).use { stream ->
+        openEntryInputStream(z, file, entry, archivePath, password, verifyCrc = true, targetInnerPath = targetInnerPath).use { stream ->
             if (entry.size in 0..MAX_VERIFY_DECRYPT_BYTES) {
                 val buf = ByteArray(16 * 1024)
                 var read = 0L
-                val max = entry.size.coerceAtLeast(0L) + 1
+                val max = entry.size + 1L
                 while (true) {
                     val n = stream.read(buf)
                     if (n < 0) break
                     read += n
-                    if (read > max) throw ZipPasswordRequiredException(archivePath, wrongPassword = true)
+                    if (read > max) {
+                        throw ZipPasswordRequiredException(archivePath, wrongPassword = true, targetInnerPath = targetInnerPath)
+                    }
                 }
             }
         }
@@ -525,7 +593,9 @@ object ZipCrypto {
         archivePath: String,
         password: String?,
         verifyCrc: Boolean = true,
+        targetInnerPath: String? = null,
     ): InputStream = wrapZipIo {
+        val inner = targetInnerPath ?: FileInfo.safeZipEntryPath(decodeEntryName(entry))
         when (val enc = detectEncryption(entry)) {
             ZipEntryEncryption.None -> {
                 if (!zipFile.canReadEntryData(entry)) {
@@ -540,6 +610,7 @@ object ZipCrypto {
                         expectedSize = entry.size.takeIf { it >= 0 },
                         archivePath = archivePath,
                         isEncrypted = false,
+                        targetInnerPath = inner,
                     )
                 } else {
                     raw
@@ -547,12 +618,12 @@ object ZipCrypto {
             }
             is ZipEntryEncryption.Unsupported -> throw IOException(enc.description)
             is ZipEntryEncryption.WinZipAes -> {
-                val pw = password ?: throw ZipPasswordRequiredException(archivePath, wrongPassword = false)
-                openWinZipAesStream(zipFile, entry, enc, archivePath, pw, verifyCrc)
+                val pw = password ?: throw ZipPasswordRequiredException(archivePath, wrongPassword = false, targetInnerPath = inner)
+                openWinZipAesStream(zipFile, entry, enc, archivePath, pw, verifyCrc, inner)
             }
             ZipEntryEncryption.ZipCrypto -> {
-                val pw = password ?: throw ZipPasswordRequiredException(archivePath, wrongPassword = false)
-                openZipCryptoStream(zipFile, file, entry, archivePath, pw, verifyCrc)
+                val pw = password ?: throw ZipPasswordRequiredException(archivePath, wrongPassword = false, targetInnerPath = inner)
+                openZipCryptoStream(zipFile, file, entry, archivePath, pw, verifyCrc, inner)
             }
         }
     }
@@ -564,36 +635,59 @@ object ZipCrypto {
         archivePath: String,
         password: String,
         verifyCrc: Boolean,
+        targetInnerPath: String?,
     ): InputStream {
         val rawSize = entry.compressedSize
         val overhead = enc.strength.saltBytes + AES_PVV_BYTES + AES_HMAC_BYTES
         if (rawSize < overhead) throw IOException("Encrypted archive entry is truncated")
         val cipherLen = rawSize - overhead
 
-        val raw = zipFile.getRawInputStream(entry)
-            ?: throw IOException("Can't read encrypted entry from the archive")
         val passwordBytes = password.toByteArray(Charsets.UTF_8)
         var derived: ByteArray? = null
         var aesKey: ByteArray? = null
         var hmacKey: ByteArray? = null
+        var raw2: InputStream? = null
         try {
-            val salt = readExact(raw, enc.strength.saltBytes)
-            val filePvv = readExact(raw, AES_PVV_BYTES)
-            derived = pbkdf2HmacSha1(passwordBytes, salt, AES_ITERATIONS, enc.strength.keyBytes * 2 + AES_PVV_BYTES)
-            aesKey = derived.copyOfRange(0, enc.strength.keyBytes)
-            hmacKey = derived.copyOfRange(enc.strength.keyBytes, enc.strength.keyBytes * 2)
-            val expectedPvv = derived.copyOfRange(enc.strength.keyBytes * 2, enc.strength.keyBytes * 2 + AES_PVV_BYTES)
-            if (!MessageDigest.isEqual(expectedPvv, filePvv)) {
-                runCatching { raw.close() }
-                throw ZipPasswordRequiredException(archivePath, wrongPassword = true)
+            // Pass 1 (verify-before-decrypt): authenticate PVV and the full 10-byte HMAC-SHA1-80 tag over the
+            // ciphertext before any CTR plaintext bytes can be decrypted or surfaced to callers.
+            val salt: ByteArray
+            val filePvv: ByteArray
+            val preRaw = zipFile.getRawInputStream(entry)
+                ?: throw IOException("Can't read encrypted entry from the archive")
+            preRaw.use { inp ->
+                salt = readExact(inp, enc.strength.saltBytes)
+                filePvv = readExact(inp, AES_PVV_BYTES)
+                val d = pbkdf2HmacSha1(passwordBytes, salt, AES_ITERATIONS, enc.strength.keyBytes * 2 + AES_PVV_BYTES)
+                derived = d
+                val aKey = d.copyOfRange(0, enc.strength.keyBytes).also { aesKey = it }
+                val hKey = d.copyOfRange(enc.strength.keyBytes, enc.strength.keyBytes * 2).also { hmacKey = it }
+                val expectedPvv = d.copyOfRange(enc.strength.keyBytes * 2, enc.strength.keyBytes * 2 + AES_PVV_BYTES)
+                if (!MessageDigest.isEqual(expectedPvv, filePvv)) {
+                    throw ZipPasswordRequiredException(archivePath, wrongPassword = true, targetInnerPath = targetInnerPath)
+                }
+                verifyAesHmac(inp, cipherLen, hKey, archivePath, targetInnerPath)
+                // Keep aKey referenced so compiler doesn't warn; passed into WinZipAesInputStream below.
+                check(aKey.size == enc.strength.keyBytes)
             }
-            val aesStream = WinZipAesInputStream(raw, cipherLen, aesKey, hmacKey, archivePath)
+
+            // Pass 2: stream authenticated ciphertext through AES-CTR (and re-verify HMAC at EOF against TOCTOU).
+            val decryptRaw = zipFile.getRawInputStream(entry)
+                ?: throw IOException("Can't read encrypted entry from the archive")
+            raw2 = decryptRaw
+            val salt2 = readExact(decryptRaw, enc.strength.saltBytes)
+            val filePvv2 = readExact(decryptRaw, AES_PVV_BYTES)
+            if (!MessageDigest.isEqual(salt, salt2) || !MessageDigest.isEqual(filePvv, filePvv2)) {
+                throw IOException("Encrypted archive changed while reading")
+            }
+
+            val aesStream = WinZipAesInputStream(decryptRaw, cipherLen, aesKey!!, hmacKey!!, archivePath, targetInnerPath)
             val decoded: InputStream = when (enc.actualMethod) {
                 METHOD_STORED -> aesStream
                 METHOD_DEFLATED -> RawDeflateInputStream(
                     source = aesStream,
                     archivePath = archivePath,
                     isEncrypted = true,
+                    targetInnerPath = targetInnerPath,
                     onBeforeErrorOrEof = { aesStream.drainAndVerifyMac() },
                 )
                 else -> {
@@ -611,13 +705,14 @@ object ZipCrypto {
                     expectedSize = checkSize,
                     archivePath = archivePath,
                     isEncrypted = true,
+                    targetInnerPath = targetInnerPath,
                     onBeforeErrorOrEof = { aesStream.drainAndVerifyMac() },
                 )
             } else {
                 decoded
             }
         } catch (t: Throwable) {
-            runCatching { raw.close() }
+            runCatching { raw2?.close() }
             throw t
         } finally {
             passwordBytes.fill(0)
@@ -634,6 +729,7 @@ object ZipCrypto {
         archivePath: String,
         password: String,
         verifyCrc: Boolean,
+        targetInnerPath: String?,
     ): InputStream {
         val rawSize = entry.compressedSize
         if (rawSize < ZIPCRYPTO_HEADER_BYTES) throw IOException("Encrypted archive entry is truncated")
@@ -660,7 +756,7 @@ object ZipCrypto {
             if (!validCheck) {
                 engine.clear()
                 runCatching { raw.close() }
-                throw ZipPasswordRequiredException(archivePath, wrongPassword = true)
+                throw ZipPasswordRequiredException(archivePath, wrongPassword = true, targetInnerPath = targetInnerPath)
             }
 
             val cryptoStream = ZipCryptoInputStream(raw, payloadLen, engine)
@@ -670,6 +766,7 @@ object ZipCrypto {
                     source = cryptoStream,
                     archivePath = archivePath,
                     isEncrypted = true,
+                    targetInnerPath = targetInnerPath,
                 )
                 else -> {
                     runCatching { cryptoStream.close() }
@@ -685,6 +782,7 @@ object ZipCrypto {
                     expectedSize = checkSize,
                     archivePath = archivePath,
                     isEncrypted = true,
+                    targetInnerPath = targetInnerPath,
                 )
             } else {
                 decoded
@@ -743,6 +841,7 @@ private class WinZipAesInputStream(
     aesKey: ByteArray,
     hmacKey: ByteArray,
     private val archivePath: String,
+    private val targetInnerPath: String? = null,
 ) : InputStream() {
     private val ctr = WinZipAesCtrCipher(aesKey)
     private val mac: Mac = Mac.getInstance("HmacSHA1").apply {
@@ -806,6 +905,7 @@ private class WinZipAesInputStream(
                 archivePath = archivePath,
                 wrongPassword = true,
                 message = "Incorrect password or corrupted archive",
+                targetInnerPath = targetInnerPath,
             )
         }
     }
@@ -861,6 +961,7 @@ private class RawDeflateInputStream(
     private val source: InputStream,
     private val archivePath: String,
     private val isEncrypted: Boolean,
+    private val targetInnerPath: String? = null,
     private val onBeforeErrorOrEof: () -> Unit = {},
 ) : InputStream() {
     private val inflater = Inflater(true)
@@ -901,6 +1002,7 @@ private class RawDeflateInputStream(
                                     archivePath = archivePath,
                                     wrongPassword = true,
                                     message = "Incorrect password or truncated archive",
+                                    targetInnerPath = targetInnerPath,
                                 )
                             }
                             throw IOException("Unexpected end of compressed data")
@@ -917,6 +1019,7 @@ private class RawDeflateInputStream(
                     archivePath = archivePath,
                     wrongPassword = true,
                     message = "Incorrect password or corrupted archive",
+                    targetInnerPath = targetInnerPath,
                 )
             }
             throw IOException("Corrupted compressed data: ${e.message}", e)
@@ -945,6 +1048,7 @@ private class VerifyingInputStream(
     private val expectedSize: Long?,
     private val archivePath: String,
     private val isEncrypted: Boolean,
+    private val targetInnerPath: String? = null,
     private val onBeforeErrorOrEof: () -> Unit = {},
 ) : InputStream() {
     private val crc = CRC32()
@@ -960,7 +1064,12 @@ private class VerifyingInputStream(
     override fun read(b: ByteArray, off: Int, len: Int): Int {
         if (len == 0) return 0
         val maxRead = if (expectedSize != null) {
-            minOf(len.toLong(), (expectedSize - totalRead + 1L).coerceAtLeast(1L)).toInt()
+            val rem = expectedSize - totalRead
+            when {
+                rem < 0L -> 1
+                rem >= len.toLong() -> len
+                else -> minOf(len.toLong(), rem + 1L).toInt()
+            }
         } else {
             len
         }
@@ -975,6 +1084,7 @@ private class VerifyingInputStream(
                             archivePath = archivePath,
                             wrongPassword = true,
                             message = "Incorrect password or corrupted archive",
+                            targetInnerPath = targetInnerPath,
                         )
                     }
                     throw IOException("Archive entry size mismatch (expected $expectedSize, got $totalRead)")
@@ -985,6 +1095,7 @@ private class VerifyingInputStream(
                             archivePath = archivePath,
                             wrongPassword = true,
                             message = "Incorrect password or corrupted archive",
+                            targetInnerPath = targetInnerPath,
                         )
                     }
                     throw IOException("Archive entry CRC mismatch")
@@ -995,6 +1106,14 @@ private class VerifyingInputStream(
         totalRead += n
         if (expectedSize != null && totalRead > expectedSize) {
             onBeforeErrorOrEof()
+            if (isEncrypted) {
+                throw ZipPasswordRequiredException(
+                    archivePath = archivePath,
+                    wrongPassword = true,
+                    message = "Incorrect password or corrupted archive",
+                    targetInnerPath = targetInnerPath,
+                )
+            }
             throw IOException("Archive entry expanded past its declared size ($expectedSize bytes)")
         }
         if (expectedCrc != null) crc.update(b, off, n)

@@ -66,6 +66,7 @@ sealed interface Dialog {
         val archiveName: String,
         val error: String? = null,
         val verifying: Boolean = false,
+        val targetInnerPath: String? = null,
     ) : Dialog
     /** "Connect to Server" (Ctrl+Shift+K); [initial] pre-fills the form (e.g. when reconnecting a saved server). */
     data class Connect(val initial: ConnectConfig? = null) : Dialog

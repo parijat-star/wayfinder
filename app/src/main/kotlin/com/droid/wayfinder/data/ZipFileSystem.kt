@@ -44,10 +44,14 @@ class ZipFileSystem : FileSystem {
         val encrypted: Set<String>,
     )
 
-    private data class CachedPassword(val stamp: Long, val password: String)
+    private class CachedPassword(val stamp: Long, private val chars: CharArray) {
+        fun value(): String = String(chars)
+        fun wipe() { chars.fill('\u0000') }
+    }
 
     private val cache = LinkedHashMap<String, Index>()
     private val passwords = ConcurrentHashMap<String, CachedPassword>()
+    private val entryPasswords = ConcurrentHashMap<String, CachedPassword>()
 
     private fun split(path: String): Pair<String, String> = FsPath.zipSplit(path) ?: throw IOException("Not an archive path")
 
@@ -55,60 +59,120 @@ class ZipFileSystem : FileSystem {
         if (FsPath.isLocal(archivePath)) runCatching { File(archivePath).canonicalPath }.getOrDefault(FsPath.normalize(archivePath))
         else FsPath.normalize(archivePath)
 
-    private fun stampOf(archivePath: String): Long =
-        if (FsPath.isLocal(archivePath)) File(archivePath).takeIf { it.isFile }?.let { it.lastModified() * 31 + it.length() } ?: -1L
-        else 0L
+    private fun entryKey(archivePath: String, innerPath: String): String = "${archiveKey(archivePath)}!$innerPath"
 
-    /** Stores [password] in memory for [archivePath] (keyed to its current file stamp; never persisted). */
-    fun setPassword(archivePath: String, password: String) {
-        passwords[archiveKey(archivePath)] = CachedPassword(stampOf(archivePath), password)
+    private fun stampOf(archivePath: String, remoteStamp: Long? = null): Long =
+        if (FsPath.isLocal(archivePath)) File(archivePath).takeIf { it.isFile }?.let { it.lastModified() * 31 + it.length() } ?: -1L
+        else (remoteStamp ?: 0L)
+
+    /**
+     * Stores [password] in memory for [archivePath] (and optionally [innerPath] for multi-password
+     * ZIPs), keyed to its current file stamp and held in a zeroable `CharArray`. Never persisted.
+     */
+    fun setPassword(
+        archivePath: String,
+        password: String,
+        innerPath: String? = null,
+        remoteStamp: Long? = null,
+    ) {
+        val stamp = stampOf(archivePath, remoteStamp)
+        val archKey = archiveKey(archivePath)
+        if (!innerPath.isNullOrEmpty()) {
+            entryPasswords.put(entryKey(archivePath, innerPath), CachedPassword(stamp, password.toCharArray()))?.wipe()
+        }
+        passwords.put(archKey, CachedPassword(stamp, password.toCharArray()))?.wipe()
     }
 
-    /** Returns the in-memory session password for [archivePath], or null if unset or if the file changed on disk. */
-    fun passwordFor(archivePath: String): String? {
+    /** Returns the in-memory session password for [archivePath] (or [innerPath]), or null if unset or stale. */
+    fun passwordFor(
+        archivePath: String,
+        innerPath: String? = null,
+        remoteStamp: Long? = null,
+    ): String? {
+        val curStamp = stampOf(archivePath, remoteStamp)
+        if (!innerPath.isNullOrEmpty()) {
+            val eKey = entryKey(archivePath, innerPath)
+            val entryCached = entryPasswords[eKey]
+            if (entryCached != null) {
+                if (entryCached.stamp == curStamp) return entryCached.value()
+                if (entryPasswords.remove(eKey, entryCached)) entryCached.wipe()
+            }
+        }
         val key = archiveKey(archivePath)
         val cached = passwords[key] ?: return null
-        val curStamp = stampOf(archivePath)
         if (cached.stamp != curStamp) {
-            passwords.remove(key, cached)
+            if (passwords.remove(key, cached)) cached.wipe()
             return null
         }
-        return cached.password
+        return cached.value()
     }
 
-    /** Evicts any cached session password for [archivePath]. */
-    fun clearPassword(archivePath: String) {
-        passwords.remove(archiveKey(archivePath))
+    /** Evicts and zeroes cached session password(s) for [archivePath] (or specifically [innerPath]). */
+    fun clearPassword(archivePath: String, innerPath: String? = null) {
+        val archKey = archiveKey(archivePath)
+        if (!innerPath.isNullOrEmpty()) {
+            entryPasswords.remove(entryKey(archivePath, innerPath))?.wipe()
+            // Clear the archive-wide fallback so a wrong default isn't retried in a loop,
+            // while preserving verified per-entry passwords for other entries in multi-password ZIPs.
+            passwords.remove(archKey)?.wipe()
+            return
+        }
+        passwords.remove(archKey)?.wipe()
+        val prefix = "$archKey!"
+        val iter = entryPasswords.entries.iterator()
+        while (iter.hasNext()) {
+            val e = iter.next()
+            if (e.key.startsWith(prefix)) {
+                iter.remove()
+                e.value.wipe()
+            }
+        }
     }
 
-    /** Evicts all cached session passwords. */
+    /** Evicts and zeroes all cached session passwords. */
     fun clearAllPasswords() {
-        passwords.clear()
+        val pIter = passwords.entries.iterator()
+        while (pIter.hasNext()) {
+            val e = pIter.next()
+            pIter.remove()
+            e.value.wipe()
+        }
+        val eIter = entryPasswords.entries.iterator()
+        while (eIter.hasNext()) {
+            val e = eIter.next()
+            eIter.remove()
+            e.value.wipe()
+        }
     }
 
     /**
      * Returns true if [path] (either an archive file `/dir/a.zip` or an inner archive file/folder
      * `/dir/a.zip!/sub`) contains at least one encrypted entry.
      */
-    fun hasEncryptedEntry(path: String): Boolean {
+    fun hasEncryptedEntry(path: String): Boolean = encryptedEntriesFor(path).isNotEmpty()
+
+    /** Returns the first encrypted inner path under [path] that does not currently have a cached password. */
+    fun firstLockedInnerPath(path: String): String? {
+        val archive = FsPath.zipSplit(path)?.first ?: path
+        return encryptedEntriesFor(path).firstOrNull { inner -> passwordFor(archive, innerPath = inner) == null }
+    }
+
+    /** Returns true if reading or extracting [path] requires a password that is not yet cached in memory. */
+    fun needsPassword(path: String): Boolean = firstLockedInnerPath(path) != null
+
+    private fun encryptedEntriesFor(path: String): List<String> {
         val split = FsPath.zipSplit(path)
         val archive = split?.first ?: path
         val inner = split?.second ?: ""
         val f = File(archive)
-        if (!f.isFile || isTar(f)) return false
-        val idx = try { index(archive) } catch (_: Exception) { return false }
-        if (inner.isEmpty()) return idx.encrypted.isNotEmpty()
-        if (inner in idx.encrypted) return true
-        val entry = idx.all[inner] ?: return false
-        if (!entry.isDir) return false
+        if (!f.isFile || isTar(f)) return emptyList()
+        val idx = try { index(archive) } catch (_: Exception) { return emptyList() }
+        if (inner.isEmpty()) return idx.encrypted.toList()
+        if (inner in idx.encrypted) return listOf(inner)
+        val entry = idx.all[inner] ?: return emptyList()
+        if (!entry.isDir) return emptyList()
         val prefix = "$inner/"
-        return idx.encrypted.any { it.startsWith(prefix) }
-    }
-
-    /** Returns true if reading or extracting [path] requires a password that is not yet cached in memory. */
-    fun needsPassword(path: String): Boolean {
-        val archive = FsPath.zipSplit(path)?.first ?: path
-        return hasEncryptedEntry(path) && passwordFor(archive) == null
+        return idx.encrypted.filter { it.startsWith(prefix) }
     }
 
     @Synchronized
@@ -153,6 +217,7 @@ class ZipFileSystem : FileSystem {
             while (en.hasMoreElements()) {
                 if (++count > MAX_ENTRIES) throw IOException("This archive has too many entries to browse ($count)")
                 val ze = en.nextElement()
+                if (!ZipCrypto.isSafeZipEntry(ze)) continue
                 val decoded = ZipCrypto.decodeEntryName(ze)
                 val inner = FileInfo.safeZipEntryPath(decoded) ?: continue
                 if (ze.isDirectory) { ensureDir(inner, ze.time); continue }
@@ -244,15 +309,23 @@ class ZipFileSystem : FileSystem {
         val f = File(archive)
         val idx = index(archive)
         val name = idx.names[inner] ?: throw IOException("${FsPath.name(path)} isn't a file in the archive")
+        val archiveSize = f.length()
         if (isTar(f)) {
             val entrySize = idx.all[inner]?.size ?: -1L
-            val limit = if (entrySize >= 0) entrySize else MAX_UNKNOWN_SIZE
+            val limit = if (entrySize >= 0L) minOf(entrySize, MAX_ENTRY_BYTES) else MAX_ENTRY_BYTES
             val tin = ZipCrypto.wrapZipIo { openTar(f) }
             try {
                 var ze = tin.nextEntry
                 while (ze != null) {
                     if (ze.name == name) {
-                        return object : FilterInputStream(BoundedInputStream(tin, limit, FsPath.name(path)).buffered(64 * 1024)) {
+                        val bounded = BoundedInputStream(
+                            input = tin,
+                            limit = limit,
+                            what = FsPath.name(path),
+                            archiveSize = archiveSize,
+                            limits = STREAM_EXTRACT_LIMITS,
+                        )
+                        return object : FilterInputStream(bounded.buffered(64 * 1024)) {
                             override fun read(): Int = ZipCrypto.wrapZipIo { super.read() }
                             override fun read(b: ByteArray, off: Int, len: Int): Int = ZipCrypto.wrapZipIo { super.read(b, off, len) }
                             override fun close() { try { super.close() } finally { tin.close() } }
@@ -276,24 +349,31 @@ class ZipFileSystem : FileSystem {
             runCatching { z.close() }
             throw t
         }
-        // Never inflate more than the entry claims to contain (zip bombs with lying headers).
-        val limit = if (entry.size >= 0) entry.size else MAX_UNKNOWN_SIZE
-        val pw = passwordFor(archive)
+        // Never inflate more than min(declared size, 4 GiB) or exceed bomb compression ratios.
+        val limit = if (entry.size >= 0L) minOf(entry.size, MAX_ENTRY_BYTES) else MAX_ENTRY_BYTES
+        val pw = passwordFor(archive, innerPath = inner)
         val raw = try {
-            ZipCrypto.openEntryInputStream(z, f, entry, archive, pw, verifyCrc = true)
+            ZipCrypto.openEntryInputStream(z, f, entry, archive, pw, verifyCrc = true, targetInnerPath = inner)
         } catch (e: ZipPasswordRequiredException) {
             runCatching { z.close() }
-            if (e.wrongPassword) clearPassword(archive)
+            if (e.wrongPassword) clearPassword(archive, inner)
             throw e
         } catch (e: Exception) {
             runCatching { z.close() }
             throw if (e is IOException) e else IOException("Can't read ${FsPath.name(path)}: ${e.message}", e)
         }
-        return object : FilterInputStream(BoundedInputStream(raw, limit, FsPath.name(path)).buffered(64 * 1024)) {
+        val bounded = BoundedInputStream(
+            input = raw,
+            limit = limit,
+            what = FsPath.name(path),
+            archiveSize = archiveSize,
+            limits = STREAM_EXTRACT_LIMITS,
+        )
+        return object : FilterInputStream(bounded.buffered(64 * 1024)) {
             override fun read(): Int = try {
                 super.read()
             } catch (e: ZipPasswordRequiredException) {
-                if (e.wrongPassword) clearPassword(archive)
+                if (e.wrongPassword) clearPassword(archive, e.targetInnerPath ?: inner)
                 throw e
             } catch (e: IOException) {
                 throw e
@@ -304,7 +384,7 @@ class ZipFileSystem : FileSystem {
             override fun read(b: ByteArray, off: Int, len: Int): Int = try {
                 super.read(b, off, len)
             } catch (e: ZipPasswordRequiredException) {
-                if (e.wrongPassword) clearPassword(archive)
+                if (e.wrongPassword) clearPassword(archive, e.targetInnerPath ?: inner)
                 throw e
             } catch (e: IOException) {
                 throw e
@@ -345,7 +425,12 @@ class ZipFileSystem : FileSystem {
     companion object {
         /** Archives with more entries than this are not indexed (memory). */
         const val MAX_ENTRIES = 500_000
-        private const val MAX_UNKNOWN_SIZE = 4L shl 30
+        private const val MAX_ENTRY_BYTES = 4L shl 30
+        private val STREAM_EXTRACT_LIMITS = ExtractLimits(
+            maxTotalBytes = MAX_ENTRY_BYTES,
+            maxRatio = 200,
+            ratioFloorBytes = 32L shl 20,
+        )
 
         fun isSafeTarEntry(ze: org.apache.commons.compress.archivers.tar.TarArchiveEntry): Boolean =
             !ze.isSymbolicLink && !ze.isLink && !ze.isCharacterDevice && !ze.isBlockDevice && !ze.isFIFO && (ze.isDirectory || ze.isFile)
@@ -393,21 +478,24 @@ class ZipFileSystem : FileSystem {
             }
             return ZipCrypto.wrapZipIo {
                 val listed = ArrayList<Triple<String, Long, Boolean>>()
-                var count = 0
+                var scanned = 0
+                var safeCount = 0
                 var bytes = 0L
                 var encrypted = false
                 ZipCrypto.openZipFile(f).use { z ->
                     val en = z.entries
                     while (en.hasMoreElements()) {
-                        if (++count > MAX_ENTRIES) throw IOException("This archive has too many entries to browse ($count)")
+                        if (++scanned > MAX_ENTRIES) throw IOException("This archive has too many entries to browse ($scanned)")
                         val e = en.nextElement()
+                        if (!ZipCrypto.isSafeZipEntry(e)) continue
+                        safeCount++
                         if (!e.isDirectory && e.generalPurposeBit.usesEncryption()) encrypted = true
                         val s = e.size.coerceAtLeast(0)
                         bytes = if (Long.MAX_VALUE - bytes < s) Long.MAX_VALUE else bytes + s
                         if (listed.size < maxListed) listed += Triple(ZipCrypto.decodeEntryName(e), e.size, e.isDirectory)
                     }
                 }
-                ZipSummary(listed, count, bytes, encrypted = encrypted)
+                ZipSummary(listed, safeCount, bytes, encrypted = encrypted)
             }
         }
     }

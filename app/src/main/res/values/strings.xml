@@ -559,6 +559,7 @@
     <string name="compress_password_confirm_label" description="Text field label to re-enter and confirm the ZIP encryption password. [CHAR_LIMIT=30]">Confirm password</string>
     <string name="compress_password_hint" description="Helper text under the optional password field in the Compress to ZIP dialog when blank. [CHAR_LIMIT=70]">Optional AES-256 encryption for file contents</string>
     <string name="compress_password_aes_note" description="Helper text under the password field when a password is entered, clarifying that AES-256 encrypts file contents while ZIP filenames stay visible. [CHAR_LIMIT=75]">Encrypted with AES-256. Filenames remain visible.</string>
+    <string name="compress_password_7zip_note" description="Helper warning under the ZIP password field when the password exceeds 99 UTF-8 bytes, noting 7-Zip compatibility limits. [CHAR_LIMIT=95]">Encrypted with AES-256. Passwords over 99 bytes may not open in 7-Zip.</string>
     <string name="compress_password_mismatch" description="Inline validation error shown when the password and confirm password fields do not match. [CHAR_LIMIT=40]">Passwords don\'t match</string>
     <string name="compress_exclude_hidden_label" description="Checkbox label in the Compress to ZIP dialog to skip dotfiles and hidden items. [CHAR_LIMIT=35]">Exclude hidden files</string>
     <string name="compress_exclude_hidden_desc" description="Helper subtitle under the Exclude hidden files checkbox in the Compress to ZIP dialog. [CHAR_LIMIT=65]">Skip files and folders starting with a dot (.)</string>

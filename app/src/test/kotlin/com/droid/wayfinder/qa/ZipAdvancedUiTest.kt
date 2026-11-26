@@ -248,6 +248,52 @@ class ZipAdvancedUiTest {
         assertNull("Cached session password should avoid re-prompting", harness.s.dialog)
         val openedBeta = harness.events.filterIsInstance<UiEvent.OpenFile>().first { it.path.endsWith("beta.txt") }
         assertEquals("beta secret body", File(openedBeta.path).readText())
+        assertTrue("Decrypted opens must stage under zip-open/enc/", openedAlpha.path.contains("zip-open/enc/"))
+        assertTrue("Decrypted opens must stage under zip-open/enc/", openedBeta.path.contains("zip-open/enc/"))
+
+        // 7. Closing the ViewModel session (onCleared) wipes decrypted staged files from cacheDir.
+        harness.close()
+        h = null
+        assertFalse("Decrypted alpha.txt must be wiped on session exit", File(openedAlpha.path).exists())
+        assertFalse("Decrypted beta.txt must be wiped on session exit", File(openedBeta.path).exists())
+    }
+
+    @Test
+    fun pickerModeEncryptedZipPromptsForPasswordAndReturnsDecryptedFile() {
+        val pw = "picker-secret-77"
+        val harness = VmHarness(
+            mapOf(
+                com.droid.wayfinder.ui.BrowserViewModel.EXTRA_PICKER to true,
+                com.droid.wayfinder.ui.BrowserViewModel.EXTRA_PICKER_MIME to arrayOf("*/*"),
+            ),
+        ).also { h = it }
+        val src = harness.dir("picker-src")
+        File(src, "contract.txt").writeText("picked secret contract")
+        val ops = FileOperations(FileRepository(LocalFileSystem(), LocalFileSystem(), null))
+        runBlocking {
+            ops.compress(
+                sources = listOf(File(src, "contract.txt").path),
+                zipPath = File(harness.root, "picker-vault.zip").path,
+                options = ZipCompressOptions(ZipCompressionLevel.Normal, password = pw),
+            ) {}
+        }
+        harness.navigate(FsPath.zipRoot(File(harness.root, "picker-vault.zip").path))
+        rule.setContent { WayfinderTheme(false) { AppRoot(harness.vm) } }
+        idle(harness)
+
+        val entry = harness.s.active.entries.single { it.name == "contract.txt" }
+        harness.vm.pick(listOf(entry))
+        harness.until(what = "password prompt in picker mode") { harness.s.dialog is Dialog.ZipPassword }
+        idle(harness)
+
+        dialogField().performTextInput(pw)
+        dialogButton("Unlock").performClick()
+        harness.until(what = "PickResult event") { harness.events.filterIsInstance<UiEvent.PickResult>().isNotEmpty() }
+        idle(harness)
+
+        val pickedPath = harness.events.filterIsInstance<UiEvent.PickResult>().single().paths.single()
+        assertTrue("Encrypted picker file must stage under picker/enc/", pickedPath.contains("picker/enc/"))
+        assertEquals("picked secret contract", File(pickedPath).readText())
     }
 
     @Test
@@ -341,7 +387,7 @@ class ZipAdvancedUiTest {
             assertTrue("Touch targets < 48dp:\n" + violations.joinToString("\n"), violations.isEmpty())
         }
 
-        // Expanded CompressDialog with password + confirm password visible.
+        // Expanded CompressDialog with password + confirm password visible (toggling FLAG_SECURE must not stall Compose).
         harness.vm.requestCompress()
         idle(harness)
         rule.onNodeWithText("Advanced options").performClick()
@@ -350,6 +396,11 @@ class ZipAdvancedUiTest {
         idle(harness)
         rule.onNodeWithContentDescription("Show password").assertIsDisplayed()
         assertDialogControlsAtLeast48dp("CompressDialog expanded")
+
+        // Passwords over 99 UTF-8 bytes display the 7-Zip compatibility warning note.
+        field("Password (optional)").performScrollTo().performTextReplacement("p".repeat(100))
+        idle(harness)
+        rule.onNodeWithText("Encrypted with AES-256. Passwords over 99 bytes may not open in 7-Zip.").assertExists()
         harness.vm.dismissDialog()
         idle(harness)
 

@@ -47,6 +47,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import android.view.View
+import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -66,6 +67,7 @@ import androidx.compose.ui.semantics.contentDataType
 import androidx.compose.ui.semantics.isSensitiveData
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
@@ -245,14 +247,12 @@ private fun CompressDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            securePolicy = if (password.isNotEmpty() || showPassword) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit,
-        ),
+        properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 520.dp).fillMaxWidth(),
         title = { Text(stringResource(R.string.action_compress_to_zip)) },
         text = {
             DisableDialogAutofill()
+            DialogSecureFlag(enabled = password.isNotEmpty() || showPassword)
             LaunchedEffect(Unit) { fr.requestFocus() }
             Column(
                 Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
@@ -331,6 +331,7 @@ private fun CompressDialog(
 
                         val togglePwLabel = stringResource(if (showPassword) R.string.action_hide_password else R.string.action_show_password)
                         val visTransform = if (showPassword) VisualTransformation.None else PasswordVisualTransformation()
+                        val passwordTooLongFor7Zip = password.toByteArray(Charsets.UTF_8).size > 99
                         OutlinedTextField(
                             value = password,
                             onValueChange = {
@@ -361,7 +362,11 @@ private fun CompressDialog(
                             supportingText = {
                                 Text(
                                     stringResource(
-                                        if (password.isEmpty()) R.string.compress_password_hint else R.string.compress_password_aes_note,
+                                        when {
+                                            password.isEmpty() -> R.string.compress_password_hint
+                                            passwordTooLongFor7Zip -> R.string.compress_password_7zip_note
+                                            else -> R.string.compress_password_aes_note
+                                        },
                                     ),
                                 )
                             },
@@ -443,8 +448,8 @@ private fun ZipPasswordDialog(
 ) {
     val cs = MaterialTheme.colorScheme
     val fr = remember { FocusRequester() }
-    var password by remember(d.archivePath) { mutableStateOf("") }
-    var showPassword by remember(d.archivePath) { mutableStateOf(false) }
+    var password by remember(d.archivePath, d.targetInnerPath) { mutableStateOf("") }
+    var showPassword by remember(d.archivePath, d.targetInnerPath) { mutableStateOf(false) }
 
     val submit = {
         if (password.isNotEmpty() && !d.verifying) onSubmit(password)
@@ -457,7 +462,7 @@ private fun ZipPasswordDialog(
         title = { Text(stringResource(R.string.dialog_zip_password_title)) },
         text = {
             DisableDialogAutofill()
-            LaunchedEffect(d.archivePath, d.error) { fr.requestFocus() }
+            LaunchedEffect(d.archivePath, d.targetInnerPath, d.error) { fr.requestFocus() }
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     stringResource(R.string.dialog_zip_password_message, d.archiveName),
@@ -534,6 +539,30 @@ private fun DisableDialogAutofill() {
         autofillManager?.cancel()
         onDispose {
             autofillManager?.cancel()
+        }
+    }
+}
+
+/**
+ * Toggles [WindowManager.LayoutParams.FLAG_SECURE] directly on this dialog's [android.view.Window]
+ * without mutating [DialogProperties.securePolicy], avoiding dialog window recreation or IME
+ * interruption while the user types a password.
+ */
+@Composable
+private fun DialogSecureFlag(enabled: Boolean) {
+    val view = LocalView.current
+    LaunchedEffect(view, enabled) {
+        val window = (view.parent as? DialogWindowProvider)?.window ?: return@LaunchedEffect
+        if (enabled) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+    DisposableEffect(view) {
+        onDispose {
+            val window = (view.parent as? DialogWindowProvider)?.window
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
     }
 }
