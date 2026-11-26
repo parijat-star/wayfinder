@@ -54,6 +54,7 @@ import androidx.compose.material.icons.outlined.AddToDrive
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.Web
 import androidx.compose.material.icons.outlined.FindInPage
+import androidx.compose.material.icons.outlined.Preview
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -214,6 +215,7 @@ fun fileMenu(vm: BrowserViewModel, s: AppState, entry: FileEntry): List<MenuEntr
     lateinit var self: () -> List<MenuEntry>
     val list = buildList {
         add(item(vm.str(R.string.action_open), Icons.AutoMirrored.Outlined.OpenInNew, "Enter") { vm.openSelection() })
+        if (single && !entry.isServer && !entry.isShare) add(item(vm.str(R.string.action_quick_look), Icons.Outlined.Preview, "Space") { vm.toggleQuickLook() })
         if (isArchive) add(item(vm.str(R.string.action_browse_archive), Icons.Outlined.FolderZip) { vm.browseArchive(entry.path) })
         if (dirs.isNotEmpty()) add(item(vm.str(R.string.action_open_in_new_tab), Icons.Outlined.Tab, "Ctrl+Enter") { vm.openSelection(newTab = true) })
         if (single && entry.isDir && !entry.isServer) add(item(vm.str(R.string.action_open_in_new_window), Icons.Outlined.Web) { vm.newWindow(entry.path) })

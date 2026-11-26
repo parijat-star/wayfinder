@@ -5,7 +5,7 @@ package com.droid.wayfinder.ui
 
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
-import android.media.MediaPlayer
+import android.net.Uri
 import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -39,7 +39,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
@@ -83,6 +82,7 @@ import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FileInfo
 import com.droid.wayfinder.data.FileKind
 import com.droid.wayfinder.data.FsPath
+import com.droid.wayfinder.data.MediaPreviewSupport
 import com.droid.wayfinder.data.formatSize
 import com.droid.wayfinder.data.sortEntries
 import com.droid.wayfinder.data.SortKey
@@ -127,8 +127,16 @@ fun QuickLook(vm: BrowserViewModel, s: AppState) {
                         .clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainerLow),
                     contentAlignment = Alignment.Center,
                 ) { Body(vm, entry) }
+                val mediaMode = LocalFocusCoordinator.current.activeQuickLookMediaActions?.mode ?: QuickLookMediaMode.None
+                val footerHint = stringResource(
+                    when (mediaMode) {
+                        QuickLookMediaMode.Media -> R.string.quicklook_footer_media
+                        QuickLookMediaMode.AnimatedImage -> R.string.quicklook_footer_animated
+                        QuickLookMediaMode.None -> R.string.quicklook_footer_default
+                    },
+                )
                 Text(
-                    "Space or Esc to close  ·  ← → ↑ ↓ previous / next  ·  Enter to open",
+                    footerHint,
                     Modifier.fillMaxWidth().padding(12.dp),
                     style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -239,19 +247,56 @@ private fun Header(vm: BrowserViewModel, e: FileEntry) {
 private fun Body(vm: BrowserViewModel, e: FileEntry) {
     if (e.isDir && !e.isServer) { FolderPreview(vm, e); return }
     if (!FsPath.isLocalFile(e.path)) {
+        if ((FsPath.isSaf(e.path) || FsPath.isDoc(e.path)) &&
+            (e.kind == FileKind.Image || e.kind == FileKind.Video || e.kind == FileKind.Audio)
+        ) {
+            LocalDocumentMediaPreview(vm, e)
+            return
+        }
         if (vm.canThumbnail(e)) { RemoteMediaPreview(vm, e); return }
         Placeholder(e, if (FsPath.isZip(e.path)) "Preview isn't available inside archives. Press Enter to open." else "Preview isn't available for network and cloud files yet. Press Enter to open.")
         return
     }
     val ext = e.extension.lowercase()
+    val localUri = remember(e.path) { Uri.fromFile(File(e.path)) }
     when {
-        e.kind == FileKind.Image -> ImagePreview(e)
-        e.kind == FileKind.Video -> VideoPreview(vm, e)
+        e.kind == FileKind.Image -> ImagePreview(e, localUri)
+        e.kind == FileKind.Video -> VideoPlayerPreview(vm, e, localUri)
         e.kind == FileKind.Pdf -> PdfPreview(e)
-        e.kind == FileKind.Audio -> AudioPreview(e)
+        e.kind == FileKind.Audio -> AudioPlayerPreview(vm, e, localUri)
         e.kind == FileKind.Text || e.kind == FileKind.Code || ext in TEXT_EXTS -> TextPreview(e)
         ext == "zip" || ext == "tar" || ext == "tgz" || e.name.endsWith(".tar.gz", true) -> ZipPreview(e)
         else -> BinaryPreview(e)
+    }
+}
+
+private sealed interface PreviewUriState {
+    data object Resolving : PreviewUriState
+    data class Resolved(val uri: Uri?) : PreviewUriState
+}
+
+@Composable
+private fun LocalDocumentMediaPreview(vm: BrowserViewModel, e: FileEntry) {
+    val state by produceState<PreviewUriState>(PreviewUriState.Resolving, e.path) {
+        value = PreviewUriState.Resolved(vm.resolvePreviewUri(e))
+    }
+    when (val s = state) {
+        PreviewUriState.Resolving -> CircularProgressIndicator()
+        is PreviewUriState.Resolved -> {
+            val uri = s.uri
+            if (uri != null) {
+                when (e.kind) {
+                    FileKind.Image -> ImagePreview(e, uri)
+                    FileKind.Video -> VideoPlayerPreview(vm, e, uri)
+                    FileKind.Audio -> AudioPlayerPreview(vm, e, uri)
+                    else -> Placeholder(e, "Preview isn't available for network and cloud files yet. Press Enter to open.")
+                }
+            } else if (vm.canThumbnail(e)) {
+                RemoteMediaPreview(vm, e)
+            } else {
+                Placeholder(e, "Preview isn't available for network and cloud files yet. Press Enter to open.")
+            }
+        }
     }
 }
 
@@ -363,7 +408,7 @@ private fun Placeholder(e: FileEntry, message: String) {
 }
 
 @Composable
-private fun rememberQuickLookBodyLastRequester(): FocusRequester {
+internal fun rememberQuickLookBodyLastRequester(): FocusRequester {
     val focusCoord = LocalFocusCoordinator.current
     val req = remember { FocusRequester() }
     DisposableEffect(req) {
@@ -380,6 +425,14 @@ private fun rememberQuickLookBodyLastRequester(): FocusRequester {
 /** Images and videos on network/cloud storage (SMB, NAS, WebDAV, FTP, SAF), fetched into the thumbnail cache. */
 @Composable
 private fun RemoteMediaPreview(vm: BrowserViewModel, e: FileEntry) {
+    if (e.kind == FileKind.Image && MediaPreviewSupport.isAnimatedImageExtension(e.extension)) {
+        val cachedFile = rememberThumbnailFile(vm, e)
+        if (cachedFile != null) {
+            val cachedUri = remember(cachedFile) { Uri.fromFile(cachedFile) }
+            AnimatedImagePreview(e = e, uri = cachedUri, fallbackModel = cachedFile)
+            return
+        }
+    }
     Box(contentAlignment = Alignment.Center) {
         EntryThumbnail(
             vm, e,
@@ -405,34 +458,18 @@ private fun RemoteMediaPreview(vm: BrowserViewModel, e: FileEntry) {
 }
 
 @Composable
-private fun ImagePreview(e: FileEntry) {
+private fun ImagePreview(e: FileEntry, uri: Uri) {
+    if (MediaPreviewSupport.isAnimatedImageExtension(e.extension)) {
+        val fallback: Any = if (FsPath.isLocalFile(e.path)) File(e.path) else uri
+        AnimatedImagePreview(e = e, uri = uri, fallbackModel = fallback)
+        return
+    }
     val ctx = LocalContext.current
+    val model: Any = remember(e.path, uri) { if (FsPath.isLocalFile(e.path)) File(e.path) else uri }
     AsyncImage(
-        remember(e.path) { ImageRequest.Builder(ctx).data(File(e.path)).size(2048).build() },
+        remember(model, e.modified) { ImageRequest.Builder(ctx).data(model).size(2048).build() },
         e.name, Modifier.fillMaxSize().padding(8.dp), contentScale = ContentScale.Fit,
     )
-}
-
-@Composable
-private fun VideoPreview(vm: BrowserViewModel, e: FileEntry) {
-    val ctx = LocalContext.current
-    val playLabel = stringResource(R.string.action_play)
-    val bodyReq = rememberQuickLookBodyLastRequester()
-    Box(contentAlignment = Alignment.Center) {
-        AsyncImage(
-            remember(e.path) { ImageRequest.Builder(ctx).data(File(e.path)).size(1920).build() },
-            e.name, Modifier.fillMaxSize().padding(8.dp), contentScale = ContentScale.Fit,
-        )
-        ActionTooltip(playLabel) {
-            FilledTonalIconButton(
-                { vm.closeQuickLook(); vm.openSelection() },
-                Modifier.size(72.dp).focusRequester(bodyReq).focusRing(CircleShape),
-                shape = CircleShape,
-            ) {
-                Icon(Icons.Outlined.PlayArrow, playLabel, Modifier.size(40.dp))
-            }
-        }
-    }
 }
 
 @Composable
@@ -522,50 +559,5 @@ private fun TextPreview(e: FileEntry) {
         }
         ColumnScrollbar(vScroll, Modifier.align(Alignment.CenterEnd))
         HorizontalScrollbar(hScroll, Modifier.align(Alignment.BottomCenter), tag = "quicklook_text_h")
-    }
-}
-
-@Composable
-private fun AudioPreview(e: FileEntry) {
-    var playing by remember(e.path) { mutableStateOf(false) }
-    var ready by remember(e.path) { mutableStateOf(false) }
-    var failed by remember(e.path) { mutableStateOf(false) }
-    val player = remember(e.path) { MediaPlayer() }
-    DisposableEffect(player, e.path) {
-        player.setOnPreparedListener { ready = true }
-        player.setOnCompletionListener { playing = false }
-        player.setOnErrorListener { _, _, _ ->
-            playing = false
-            ready = false
-            failed = true
-            true
-        }
-        runCatching {
-            player.setDataSource(e.path)
-            player.prepareAsync()
-        }.onFailure {
-            failed = true
-        }
-        onDispose {
-            runCatching { player.release() }
-        }
-    }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Icon(e.icon(), null, Modifier.size(120.dp), tint = e.tint())
-        when {
-            failed -> Text("Can't play this audio file.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            !ready -> CircularProgressIndicator()
-            else -> {
-                val playLabel = stringResource(if (playing) R.string.action_pause else R.string.action_play)
-                val bodyReq = rememberQuickLookBodyLastRequester()
-                ActionTooltip(playLabel) {
-                    FilledTonalIconButton(
-                        { if (playing) player.pause() else player.start(); playing = !playing },
-                        Modifier.size(64.dp).focusRequester(bodyReq).focusRing(CircleShape),
-                        shape = CircleShape,
-                    ) { Icon(if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, playLabel, Modifier.size(36.dp)) }
-                }
-            }
-        }
     }
 }

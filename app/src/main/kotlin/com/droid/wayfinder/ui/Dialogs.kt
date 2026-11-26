@@ -460,6 +460,13 @@ private val shortcuts = listOf(
         "Back / forward" to "Alt+← / Alt+→ or Backspace", "Up one level" to "Alt+↑", "Open" to "Enter / double-click", "Quick Look preview" to "Space",
         "Address bar" to "Ctrl+L or Alt+D", "Search" to "Ctrl+F or Ctrl+E", "Refresh" to "F5 / Ctrl+R", "Connect to server" to "Ctrl+Shift+K",
     ),
+    "Quick Look" to listOf(
+        "Open / close Quick Look" to "Space / Esc",
+        "Previous / next item" to "← → ↑ ↓",
+        "Play / pause media or GIF" to "K / P",
+        "Rewind / fast-forward 10s" to "J / L or Shift+← / Shift+→",
+        "Mute / unmute audio" to "M",
+    ),
     "Select & edit" to listOf(
         "Select all / invert / none" to "Ctrl+A / Ctrl+Shift+I / Ctrl+Shift+A", "Extend selection" to "Shift+↑↓←→ / Shift+click", "Toggle item" to "Ctrl+click / Ctrl+Space",
         "Cut / copy / paste" to "Ctrl+X / Ctrl+C / Ctrl+V", "Undo / redo" to "Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z", "Duplicate" to "Ctrl+D",

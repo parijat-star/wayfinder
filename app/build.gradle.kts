@@ -54,7 +54,13 @@ android {
     buildConfig = false
     shaders = false
   }
-  testOptions { unitTests.isReturnDefaultValues = true; unitTests.isIncludeAndroidResources = true }
+  testOptions {
+    unitTests.isReturnDefaultValues = true
+    unitTests.isIncludeAndroidResources = true
+    unitTests.all {
+      it.maxHeapSize = "1536m"
+    }
+  }
   bundle {
     language {
       // Keep all packaged locale resources inside the base AAB so Android 13+ per-app language switching works offline.
@@ -92,7 +98,9 @@ dependencies {
 
   implementation("io.coil-kt.coil3:coil-compose:3.3.0")
   implementation("io.coil-kt.coil3:coil-video:3.3.0")
+  implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.inspector)
+  implementation(libs.androidx.media3.ui.compose)
   implementation(libs.androidx.exifinterface)
 
   implementation("com.hierynomus:smbj:0.14.0")

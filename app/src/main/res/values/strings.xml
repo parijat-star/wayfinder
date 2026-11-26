@@ -537,7 +537,31 @@
     <string name="tooltip_cancel_operation" description="Accessibility label and hover tooltip for the status bar button that cancels an in-progress file operation. [CHAR_LIMIT=32]">Cancel operation</string>
     <string name="tooltip_close_tab" description="Hover tooltip for a browser tab close button showing its keyboard shortcut. [CHAR_LIMIT=30]">Close tab (Ctrl+W)</string>
     <string name="action_play" description="Accessibility label and hover tooltip for the Quick Look button that starts audio or video playback. [CHAR_LIMIT=18]">Play</string>
-    <string name="action_pause" description="Accessibility label and hover tooltip for the Quick Look button that pauses audio playback. [CHAR_LIMIT=18]">Pause</string>
+    <string name="action_pause" description="Accessibility label and hover tooltip for the Quick Look button that pauses audio or video playback. [CHAR_LIMIT=18]">Pause</string>
+    <string name="action_quick_look" description="Context menu item, command palette title, and accessibility click label to open the Quick Look preview overlay for the selected item. [CHAR_LIMIT=25]">Quick Look</string>
+    <string name="palette_quick_look_desc" description="Command palette subtitle describing the Quick Look preview command. [CHAR_LIMIT=45]">Preview the selected item</string>
+    <string name="action_replay" description="Accessibility label for the Quick Look media button that replays finished audio or video from the beginning. [CHAR_LIMIT=18]">Replay</string>
+    <string name="action_seek_back_10" description="Accessibility label for the Quick Look media button that rewinds playback by 10 seconds. [CHAR_LIMIT=28]">Rewind 10 seconds</string>
+    <string name="action_seek_forward_10" description="Accessibility label for the Quick Look media button that fast-forwards playback by 10 seconds. [CHAR_LIMIT=32]">Fast-forward 10 seconds</string>
+    <string name="action_mute" description="Accessibility label for the Quick Look media button that mutes audio output. [CHAR_LIMIT=18]">Mute</string>
+    <string name="action_unmute" description="Accessibility label for the Quick Look media button that restores muted audio output. [CHAR_LIMIT=18]">Unmute</string>
+    <string name="action_playback_speed" description="Accessibility label for the Quick Look media playback speed button. %1$s is the formatted speed multiplier (e.g. 1×, 1.5×). [CHAR_LIMIT=32]">Playback speed %1$s</string>
+    <string name="action_playback_position" description="Accessibility label for the Quick Look media seekbar slider. [CHAR_LIMIT=30]">Playback position</string>
+    <string name="action_open_external_player" description="Fallback button label in Quick Look media preview to launch the file in an external app when in-app playback fails. [CHAR_LIMIT=30]">Open in external app</string>
+    <string name="tooltip_media_play" description="Hover tooltip for the Quick Look media Play button showing its keyboard shortcut. [CHAR_LIMIT=24]">Play (K)</string>
+    <string name="tooltip_media_pause" description="Hover tooltip for the Quick Look media Pause button showing its keyboard shortcut. [CHAR_LIMIT=24]">Pause (K)</string>
+    <string name="tooltip_media_replay" description="Hover tooltip for the Quick Look media Replay button showing its keyboard shortcut. [CHAR_LIMIT=24]">Replay (K)</string>
+    <string name="tooltip_media_seek_back" description="Hover tooltip for the Quick Look media Rewind 10 seconds button showing its keyboard shortcut. [CHAR_LIMIT=32]">Rewind 10 seconds (J)</string>
+    <string name="tooltip_media_seek_forward" description="Hover tooltip for the Quick Look media Fast-forward 10 seconds button showing its keyboard shortcut. [CHAR_LIMIT=36]">Fast-forward 10 seconds (L)</string>
+    <string name="tooltip_media_mute" description="Hover tooltip for the Quick Look media Mute button showing its keyboard shortcut. [CHAR_LIMIT=24]">Mute (M)</string>
+    <string name="tooltip_media_unmute" description="Hover tooltip for the Quick Look media Unmute button showing its keyboard shortcut. [CHAR_LIMIT=24]">Unmute (M)</string>
+    <string name="tooltip_media_speed" description="Hover tooltip for the Quick Look media playback speed toggle button. [CHAR_LIMIT=28]">Playback speed</string>
+    <string name="quicklook_album_art" description="Accessibility description for the embedded album cover image displayed in audio preview. [CHAR_LIMIT=28]">Album artwork</string>
+    <string name="quicklook_cant_play_video" description="Error message shown in Quick Look when a video file cannot be decoded or played. [CHAR_LIMIT=45]">Can\'t play this video file.</string>
+    <string name="quicklook_cant_play_audio" description="Error message shown in Quick Look when an audio file cannot be decoded or played. [CHAR_LIMIT=45]">Can\'t play this audio file.</string>
+    <string name="quicklook_footer_default" description="Footer keyboard hint bar at the bottom of the Quick Look overlay for non-media items. [CHAR_LIMIT=95]">Space or Esc to close  ·  ← → ↑ ↓ previous / next  ·  Enter to open</string>
+    <string name="quicklook_footer_media" description="Footer keyboard hint bar at the bottom of the Quick Look overlay for playable video and audio files. [CHAR_LIMIT=110]">K play/pause  ·  J / L ±10s  ·  M mute  ·  ← → prev / next  ·  Space / Esc close</string>
+    <string name="quicklook_footer_animated" description="Footer keyboard hint bar at the bottom of the Quick Look overlay for animated GIF and WebP images. [CHAR_LIMIT=105]">K play/pause  ·  ← → ↑ ↓ previous / next  ·  Enter open  ·  Space / Esc close</string>
     <string name="tooltip_color_tag" description="Hover tooltip on a color tag chip in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=32]">Tag: %1$s</string>
     <string name="a11y_color_tag" description="Accessibility label on a color tag checkbox in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=32]">Tag %1$s</string>
     <string name="action_add_color_tag" description="Accessibility click action label to apply a color tag in the details pane. %1$s is the color tag name (e.g. Blue). [CHAR_LIMIT=36]">Add %1$s tag</string>

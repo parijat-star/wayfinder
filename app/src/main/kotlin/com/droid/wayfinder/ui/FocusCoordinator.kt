@@ -37,6 +37,17 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 
+internal enum class QuickLookMediaMode { None, Media, AnimatedImage }
+
+/** Keyboard playback hooks exposed by the currently active Quick Look media/animation preview. */
+internal class QuickLookMediaActions(
+    val mode: QuickLookMediaMode,
+    val togglePlayPause: () -> Unit,
+    val seekBy: ((deltaMs: Long) -> Unit)? = null,
+    val toggleMute: (() -> Unit)? = null,
+    val isSliderFocused: () -> Boolean = { false },
+)
+
 /** Carries focus-zone state between [AppRoot], [Sidebar], [TitleBar], [Toolbar], [PreviewPane], [QuickLook], and [FileList]. */
 internal class FocusCoordinator {
     var activeSidebarRequester: FocusRequester? = null
@@ -48,6 +59,7 @@ internal class FocusCoordinator {
     var activeQuickLookFirstRequester: FocusRequester? = null
     var activeQuickLookLastRequester: FocusRequester? = null
     var activeQuickLookBodyLastRequester: FocusRequester? = null
+    var activeQuickLookMediaActions by mutableStateOf<QuickLookMediaActions?>(null)
     var activeFileListRequester: FocusRequester? = null
     private val sidebarItems = LinkedHashMap<FocusRequester, Float>()
     private val focusedAuxZones = HashSet<Any>()
