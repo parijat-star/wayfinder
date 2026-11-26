@@ -102,6 +102,7 @@ import androidx.compose.material.icons.outlined.FindInPage
 import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MyLocation
+import androidx.compose.material.icons.outlined.Preview
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.Unarchive
 import androidx.compose.material.icons.outlined.UnfoldLess
@@ -144,6 +145,7 @@ fun paletteCommands(vm: BrowserViewModel, s: AppState, hasDesktopCaption: Boolea
         add(c(vm.str(R.string.action_delete_permanently), vm.str(R.string.palette_delete_permanently_desc), "Shift+Del", Icons.Outlined.DeleteForever) { vm.requestDelete(true) })
         add(c(vm.str(R.string.action_compress_to_zip), vm.str(R.string.palette_compress_desc), null, Icons.Outlined.Archive) { vm.requestCompress() })
         add(c(vm.str(R.string.action_copy_path), vm.str(R.string.palette_copy_path_desc), "Ctrl+Shift+C", Icons.Outlined.Link) { vm.copyPathToClipboard() })
+        add(c(vm.str(R.string.action_quick_look), vm.str(R.string.palette_quick_look_desc), "Space", Icons.Outlined.Preview) { vm.toggleQuickLook() })
         add(c(vm.str(R.string.action_properties), vm.str(R.string.palette_properties_desc), "Ctrl+I", Icons.Outlined.Info) { vm.showProperties() })
         add(c(vm.str(R.string.action_undo), vm.str(R.string.palette_undo_desc), "Ctrl+Z", Icons.AutoMirrored.Outlined.Undo) { vm.undo() })
         add(c(vm.str(R.string.action_redo), vm.str(R.string.palette_redo_desc), "Ctrl+Y", Icons.AutoMirrored.Outlined.Redo) { vm.redo() })

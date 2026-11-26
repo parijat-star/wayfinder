@@ -1450,6 +1450,23 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         tab.focused?.let { f -> _state.update { it.copy(quickLook = f) } }
     }
 
+    /**
+     * Resolves a direct seekable [Uri] suitable for in-place Quick Look media playback or native
+     * [android.graphics.ImageDecoder] decoding. Only returns `file://` URIs for local files and
+     * local-storage-backed `content://` URIs for SAF/DocumentsContract entries so remote/cloud
+     * storage never triggers unbounded streaming.
+     */
+    suspend fun resolvePreviewUri(entry: FileEntry): Uri? = withContext(Dispatchers.IO) {
+        when {
+            FsPath.isLocalFile(entry.path) -> Uri.fromFile(File(entry.path))
+            FsPath.isSaf(entry.path) -> saf.documentUriOf(entry.path)
+                ?.takeIf { com.droid.wayfinder.data.MediaInspector.isLocalSeekableContentUri(it) }
+            FsPath.isDoc(entry.path) -> com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(entry.path, tree = false)
+                ?.takeIf { com.droid.wayfinder.data.MediaInspector.isLocalSeekableContentUri(it) }
+            else -> null
+        }
+    }
+
     // ---------------------------------------------------------------- view options
 
     fun setViewMode(m: ViewMode) {

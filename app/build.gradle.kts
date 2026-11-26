@@ -92,7 +92,9 @@ dependencies {
 
   implementation("io.coil-kt.coil3:coil-compose:3.3.0")
   implementation("io.coil-kt.coil3:coil-video:3.3.0")
+  implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.inspector)
+  implementation(libs.androidx.media3.ui.compose)
   implementation(libs.androidx.exifinterface)
 
   implementation("com.hierynomus:smbj:0.14.0")

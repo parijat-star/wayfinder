@@ -3,6 +3,8 @@
 
 package com.droid.wayfinder.ui
 
+import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,6 +61,8 @@ import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import com.droid.wayfinder.R
@@ -67,6 +71,7 @@ import com.droid.wayfinder.data.FileEntry
 import com.droid.wayfinder.data.FileInfo
 import com.droid.wayfinder.data.FileKind
 import com.droid.wayfinder.data.FsPath
+import com.droid.wayfinder.data.MediaPreviewLoader
 import com.droid.wayfinder.data.formatSize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -166,15 +171,43 @@ private fun Preview(
     vm: BrowserViewModel? = null,
 ) {
     val cs = MaterialTheme.colorScheme
+    val ctx = LocalContext.current
+    val canQuickLook = entry != null && vm != null && !entry.isServer && !entry.isShare
+    val quickLookLabel = stringResource(R.string.action_quick_look)
+    val audioArt by produceState<ImageBitmap?>(null, entry?.path, entry?.modified) {
+        value = if (entry != null && !entry.isDir && entry.kind == FileKind.Audio && FsPath.isLocalFile(entry.path)) {
+            withContext(Dispatchers.IO) {
+                val meta = MediaPreviewLoader.extractFallbackAudioMetadata(ctx, Uri.fromFile(File(entry.path)))
+                MediaPreviewLoader.decodeArtworkBitmap(meta.artworkBytes, maxEdgePx = 480)?.asImageBitmap()
+            }
+        } else {
+            null
+        }
+    }
     Box(
-        Modifier.padding(top = 12.dp).fillMaxWidth().aspectRatio(1.5f).clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainerLow),
+        Modifier.padding(top = 12.dp).fillMaxWidth().aspectRatio(1.5f)
+            .clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainerLow)
+            .then(
+                if (canQuickLook) {
+                    Modifier.focusRing(RoundedCornerShape(16.dp))
+                        .clickable(role = Role.Button, onClickLabel = quickLookLabel) { vm.toggleQuickLook() }
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (entry != null && vm != null && vm.canThumbnail(entry)) {
             // Local and network/cloud (SMB, NAS, WebDAV, FTP, SAF) images and videos.
             EntryThumbnail(vm, entry, sizePx = 720, iconSize = 64.dp, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else if (audioArt != null) {
+            Image(
+                bitmap = audioArt!!,
+                contentDescription = stringResource(R.string.quicklook_album_art),
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
         } else if (imagePath != null) {
-            val ctx = LocalContext.current
             AsyncImage(
                 remember(imagePath) { ImageRequest.Builder(ctx).data(File(imagePath)).size(720).build() },
                 name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop,

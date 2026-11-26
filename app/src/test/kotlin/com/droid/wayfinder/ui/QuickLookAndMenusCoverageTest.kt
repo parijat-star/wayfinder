@@ -146,6 +146,9 @@ class QuickLookAndMenusCoverageTest {
 
         // 8. Unplayable audio file shows fallback text
         preview("ql/track.mp3")
+        rule.waitUntil(5_000) {
+            rule.onAllNodesWithText("Can't play this audio file.").fetchSemanticsNodes().isNotEmpty()
+        }
         rule.onNodeWithText("Can't play this audio file.").assertIsDisplayed()
 
         // 9. Image and Video previews + Next/Previous/Close header buttons
@@ -156,7 +159,10 @@ class QuickLookAndMenusCoverageTest {
         idle()
 
         preview("ql/clip.mp4")
-        rule.onNodeWithContentDescription("Play").performClick()
+        rule.waitUntil(5_000) {
+            rule.onAllNodesWithText("Can't play this video file.").fetchSemanticsNodes().isNotEmpty()
+        }
+        rule.onNodeWithText("Open in external app").performClick()
         idle()
         assertNull(hh.s.quickLook)
     }

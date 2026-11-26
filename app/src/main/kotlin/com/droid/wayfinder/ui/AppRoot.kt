@@ -488,6 +488,45 @@ fun AppRoot(vm: BrowserViewModel) {
             if (quickLookZoneFocused && !ctrl && !alt && (k == Key.Enter || k == Key.NumPadEnter || k == Key.Spacebar)) {
                 return false
             }
+            val mediaActions = focusCoord.activeQuickLookMediaActions
+            if (!ctrl && !alt && mediaActions != null) {
+                when {
+                    k == Key.K || k == Key.P || k == Key.MediaPlayPause -> {
+                        mediaActions.togglePlayPause()
+                        return true
+                    }
+                    (k == Key.J || k == Key.MediaRewind) && mediaActions.seekBy != null -> {
+                        mediaActions.seekBy.invoke(-com.droid.wayfinder.data.MediaPreviewSupport.SEEK_STEP_MS)
+                        return true
+                    }
+                    (k == Key.L || k == Key.MediaFastForward) && mediaActions.seekBy != null -> {
+                        mediaActions.seekBy.invoke(com.droid.wayfinder.data.MediaPreviewSupport.SEEK_STEP_MS)
+                        return true
+                    }
+                    k == Key.M && mediaActions.toggleMute != null -> {
+                        mediaActions.toggleMute.invoke()
+                        return true
+                    }
+                    k == Key.DirectionLeft && (shift || mediaActions.isSliderFocused()) && mediaActions.seekBy != null -> {
+                        val step = if (shift) {
+                            com.droid.wayfinder.data.MediaPreviewSupport.SEEK_STEP_MS
+                        } else {
+                            com.droid.wayfinder.data.MediaPreviewSupport.SLIDER_KEY_STEP_MS
+                        }
+                        mediaActions.seekBy.invoke(-step)
+                        return true
+                    }
+                    k == Key.DirectionRight && (shift || mediaActions.isSliderFocused()) && mediaActions.seekBy != null -> {
+                        val step = if (shift) {
+                            com.droid.wayfinder.data.MediaPreviewSupport.SEEK_STEP_MS
+                        } else {
+                            com.droid.wayfinder.data.MediaPreviewSupport.SLIDER_KEY_STEP_MS
+                        }
+                        mediaActions.seekBy.invoke(step)
+                        return true
+                    }
+                }
+            }
             val cols = if (tab.viewMode == ViewMode.Grid) st.gridColumns else 1
             when (k) {
                 Key.Spacebar, Key.Escape -> vm.closeQuickLook()
