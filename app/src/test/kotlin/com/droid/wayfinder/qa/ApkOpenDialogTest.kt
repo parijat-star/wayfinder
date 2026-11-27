@@ -70,7 +70,6 @@ class ApkOpenDialogTest {
         val pkgInfo = PackageInfo().apply {
             packageName = pkg
             applicationInfo = appInfo
-            activities = arrayOf(actInfo)
             requestedPermissions = if (grantManageDocuments) arrayOf(Manifest.permission.MANAGE_DOCUMENTS) else emptyArray()
             requestedPermissionsFlags = if (grantManageDocuments) intArrayOf(PackageInfo.REQUESTED_PERMISSION_GRANTED) else IntArray(0)
         }
