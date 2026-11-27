@@ -169,6 +169,14 @@ class MainActivity : ComponentActivity() {
                         return false
                     }
                 }
+                com.droid.wayfinder.data.AppShortcuts.ACTION_OPEN_SHORTCUT -> {
+                    if (isInitialLaunch) {
+                        val targetPath = AppShortcutSync.resolveIncomingShortcut(this, i)
+                        if (targetPath != null) {
+                            i.putExtra(BrowserViewModel.EXTRA_PATH, targetPath)
+                        }
+                    }
+                }
                 Intent.ACTION_MAIN -> {
                     if ((i.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK) != 0) {
                         i.putExtra(BrowserViewModel.EXTRA_NEW_WINDOW, true)
@@ -285,6 +293,12 @@ class MainActivity : ComponentActivity() {
 
         internal fun routeNewIntent(context: android.content.Context, intent: Intent, vm: BrowserViewModel?): Boolean {
             val i = runCatching { IntentGuard.sanitize(context, intent) }.getOrNull() ?: return false
+            if (i.action == com.droid.wayfinder.data.AppShortcuts.ACTION_OPEN_SHORTCUT) {
+                val target = runCatching { AppShortcutSync.resolveIncomingShortcut(context, i) }.getOrNull() ?: return false
+                if (vm == null) return false
+                vm.openShortcutPath(target)
+                return true
+            }
             val target = runCatching { externalTargetPath(context, i) }.getOrNull()
             if (target == null) {
                 if (isUnsupportedPlainGzipViewIntent(context, i)) {
@@ -377,7 +391,7 @@ class MainActivity : ComponentActivity() {
             return null
         }
 
-        private fun isPrivateAppPath(context: android.content.Context, path: String): Boolean {
+        internal fun isPrivateAppPath(context: android.content.Context, path: String): Boolean {
             val rawData = context.applicationInfo?.dataDir ?: return false
             val canonical = runCatching { java.io.File(path).canonicalPath }.getOrDefault(path)
             val data = runCatching { java.io.File(rawData).canonicalPath }.getOrDefault(rawData)
@@ -470,8 +484,13 @@ class MainActivity : ComponentActivity() {
             vmOrNull?.mountSaf(treeUri)
             return
         }
-        // Already running: a "show/open this location" request (folder, file, .apk) navigates this window.
-        if (!routeNewIntent(this, intent, vmOrNull)) vmOrNull?.refreshAll()
+        val vm = vmOrNull
+        if (vm == null) {
+            prepareIntentExtras(isInitialLaunch = true)
+            return
+        }
+        // Already running: app shortcuts open in a new tab; other "show/open this location" requests navigate this window.
+        if (!routeNewIntent(this, intent, vm)) vm.refreshAll()
     }
 
     private fun persistIncomingTreeGrant(incoming: Intent?): Uri? {

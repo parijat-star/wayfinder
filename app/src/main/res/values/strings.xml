@@ -546,4 +546,11 @@
     <string name="action_collapse" description="Accessibility label on an expanded sidebar folder chevron icon. [CHAR_LIMIT=20]">Collapse</string>
     <string name="action_expand_folder" description="Accessibility click label and hover tooltip to expand a sidebar folder. %1$s is the folder name. [CHAR_LIMIT=45]">Expand %1$s</string>
     <string name="action_collapse_folder" description="Accessibility click label and hover tooltip to collapse a sidebar folder. %1$s is the folder name. [CHAR_LIMIT=45]">Collapse %1$s</string>
+
+    <!-- Launcher / taskbar dynamic app shortcuts -->
+    <string name="shortcut_downloads" description="Launcher and taskbar app shortcut label for the Downloads folder. [CHAR_LIMIT=25]">Downloads</string>
+    <string name="shortcut_documents" description="Launcher and taskbar app shortcut label for the Documents folder. [CHAR_LIMIT=25]">Documents</string>
+    <string name="shortcut_pictures" description="Launcher and taskbar app shortcut label for the Pictures folder. [CHAR_LIMIT=25]">Pictures</string>
+    <string name="shortcut_music" description="Launcher and taskbar app shortcut label for the Music folder. [CHAR_LIMIT=25]">Music</string>
+    <string name="shortcut_movies" description="Launcher and taskbar app shortcut label for the Movies folder. [CHAR_LIMIT=25]">Movies</string>
 </resources>
