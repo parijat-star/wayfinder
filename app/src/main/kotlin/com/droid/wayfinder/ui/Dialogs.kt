@@ -424,10 +424,6 @@ private fun ApkPropertiesSection(
     if (info == null) return
 
     info.appName?.let { Row2(stringResource(R.string.properties_apk_app_label), it) }
-    info.packageName?.let { pkg ->
-        val label = stringResource(R.string.properties_apk_package_label)
-        Row2(label, pkg, mono = true) { onCopy(pkg, label) }
-    }
     ApkFormatters.formatVersion(info.versionName, info.versionCode)?.let {
         Row2(stringResource(R.string.properties_apk_version_label), it, mono = true)
     }
@@ -440,6 +436,10 @@ private fun ApkPropertiesSection(
     ApkFormatters.formatAbis(info.supportedAbis, info.zipInspected)?.let {
         Row2(stringResource(R.string.properties_apk_abis_label), it, mono = true)
     }
+    info.packageName?.let { pkg ->
+        val label = stringResource(R.string.properties_apk_package_label)
+        Row2(label, pkg, mono = true) { onCopy(pkg, label) }
+    }
     if (info.certificates.isNotEmpty()) {
         val certBase = stringResource(R.string.properties_apk_cert_sha256_label)
         val signerBase = stringResource(R.string.properties_apk_signer_label)
@@ -448,7 +448,7 @@ private fun ApkPropertiesSection(
             Row2(certLabel, cert.sha256Fingerprint, mono = true) { onCopy(cert.sha256Fingerprint, certLabel) }
             cert.subject?.let { subj ->
                 val signerLabel = if (info.certificates.size > 1) "$signerBase #${idx + 1}" else signerBase
-                Row2(signerLabel, subj)
+                Row2(signerLabel, subj, mono = true) { onCopy(subj, signerLabel) }
             }
         }
     } else if (info.signatureStatus == ApkSignatureStatus.UnsignedOrUnverified) {
