@@ -190,6 +190,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private val observedPhoneTreeUris = HashSet<String>()
     private var phoneRetryJob: Job? = null
     private var oneDriveAuthJob: Job? = null
+    private var shortcutSyncJob: Job? = null
+    @Volatile private var lastPublishedShortcuts: Pair<java.util.Locale, List<com.droid.wayfinder.data.AppShortcutSpec>>? = null
     private var storageVolumeCallback: Any? = null
     private var pendingMountAccount: String? = null
     internal var phoneConnectRetryDelaysMs: LongArray = longArrayOf(0L, 1_000L, 3_000L, 6_000L)
@@ -265,6 +267,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             workProfiles = initialWorkProfiles,
         )
         refreshMounts()
+        if (start != null && picker == null && !secondaryWindow) persist()
         tabs.forEachIndexed { i, t -> load(t.id, select = startFile?.second?.takeIf { i == 0 }) }
         revealInTree(_state.value.active.path)
         roots.firstOrNull()?.let { ensureChildren(it.path) }
@@ -722,6 +725,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         ) }
         registerPhoneTreeObservers()
         applyPhoneTransition(prevPhone, phone)
+        syncAppShortcuts()
     }
 
     /** The Network root listing: mounts first, then servers seen this session or found on the LAN. */
@@ -1104,6 +1108,28 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun openExternalPath(path: String) {
         if (path.isBlank() || path.contains('\u0000')) return
         navigate(path)
+    }
+
+    /** Opens a taskbar / launcher app shortcut folder in a new active tab in this window. */
+    fun openShortcutPath(path: String) {
+        if (path.isBlank() || path.contains('\u0000')) return
+        val target = localizeDocPath(FsPath.normalize(path))
+        revealHiddenFor(target, null)
+        val t = newTabState(target)
+        _state.update { s ->
+            val idx = s.tabs.indexOfFirst { it.id == s.activeId } + 1
+            s.copy(
+                tabs = s.tabs.toMutableList().also { it.add(idx.coerceIn(0, it.size), t) },
+                activeId = t.id,
+                rightActive = false,
+                compactSidebarOpen = false,
+                paletteOpen = false,
+                quickLook = null,
+            )
+        }
+        load(t.id)
+        persist()
+        revealInTree(t.path)
     }
 
     /**
@@ -1933,7 +1959,49 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         setPins(l)
     }
 
-    private fun setPins(l: List<String>) { settings.pins = l; _state.update { it.copy(pins = l) } }
+    private fun setPins(l: List<String>) {
+        settings.pins = l
+        _state.update { it.copy(pins = l) }
+        syncAppShortcuts()
+    }
+
+    /** Mirrors the top sidebar folder pins into Android's dynamic launcher / taskbar app shortcuts. */
+    private fun syncAppShortcuts() {
+        if (picker != null) return
+        val snapshot = _state.value
+        val pins = snapshot.pins
+        val rootLabels = snapshot.rootLabels
+        val primaryRoot = primary
+        val trashRoot = File(primaryRoot, ".Wayfinder-Trash").path
+        shortcutSyncJob?.cancel()
+        shortcutSyncJob = viewModelScope.launch(Dispatchers.IO) {
+            val maxCount = com.droid.wayfinder.AppShortcutSync.maxShortcutCount(app)
+            val labels = com.droid.wayfinder.AppShortcutSync.standardLabels(app)
+            val specs = com.droid.wayfinder.data.AppShortcuts.planShortcuts(
+                pins = pins,
+                maxCount = maxCount,
+                primaryStorageRoot = primaryRoot,
+                rootLabels = rootLabels,
+                standardLabels = labels,
+                trashRoot = trashRoot,
+                isPinEligible = { path ->
+                    when {
+                        FsPath.isLocalFile(path) ->
+                            com.droid.wayfinder.AppShortcutSync.isSafeLocalDirectory(app, path, trashRoot)
+                        FsPath.isRemote(path) ->
+                            com.droid.wayfinder.AppShortcutSync.isValidRemotePin(app, path)
+                        else -> false
+                    }
+                },
+            )
+            currentCoroutineContext().ensureActive()
+            val key = java.util.Locale.getDefault() to specs
+            if (lastPublishedShortcuts == key) return@launch
+            if (com.droid.wayfinder.AppShortcutSync.publish(app, specs)) {
+                lastPublishedShortcuts = key
+            }
+        }
+    }
 
     // ---------------------------------------------------------------- operations
 
