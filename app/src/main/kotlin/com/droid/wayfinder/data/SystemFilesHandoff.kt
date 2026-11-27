@@ -33,7 +33,6 @@ data class FilesActivityCandidate(
  */
 object SystemFilesHandoff {
     const val ACTION_BROWSE = "android.provider.action.BROWSE"
-    const val FILES_APP_PACKAGE = "com.google.android.filesapp"
     const val GOOGLE_DOCUMENTS_UI_PACKAGE = "com.google.android.documentsui"
     const val AOSP_DOCUMENTS_UI_PACKAGE = "com.android.documentsui"
 
@@ -116,12 +115,10 @@ object SystemFilesHandoff {
     internal fun priorityRank(packageName: String): Int {
         val pkg = packageName.lowercase(Locale.US)
         return when {
-            pkg == FILES_APP_PACKAGE -> 0
-            pkg == GOOGLE_DOCUMENTS_UI_PACKAGE -> 1
-            pkg == AOSP_DOCUMENTS_UI_PACKAGE -> 2
-            pkg.contains("filesapp") -> 3
-            pkg.contains("documentsui") -> 4
-            else -> 5
+            pkg == GOOGLE_DOCUMENTS_UI_PACKAGE -> 0
+            pkg == AOSP_DOCUMENTS_UI_PACKAGE -> 1
+            pkg.contains("documentsui") -> 2
+            else -> 3
         }
     }
 

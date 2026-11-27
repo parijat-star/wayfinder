@@ -24,7 +24,6 @@
         <package android:name="com.google.android.apps.docs" />
         <package android:name="com.google.ambient.streaming" />
         <package android:name="com.android.mtp" />
-        <package android:name="com.google.android.filesapp" />
         <package android:name="com.google.android.documentsui" />
         <package android:name="com.android.documentsui" />
         <intent>

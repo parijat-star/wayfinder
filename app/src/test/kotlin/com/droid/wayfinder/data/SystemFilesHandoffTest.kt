@@ -70,7 +70,7 @@ class SystemFilesHandoffTest {
         // Unprivileged 3P apps without MANAGE_DOCUMENTS are never chosen.
         val unprivilegedOnly = listOf(
             FilesActivityCandidate("com.thirdparty.explorer", "com.thirdparty.explorer.Main", holdsManageDocuments = false),
-            FilesActivityCandidate("com.google.android.filesapp", "com.google.android.filesapp.Files", holdsManageDocuments = false),
+            FilesActivityCandidate("com.google.android.documentsui", "com.android.documentsui.files.FilesActivity", holdsManageDocuments = false),
         )
         assertNull(SystemFilesHandoff.selectPrivilegedFilesHandler(unprivilegedOnly, selfPkg))
 
@@ -80,28 +80,20 @@ class SystemFilesHandoffTest {
         )
         assertNull(SystemFilesHandoff.selectPrivilegedFilesHandler(selfOnly, selfPkg))
 
-        // Prefers com.google.android.filesapp over com.google.android.documentsui over AOSP/other.
+        // Prefers com.google.android.documentsui over com.android.documentsui over generic OEM package.
         val mixed = listOf(
             FilesActivityCandidate(selfPkg, "com.droid.wayfinder.DocumentsBrowseAlias", holdsManageDocuments = true),
             FilesActivityCandidate("com.thirdparty.files", "com.thirdparty.files.Browse", holdsManageDocuments = false),
             FilesActivityCandidate("com.oem.systemfiles", "com.oem.systemfiles.Main", holdsManageDocuments = true),
             FilesActivityCandidate("com.android.documentsui", "com.android.documentsui.files.FilesActivity", holdsManageDocuments = true),
             FilesActivityCandidate("com.google.android.documentsui", "com.android.documentsui.files.FilesActivity", holdsManageDocuments = true),
-            FilesActivityCandidate("com.google.android.filesapp", "com.google.android.filesapp.MainActivity", holdsManageDocuments = true),
         )
         val chosen = SystemFilesHandoff.selectPrivilegedFilesHandler(mixed, selfPkg)
         assertNotNull(chosen)
-        assertEquals("com.google.android.filesapp", chosen!!.packageName)
-
-        // Without filesapp, prefers com.google.android.documentsui over com.android.documentsui.
-        val withoutFilesApp = mixed.filterNot { it.packageName == "com.google.android.filesapp" }
-        assertEquals(
-            "com.google.android.documentsui",
-            SystemFilesHandoff.selectPrivilegedFilesHandler(withoutFilesApp, selfPkg)?.packageName,
-        )
+        assertEquals("com.google.android.documentsui", chosen!!.packageName)
 
         // Without Google DocumentsUI, prefers AOSP com.android.documentsui over generic OEM package.
-        val withoutGoogleDocUi = withoutFilesApp.filterNot { it.packageName == "com.google.android.documentsui" }
+        val withoutGoogleDocUi = mixed.filterNot { it.packageName == "com.google.android.documentsui" }
         assertEquals(
             "com.android.documentsui",
             SystemFilesHandoff.selectPrivilegedFilesHandler(withoutGoogleDocUi, selfPkg)?.packageName,
@@ -110,8 +102,8 @@ class SystemFilesHandoffTest {
         // Blank or NUL-injected names are rejected even with MANAGE_DOCUMENTS.
         val malformed = listOf(
             FilesActivityCandidate("", "com.example.Main", holdsManageDocuments = true),
-            FilesActivityCandidate("com.google.android.filesapp", "", holdsManageDocuments = true),
-            FilesActivityCandidate("com.google.android.filesapp\u0000", "com.example.Main", holdsManageDocuments = true),
+            FilesActivityCandidate("com.google.android.documentsui", "", holdsManageDocuments = true),
+            FilesActivityCandidate("com.google.android.documentsui\u0000", "com.example.Main", holdsManageDocuments = true),
         )
         assertNull(SystemFilesHandoff.selectPrivilegedFilesHandler(malformed, selfPkg))
     }
@@ -122,7 +114,6 @@ class SystemFilesHandoffTest {
         val selfPkg = "com.droid.wayfinder"
         val samplePkgs = listOf(
             selfPkg,
-            "com.google.android.filesapp",
             "com.google.android.documentsui",
             "com.android.documentsui",
             "com.thirdparty.manager",

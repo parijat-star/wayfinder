@@ -113,9 +113,9 @@ class ApkOpenDialogTest {
         assertTrue(h.s.dialog is Dialog.ApkInstallUnsupported)
         assertTrue(h.events.none { it is UiEvent.OpenFile })
 
-        // Register both an unprivileged 3P manager and privileged system Files app.
+        // Register both an unprivileged 3P manager and privileged system Files app (DocumentsUI).
         registerDirHandler("com.thirdparty.files", "com.thirdparty.files.DirActivity", grantManageDocuments = false)
-        registerDirHandler("com.google.android.filesapp", "com.google.android.filesapp.FilesActivity", grantManageDocuments = true)
+        registerDirHandler("com.google.android.documentsui", "com.android.documentsui.files.FilesActivity", grantManageDocuments = true)
 
         val shadowActivity = shadowOf(rule.activity)
         while (shadowActivity.nextStartedActivity != null) { /* clear previous intents */ }
@@ -127,8 +127,8 @@ class ApkOpenDialogTest {
         assertNotNull("Expected system Files activity to launch", launched)
         assertEquals(Intent.ACTION_VIEW, launched!!.action)
         assertEquals(DocumentsContract.Document.MIME_TYPE_DIR, launched.type)
-        assertEquals("com.google.android.filesapp", launched.component?.packageName)
-        assertEquals("com.google.android.filesapp.FilesActivity", launched.component?.className)
+        assertEquals("com.google.android.documentsui", launched.component?.packageName)
+        assertEquals("com.android.documentsui.files.FilesActivity", launched.component?.className)
         assertEquals(0, launched.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 
