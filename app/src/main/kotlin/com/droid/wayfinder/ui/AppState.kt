@@ -74,6 +74,11 @@ sealed interface Dialog {
     data object About : Dialog
     /** First-install / on-demand guide for setting or resetting Wayfinder as the default file handler. */
     data object DefaultHandler : Dialog
+    /** Disclosure shown when attempting to open an `.apk` file, with optional handoff to the system Files app. */
+    data class ApkInstallUnsupported(
+        val fileName: String,
+        val folderUri: android.net.Uri? = null,
+    ) : Dialog
 }
 
 sealed interface UiEvent {
@@ -104,6 +109,8 @@ sealed interface UiEvent {
     data class ImportPhoneDocuments(val initialUri: android.net.Uri? = null) : UiEvent
     /** Open the wireless Cross-Device phone root directly inside a side-by-side system Files (`DocumentsUI`) window. */
     data object OpenSystemPhoneFiles : UiEvent
+    /** Open a `DocumentsContract` folder URI directly in the privileged system Files app (`MANAGE_DOCUMENTS`). */
+    data class OpenSystemFilesFolder(val folderUri: android.net.Uri) : UiEvent
     /** Request Android 12+ BLUETOOTH_CONNECT runtime permission for wireless phone detection. */
     data object RequestBluetoothPermission : UiEvent
     /** Picker mode: return these local files (already downloaded if remote) to the calling app. */

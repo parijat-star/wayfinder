@@ -1241,10 +1241,36 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }
     }
 
+    fun openApkFolderInSystemFiles(folderUri: Uri) {
+        dismissDialog()
+        emit(UiEvent.OpenSystemFilesFolder(folderUri))
+    }
+
     private fun openFile(path: String, chooser: Boolean = false) {
         setCompactSidebarOpen(false)
+        if (FsPath.isLocalFile(path) && isUnsafeToExpose(path)) {
+            toast("This file can't be opened")
+            return
+        }
+        if (com.droid.wayfinder.data.SystemFilesHandoff.isApkFile(path)) {
+            val folderUri = if (trash.isInTrash(path)) {
+                null
+            } else {
+                com.droid.wayfinder.data.SystemFilesHandoff.folderDocumentsUriForApk(
+                    apkPath = path,
+                    safMounts = safMounts,
+                    primaryStorageRoot = primary,
+                )
+            }
+            showDialog(
+                Dialog.ApkInstallUnsupported(
+                    fileName = FsPath.name(path).ifEmpty { path },
+                    folderUri = folderUri,
+                ),
+            )
+            return
+        }
         if (FsPath.isLocalFile(path)) {
-            if (isUnsafeToExpose(path)) { toast("This file can't be opened"); return }
             if (!com.droid.wayfinder.data.LocalUriResolver.anyMayResolveExternalLocalUri(app, listOf(path))) {
                 if (isDirectlyServableByFileProvider(path)) {
                     emit(UiEvent.OpenFile(path, chooser))

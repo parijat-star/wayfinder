@@ -34,6 +34,18 @@
         </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="content" android:mimeType="vnd.android.document/directory" />
+        </intent>
+        <intent>
+            <action android:name="android.provider.action.BROWSE" />
+            <data android:scheme="content" android:mimeType="vnd.android.document/directory" />
+        </intent>
+        <intent>
+            <action android:name="android.provider.action.BROWSE" />
+            <data android:scheme="content" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
             <data android:scheme="content" android:mimeType="application/vnd.android.package-archive" />
         </intent>
     </queries>
