@@ -301,6 +301,21 @@
     <string name="properties_image_artist_label" description="Row label in the Properties dialog for the EXIF photographer or artist tag. [CHAR_LIMIT=20]">Artist</string>
     <string name="properties_image_copyright_label" description="Row label in the Properties dialog for the EXIF copyright notice tag. [CHAR_LIMIT=20]">Copyright</string>
     <string name="properties_image_description_label" description="Row label in the Properties dialog for the EXIF image description or user comment tag. [CHAR_LIMIT=20]">Description</string>
+    <string name="properties_apk_section" description="Section heading in the Properties dialog above Android package (APK) metadata. [CHAR_LIMIT=25]">Android Package</string>
+    <string name="properties_apk_inspecting" description="Status text shown in the Properties dialog while reading APK manifest and signature metadata. [CHAR_LIMIT=35]">Reading APK…</string>
+    <string name="properties_apk_unavailable" description="Fallback message shown in the Properties dialog when APK package metadata could not be parsed. [CHAR_LIMIT=55]">APK metadata unavailable</string>
+    <string name="properties_apk_local_only" description="Message shown in the Properties dialog when inspecting an APK stored on a remote or cloud location. [CHAR_LIMIT=70]">Copy to device storage to inspect APK details</string>
+    <string name="properties_apk_copy" description="Content description for the button that copies the full APK metadata summary in the Properties dialog. [CHAR_LIMIT=30]">Copy APK info</string>
+    <string name="properties_apk_app_label" description="Row label in the Properties dialog for an APK application display name. [CHAR_LIMIT=20]">App</string>
+    <string name="properties_apk_package_label" description="Row label in the Properties dialog for an APK Android package identifier. [CHAR_LIMIT=20]">Package</string>
+    <string name="properties_apk_version_label" description="Row label in the Properties dialog for an APK version name and version code. [CHAR_LIMIT=20]">Version</string>
+    <string name="properties_apk_target_sdk_label" description="Row label in the Properties dialog for an APK target Android API level. [CHAR_LIMIT=20]">Target SDK</string>
+    <string name="properties_apk_min_sdk_label" description="Row label in the Properties dialog for an APK minimum supported Android API level. [CHAR_LIMIT=20]">Min SDK</string>
+    <string name="properties_apk_abis_label" description="Row label in the Properties dialog for CPU architectures (ABIs) bundled in an APK. [CHAR_LIMIT=20]">ABIs</string>
+    <string name="properties_apk_cert_sha256_label" description="Row label in the Properties dialog for an APK signing certificate SHA-256 fingerprint. [CHAR_LIMIT=20]">Cert SHA-256</string>
+    <string name="properties_apk_signer_label" description="Row label in the Properties dialog for an APK X.509 signing certificate subject. [CHAR_LIMIT=20]">Signer</string>
+    <string name="properties_apk_signature_label" description="Row label in the Properties dialog for an APK signature verification status when unsigned. [CHAR_LIMIT=20]">Signature</string>
+    <string name="properties_apk_unsigned" description="Value shown in the Properties dialog when an APK has no verified signing certificate. [CHAR_LIMIT=35]">Unsigned or unverified</string>
     <string name="shortcuts_trackpad_heading" description="Section heading in the F1 Shortcuts dialog describing trackpad gestures. [CHAR_LIMIT=25]">Trackpad</string>
     <string name="shortcuts_trackpad_body" description="Instructional summary of desktop trackpad gestures in the F1 Shortcuts dialog. [CHAR_LIMIT=220]">Two-finger click = context menu • two-finger scroll • drag a file onto a folder, sidebar item or tab to move (hold Ctrl to copy) • drag in empty space to select a group</string>
     <string name="batch_rename_mode_find_replace" description="Filter chip label in Batch Rename dialog for find-and-replace mode. [CHAR_LIMIT=25]">Find &amp; replace</string>

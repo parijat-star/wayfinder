@@ -69,6 +69,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import com.droid.wayfinder.data.ApkFormatters
+import com.droid.wayfinder.data.ApkInfo
+import com.droid.wayfinder.data.ApkSignatureStatus
 import com.droid.wayfinder.data.Conflict
 import com.droid.wayfinder.data.FileInfo
 import com.droid.wayfinder.data.FsPath
@@ -214,6 +217,9 @@ private fun PropertiesDialog(d: Dialog.Properties, s: AppState, onDismiss: () ->
                 }
                 if (d.imageLoading || d.imageInfo != null || d.imageError != null) {
                     ImagePropertiesSection(d.imageInfo, d.imageLoading, d.imageError, onCopy)
+                }
+                if (d.apkLoading || d.apkInfo != null || d.apkError != null) {
+                    ApkPropertiesSection(d.apkInfo, d.apkLoading, d.apkError, onCopy)
                 }
                 if (d.checksums != null || d.hashProgress != null) {
                     Text(stringResource(R.string.properties_checksums_section), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -379,6 +385,75 @@ private fun ImagePropertiesSection(
     info.artist?.let { Row2(stringResource(R.string.properties_image_artist_label), it) }
     info.copyright?.let { Row2(stringResource(R.string.properties_image_copyright_label), it) }
     info.description?.let { Row2(stringResource(R.string.properties_image_description_label), it) }
+}
+
+@Composable
+private fun ApkPropertiesSection(
+    info: ApkInfo?,
+    loading: Boolean,
+    error: String?,
+    onCopy: (text: String, what: String) -> Unit,
+) {
+    val sectionTitle = stringResource(R.string.properties_apk_section)
+    Row(
+        Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(sectionTitle, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        if (info != null) {
+            val copyDesc = stringResource(R.string.properties_apk_copy)
+            ActionTooltip(copyDesc) {
+                IconButton(
+                    onClick = { onCopy(ApkFormatters.formatSummary(info), sectionTitle) },
+                    modifier = Modifier.size(48.dp).focusRing(androidx.compose.foundation.shape.CircleShape),
+                ) {
+                    Icon(Icons.Outlined.ContentCopy, copyDesc, Modifier.size(16.dp))
+                }
+            }
+        }
+    }
+    if (loading) {
+        Text(stringResource(R.string.properties_apk_inspecting), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    if (error != null) {
+        Text(error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    if (info == null) return
+
+    info.appName?.let { Row2(stringResource(R.string.properties_apk_app_label), it) }
+    ApkFormatters.formatVersion(info.versionName, info.versionCode)?.let {
+        Row2(stringResource(R.string.properties_apk_version_label), it, mono = true)
+    }
+    ApkFormatters.formatSdk(info.targetSdk)?.let {
+        Row2(stringResource(R.string.properties_apk_target_sdk_label), it, mono = true)
+    }
+    ApkFormatters.formatSdk(info.minSdk)?.let {
+        Row2(stringResource(R.string.properties_apk_min_sdk_label), it, mono = true)
+    }
+    ApkFormatters.formatAbis(info.supportedAbis, info.zipInspected)?.let {
+        Row2(stringResource(R.string.properties_apk_abis_label), it, mono = true)
+    }
+    info.packageName?.let { pkg ->
+        val label = stringResource(R.string.properties_apk_package_label)
+        Row2(label, pkg, mono = true) { onCopy(pkg, label) }
+    }
+    if (info.certificates.isNotEmpty()) {
+        val certBase = stringResource(R.string.properties_apk_cert_sha256_label)
+        val signerBase = stringResource(R.string.properties_apk_signer_label)
+        info.certificates.forEachIndexed { idx, cert ->
+            val certLabel = if (info.certificates.size > 1) "$certBase #${idx + 1}" else certBase
+            Row2(certLabel, cert.sha256Fingerprint, mono = true) { onCopy(cert.sha256Fingerprint, certLabel) }
+            cert.subject?.let { subj ->
+                val signerLabel = if (info.certificates.size > 1) "$signerBase #${idx + 1}" else signerBase
+                Row2(signerLabel, subj, mono = true) { onCopy(subj, signerLabel) }
+            }
+        }
+    } else if (info.signatureStatus == ApkSignatureStatus.UnsignedOrUnverified) {
+        Row2(stringResource(R.string.properties_apk_signature_label), stringResource(R.string.properties_apk_unsigned))
+    }
 }
 
 @Composable
