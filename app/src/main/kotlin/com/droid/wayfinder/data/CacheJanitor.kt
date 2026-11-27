@@ -14,7 +14,7 @@ object CacheJanitor {
     const val DEFAULT_TTL_MS: Long = 24L * 3600_000L
     const val SWEEP_INTERVAL_MS: Long = 30L * 60_000L
 
-    private val STAGED_SUBDIRS = listOf("remote-open", "zip-open", "picker", "view-archive", "thumbs")
+    private val STAGED_SUBDIRS = listOf("remote-open", "zip-open", "picker", "view-archive", "thumbs", "apk-inspect")
     private val CLOUD_TEMP_PREFIXES = listOf("wf-gdrive", "wf-onedrive")
     private const val CLOUD_TEMP_SUFFIX = ".part"
 

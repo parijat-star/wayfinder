@@ -16,6 +16,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -269,6 +270,60 @@ class DialogsUiTest {
         rule.onNodeWithText("Artist").assertDoesNotExist()
         rule.onNodeWithText("Copyright").assertDoesNotExist()
         rule.onNodeWithText("Location").assertDoesNotExist()
+        rule.onNodeWithText("Close").performClick(); idle()
+        assertNull(h.s.dialog)
+    }
+
+    @Test fun propertiesDialogDisplaysApkMetadataAndSigningCertificate() {
+        launch {
+            file("apps/sample.apk", "not-a-real-apk")
+            navigate(pathOf("apps")); select("apps/sample.apk")
+        }
+        // Corrupt/non-APK file degrades gracefully without crashing.
+        h.vm.showProperties()
+        h.until(what = "apk unavailable") {
+            val p = h.s.dialog as? Dialog.Properties
+            p != null && !p.apkLoading && p.apkError != null
+        }; idle()
+        rule.onNodeWithText("Android Package").assertExists()
+        rule.onNodeWithText("APK metadata unavailable").assertExists()
+
+        // Populated ApkInfo renders package, SDKs, ABIs, signing cert SHA-256, and signer subject.
+        val entry = h.s.active.entries.single { it.name == "sample.apk" }
+        val certSha = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
+        h.vm.showDialog(
+            Dialog.Properties(
+                entries = listOf(entry),
+                apkInfo = com.droid.wayfinder.data.ApkInfo(
+                    appName = "Sample App",
+                    packageName = "com.example.sample",
+                    versionName = "2.1.0",
+                    versionCode = 42L,
+                    minSdk = 30,
+                    targetSdk = 36,
+                    supportedAbis = listOf("arm64-v8a", "x86_64"),
+                    zipInspected = true,
+                    certificates = listOf(com.droid.wayfinder.data.ApkCertificateInfo(certSha, "CN=Sample Dev")),
+                    signatureStatus = com.droid.wayfinder.data.ApkSignatureStatus.Verified,
+                ),
+            ),
+        ); idle()
+        rule.onNodeWithText("Android Package").assertExists()
+        rule.onNodeWithText("Sample App").assertExists()
+        rule.onNodeWithText("com.example.sample").assertExists()
+        rule.onNodeWithText("2.1.0 (42)").assertExists()
+        rule.onNodeWithText("API 36 (Android 16)").assertExists()
+        rule.onNodeWithText("API 30 (Android 11)").assertExists()
+        rule.onNodeWithText("arm64-v8a, x86_64").assertExists()
+        rule.onNodeWithText("Cert SHA-256").assertExists()
+        rule.onNodeWithText(certSha).assertExists()
+        rule.onNodeWithText("CN=Sample Dev").assertExists()
+        rule.onNodeWithText("Unsigned or unverified").assertDoesNotExist()
+        rule.onNodeWithContentDescription("Copy APK info").performClick(); idle()
+        val copied = h.events.filterIsInstance<UiEvent.CopyText>().last()
+        assertEquals("Android Package", copied.what)
+        assertTrue(copied.text.contains("Package: com.example.sample"))
+        assertTrue(copied.text.contains("Cert SHA-256: $certSha"))
         rule.onNodeWithText("Close").performClick(); idle()
         assertNull(h.s.dialog)
     }

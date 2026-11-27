@@ -3,6 +3,7 @@
 
 package com.droid.wayfinder.ui
 
+import com.droid.wayfinder.data.ApkInfo
 import com.droid.wayfinder.data.Checksums
 import com.droid.wayfinder.data.ConnectConfig
 import com.droid.wayfinder.data.PickerRequest
@@ -49,7 +50,7 @@ sealed interface Dialog {
     /**
      * [posix]/[space] are filled for local items; [checksums] (SHA-256 + CRC32) for a single regular file,
      * with [hashProgress] shown while they are being computed; [mediaInfo] for a single audio/video file;
-     * [imageInfo] for a single raster/RAW image file.
+     * [imageInfo] for a single raster/RAW image file; [apkInfo] for a single Android `.apk` package.
      */
     data class Properties(
         val entries: List<FileEntry>, val bytes: Long? = null, val items: Int? = null,
@@ -57,6 +58,7 @@ sealed interface Dialog {
         val checksums: Checksums? = null, val hashProgress: String? = null,
         val mediaInfo: MediaInfo? = null, val mediaLoading: Boolean = false, val mediaError: String? = null,
         val imageInfo: ImageInfo? = null, val imageLoading: Boolean = false, val imageError: String? = null,
+        val apkInfo: ApkInfo? = null, val apkLoading: Boolean = false, val apkError: String? = null,
     ) : Dialog
     data class ConflictPrompt(val sources: List<String>, val dest: String, val move: Boolean, val names: List<String>) : Dialog
     data class Compress(val sources: List<String>, val suggested: String) : Dialog

@@ -183,6 +183,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     private var hashJob: Job? = null
     private var mediaJob: Job? = null
     private var imageJob: Job? = null
+    private var apkJob: Job? = null
     private var recentsCache: Pair<Long, List<FileEntry>>? = null
     private var phoneReceiver: BroadcastReceiver? = null
     private var packageReceiver: BroadcastReceiver? = null
@@ -1496,6 +1497,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             hashJob?.cancel(); hashJob = null
             mediaJob?.cancel(); mediaJob = null
             imageJob?.cancel(); imageJob = null
+            apkJob?.cancel(); apkJob = null
         }
         _state.update { it.copy(dialog = d, compactSidebarOpen = if (d != null) false else it.compactSidebarOpen) }
     }
@@ -2359,6 +2361,29 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                             patch { it.copy(imageLoading = false, imageError = str(com.droid.wayfinder.R.string.properties_image_unavailable)) }
                         }
                     }
+                } else if (com.droid.wayfinder.data.ApkInspector.isInspectableApk(single)) {
+                    val canInspectLocally = FsPath.isLocalFile(single.path) || isLocalDocumentEntry(single)
+                    if (!canInspectLocally) {
+                        patch { it.copy(apkLoading = false, apkError = str(com.droid.wayfinder.R.string.properties_apk_local_only)) }
+                    } else {
+                        patch { it.copy(apkLoading = true, apkError = null) }
+                        apkJob?.cancel()
+                        apkJob = viewModelScope.launch {
+                            try {
+                                val info = withContext(Dispatchers.IO) { inspectApkEntry(single) }
+                                if (info != null) {
+                                    patch { it.copy(apkInfo = info, apkLoading = false, apkError = null) }
+                                } else {
+                                    patch { it.copy(apkLoading = false, apkError = str(com.droid.wayfinder.R.string.properties_apk_unavailable)) }
+                                }
+                            } catch (e: CancellationException) {
+                                currentCoroutineContext().ensureActive()
+                                patch { it.copy(apkLoading = false, apkError = str(com.droid.wayfinder.R.string.properties_apk_unavailable)) }
+                            } catch (_: Exception) {
+                                patch { it.copy(apkLoading = false, apkError = str(com.droid.wayfinder.R.string.properties_apk_unavailable)) }
+                            }
+                        }
+                    }
                 }
                 patch { it.copy(hashProgress = "Computing SHA-256 & CRC32…") }
                 hashJob?.cancel()
@@ -2425,6 +2450,28 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 openInput = { repo.fs(entry.path).openInput(entry.path) },
             )
         }
+    }
+
+    private fun isLocalDocumentEntry(entry: FileEntry): Boolean {
+        val contentUri = when {
+            FsPath.isSaf(entry.path) -> saf.documentUriOf(entry.path)
+            FsPath.isDoc(entry.path) -> com.droid.wayfinder.data.SystemDocumentsBridge.toDocumentsContractUri(entry.path, tree = false)
+            else -> null
+        }
+        return contentUri != null && com.droid.wayfinder.data.ImageInspector.isLocalDocumentAuthority(contentUri.authority)
+    }
+
+    private suspend fun inspectApkEntry(entry: FileEntry): com.droid.wayfinder.data.ApkInfo? {
+        if (FsPath.isLocalFile(entry.path)) {
+            return com.droid.wayfinder.data.ApkInspector.inspectFile(app, File(entry.path))
+        }
+        if (isLocalDocumentEntry(entry)) {
+            return com.droid.wayfinder.data.ApkInspector.inspectStagedStream(
+                context = app,
+                openInput = { repo.fs(entry.path).openInput(entry.path) },
+            )
+        }
+        return null
     }
 
     // ---------------------------------------------------------------- import (drop from other apps)
