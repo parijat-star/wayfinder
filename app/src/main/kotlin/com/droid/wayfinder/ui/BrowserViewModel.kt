@@ -167,7 +167,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             RemoteUri.PHONE_SCHEME to phoneFs,
         ),
     )
-    private val ops = FileOperations(repo, stagingRoot = File(app.cacheDir, "zip-stage"))
+    internal val vmSessionId: String = java.util.UUID.randomUUID().toString()
+    private val ops = FileOperations(repo, stagingRoot = File(app.cacheDir, "zip-stage/$vmSessionId"))
 
     private val _state = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = _state.asStateFlow()
@@ -207,6 +208,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     internal var safPhoneMountReachabilityOverride: ((SafMount) -> Boolean)? = null
 
     init {
+        com.droid.wayfinder.data.CacheJanitor.registerSession(vmSessionId)
         SharedUi.init(app)
         // Downloaded network files / extracted archive entries may be sensitive: don't keep them around forever.
         viewModelScope.launch(Dispatchers.IO) { cleanCaches() }
@@ -406,9 +408,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }
     }
 
-    /** Removes cached downloads (open / picker results) older than a day, and wipes decrypted ZIP staging. */
+    /** Removes cached downloads (open / picker results) older than TTL, and sweeps orphaned encrypted staging. */
     private fun cleanCaches() {
-        com.droid.wayfinder.data.CacheJanitor.wipeEncryptedStaging(app.cacheDir, includePicker = picker == null)
+        com.droid.wayfinder.data.CacheJanitor.sweepOrphanedEncryptedStaging(app.cacheDir)
         com.droid.wayfinder.data.CacheJanitor.pruneStaleCaches(app.cacheDir)
     }
 
@@ -445,8 +447,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         for (dir in dirs) {
             runCatching { FileInfo.deleteTree(dir) }
         }
-        // Leave picker/enc/ alive when finishing a picker activity so the calling app can read the returned URI.
-        runCatching { com.droid.wayfinder.data.CacheJanitor.wipeEncryptedStaging(app.cacheDir, includePicker = picker == null) }
+        // Unregister and delete only this window's encrypted staging subtrees so sibling desktop
+        // windows and freshly returned picker/enc/ URIs remain undisturbed.
+        runCatching { com.droid.wayfinder.data.CacheJanitor.unregisterSession(app.cacheDir, vmSessionId) }
     }
 
     override fun onCleared() {
@@ -1369,7 +1372,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                     }
                 }
                 val subdir = when {
-                    zip && isEncryptedZipEntry -> "zip-open/enc"
+                    zip && isEncryptedZipEntry -> "zip-open/enc/$vmSessionId"
                     zip -> "zip-open"
                     else -> "remote-open"
                 }
@@ -1381,7 +1384,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 promptZipPassword(
                     archivePath = e.archivePath,
                     targetInnerPath = e.targetInnerPath,
-                    error = if (e.wrongPassword) str(com.droid.wayfinder.R.string.dialog_zip_password_incorrect) else null,
+                    error = zipPasswordErrorMessage(e),
                 ) { stageAndOpenFile(path, chooser) }
             },
         ) { res ->
@@ -1599,6 +1602,13 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
     fun dismissDialog() = showDialog(null)
 
+    private fun zipPasswordErrorMessage(e: ZipPasswordRequiredException): String? =
+        if (e.wrongPassword && !e.fromArchiveFallback) {
+            str(com.droid.wayfinder.R.string.dialog_zip_password_incorrect)
+        } else {
+            null
+        }
+
     private fun promptZipPassword(
         archivePath: String,
         targetInnerPath: String? = null,
@@ -1631,22 +1641,28 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         }
         zipVerifyJob?.cancel()
         zipVerifyJob = viewModelScope.launch {
+            var resolvedInner: String? = targetInner
             try {
                 withContext(Dispatchers.IO) {
                     val verifyFile = if (FsPath.isLocal(archivePath) && File(archivePath).isFile) {
                         File(archivePath)
                     } else {
-                        // Stage remote encrypted archive once under cacheDir/zip-stage/ and reuse across retries.
+                        // Stage remote encrypted archive once under cacheDir/zip-stage/<vmSessionId>/ and reuse across retries.
                         val existing = stagedRemoteZip?.takeIf { it.first == archivePath && it.second.isFile }?.second
                         existing ?: ops.stageRemoteArchive(archivePath).also { staged ->
                             clearStagedRemoteZip()
                             stagedRemoteZip = archivePath to staged
                         }
                     }
-                    ZipCrypto.verifyPassword(verifyFile, archivePath, password, targetInnerPath = targetInner)
+                    if (resolvedInner == null) {
+                        resolvedInner = ZipCrypto.firstEncryptedInnerPath(verifyFile) { inner ->
+                            repo.zip.passwordFor(archivePath, innerPath = inner, remoteStamp = remoteStamp) == null
+                        }
+                    }
+                    ZipCrypto.verifyPassword(verifyFile, archivePath, password, targetInnerPath = resolvedInner)
                 }
                 if ((_state.value.dialog as? Dialog.ZipPassword)?.archivePath != archivePath) return@launch
-                repo.zip.setPassword(archivePath, password, innerPath = targetInner, remoteStamp = remoteStamp)
+                repo.zip.setPassword(archivePath, password, innerPath = resolvedInner, remoteStamp = remoteStamp)
                 val action = pendingZipAction
                 pendingZipAction = null
                 pendingZipCancel = null
@@ -1659,7 +1675,13 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 _state.update { s ->
                     val d = s.dialog as? Dialog.ZipPassword
                     if (d?.archivePath == archivePath) {
-                        s.copy(dialog = d.copy(verifying = false, error = str(com.droid.wayfinder.R.string.dialog_zip_password_incorrect)))
+                        s.copy(
+                            dialog = d.copy(
+                                verifying = false,
+                                targetInnerPath = d.targetInnerPath ?: resolvedInner,
+                                error = str(com.droid.wayfinder.R.string.dialog_zip_password_incorrect),
+                            ),
+                        )
                     } else s
                 }
             } catch (e: Throwable) {
@@ -2226,7 +2248,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 promptZipPassword(
                     archivePath = e.archivePath,
                     targetInnerPath = e.targetInnerPath,
-                    error = if (e.wrongPassword) str(com.droid.wayfinder.R.string.dialog_zip_password_incorrect) else null,
+                    error = zipPasswordErrorMessage(e),
                 ) { runTransfer(sources, dest, move, how) }
             },
         ) { res ->
@@ -2483,7 +2505,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                     archivePath = e.archivePath,
                     targetInnerPath = e.targetInnerPath,
                     remoteStamp = remoteStamp,
-                    error = if (e.wrongPassword) str(com.droid.wayfinder.R.string.dialog_zip_password_incorrect) else null,
+                    error = zipPasswordErrorMessage(e),
                     onCancel = {
                         clearStagedRemoteZip()
                         if (combined.isNotEmpty()) {
@@ -3548,7 +3570,12 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 }
                 val base = File(app.cacheDir, if (usedEncryptedDir) "picker/enc" else "picker")
                 val now = System.currentTimeMillis()
-                base.listFiles()?.filter { it.name != "enc" && now - it.lastModified() > 24 * 3600_000L }?.forEach { FileInfo.deleteTree(it) }
+                val ttl = if (usedEncryptedDir) {
+                    com.droid.wayfinder.data.CacheJanitor.PICKER_ENC_TTL_MS
+                } else {
+                    com.droid.wayfinder.data.CacheJanitor.DEFAULT_TTL_MS
+                }
+                base.listFiles()?.filter { it.name != "enc" && now - it.lastModified() > ttl }?.forEach { FileInfo.deleteTree(it) }
                 val dir = File(base, now.toString()).apply { mkdirs() }
                 ops.transfer(toStage, dir.path, move = false, conflict = Conflict.KeepBoth, onProgress = report).map { it.target }
             },
@@ -3556,7 +3583,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 promptZipPassword(
                     archivePath = e.archivePath,
                     targetInnerPath = e.targetInnerPath,
-                    error = if (e.wrongPassword) str(com.droid.wayfinder.R.string.dialog_zip_password_incorrect) else null,
+                    error = zipPasswordErrorMessage(e),
                 ) { pick(entries) }
             },
         ) { got ->

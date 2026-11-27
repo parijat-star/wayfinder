@@ -44,9 +44,23 @@ class ZipFileSystem : FileSystem {
         val encrypted: Set<String>,
     )
 
+    data class PasswordLookup(
+        val password: String,
+        /** True when [password] came from the archive-wide cache rather than an explicit entry unlock. */
+        val isArchiveFallback: Boolean,
+    )
+
     private class CachedPassword(val stamp: Long, private val chars: CharArray) {
-        fun value(): String = String(chars)
-        fun wipe() { chars.fill('\u0000') }
+        private var wiped = false
+
+        @Synchronized
+        fun valueOrNull(): String? = if (wiped) null else String(chars)
+
+        @Synchronized
+        fun wipe() {
+            wiped = true
+            chars.fill('\u0000')
+        }
     }
 
     private val cache = LinkedHashMap<String, Index>()
@@ -60,6 +74,14 @@ class ZipFileSystem : FileSystem {
         else FsPath.normalize(archivePath)
 
     private fun entryKey(archivePath: String, innerPath: String): String = "${archiveKey(archivePath)}!$innerPath"
+
+    private fun hasAnyEntryPassword(archKey: String): Boolean {
+        val prefix = "$archKey!"
+        for (k in entryPasswords.keys) {
+            if (k.startsWith(prefix)) return true
+        }
+        return false
+    }
 
     private fun stampOf(archivePath: String, remoteStamp: Long? = null): Long =
         if (FsPath.isLocal(archivePath)) File(archivePath).takeIf { it.isFile }?.let { it.lastModified() * 31 + it.length() } ?: -1L
@@ -83,29 +105,49 @@ class ZipFileSystem : FileSystem {
         passwords.put(archKey, CachedPassword(stamp, password.toCharArray()))?.wipe()
     }
 
+    /**
+     * Looks up the in-memory session password for [archivePath] (or [innerPath]), reporting whether
+     * it came from an archive-wide fallback after another entry was unlocked.
+     */
+    fun lookupPassword(
+        archivePath: String,
+        innerPath: String? = null,
+        remoteStamp: Long? = null,
+    ): PasswordLookup? {
+        val curStamp = stampOf(archivePath, remoteStamp)
+        if (!innerPath.isNullOrEmpty()) {
+            val eKey = entryKey(archivePath, innerPath)
+            repeat(2) {
+                val entryCached = entryPasswords[eKey] ?: return@repeat
+                if (entryCached.stamp != curStamp) {
+                    if (entryPasswords.remove(eKey, entryCached)) entryCached.wipe()
+                    return@repeat
+                }
+                entryCached.valueOrNull()?.let { return PasswordLookup(it, isArchiveFallback = false) }
+            }
+        }
+        val key = archiveKey(archivePath)
+        repeat(2) {
+            val cached = passwords[key] ?: return null
+            if (cached.stamp != curStamp) {
+                if (passwords.remove(key, cached)) cached.wipe()
+                return null
+            }
+            val value = cached.valueOrNull()
+            if (value != null) {
+                val fallback = !innerPath.isNullOrEmpty() && hasAnyEntryPassword(key)
+                return PasswordLookup(value, isArchiveFallback = fallback)
+            }
+        }
+        return null
+    }
+
     /** Returns the in-memory session password for [archivePath] (or [innerPath]), or null if unset or stale. */
     fun passwordFor(
         archivePath: String,
         innerPath: String? = null,
         remoteStamp: Long? = null,
-    ): String? {
-        val curStamp = stampOf(archivePath, remoteStamp)
-        if (!innerPath.isNullOrEmpty()) {
-            val eKey = entryKey(archivePath, innerPath)
-            val entryCached = entryPasswords[eKey]
-            if (entryCached != null) {
-                if (entryCached.stamp == curStamp) return entryCached.value()
-                if (entryPasswords.remove(eKey, entryCached)) entryCached.wipe()
-            }
-        }
-        val key = archiveKey(archivePath)
-        val cached = passwords[key] ?: return null
-        if (cached.stamp != curStamp) {
-            if (passwords.remove(key, cached)) cached.wipe()
-            return null
-        }
-        return cached.value()
-    }
+    ): String? = lookupPassword(archivePath, innerPath, remoteStamp)?.password
 
     /** Evicts and zeroes cached session password(s) for [archivePath] (or specifically [innerPath]). */
     fun clearPassword(archivePath: String, innerPath: String? = null) {
@@ -197,7 +239,7 @@ class ZipFileSystem : FileSystem {
         val all = HashMap<String, FileEntry>()
         val names = HashMap<String, String>()
         val offsets = HashMap<String, Long>()
-        val encrypted = HashSet<String>()
+        val encrypted = LinkedHashSet<String>()
         fun ensureDir(inner: String, time: Long) {
             // Iterative: entry names may be nested hundreds of levels deep.
             val missing = ArrayList<String>()
@@ -227,7 +269,7 @@ class ZipFileSystem : FileSystem {
                 ensureDir(parent, ze.time)
                 // A file shadowing a synthesised folder path segment ("a" file + "a/b"): keep the folder.
                 if (all[parent]?.isDir == false) continue
-                val isEnc = ze.generalPurposeBit.usesEncryption()
+                val isEnc = ze.generalPurposeBit.usesEncryption() || ze.method == ZipCrypto.METHOD_WINZIP_AES
                 val e = FileEntry(
                     path = FsPath.child(root, inner),
                     name = inner.substringAfterLast('/'),
@@ -351,13 +393,14 @@ class ZipFileSystem : FileSystem {
         }
         // Never inflate more than min(declared size, 4 GiB) or exceed bomb compression ratios.
         val limit = if (entry.size >= 0L) minOf(entry.size, MAX_ENTRY_BYTES) else MAX_ENTRY_BYTES
-        val pw = passwordFor(archive, innerPath = inner)
+        val pwLookup = lookupPassword(archive, innerPath = inner)
+        val isFallbackPw = pwLookup?.isArchiveFallback == true
         val raw = try {
-            ZipCrypto.openEntryInputStream(z, f, entry, archive, pw, verifyCrc = true, targetInnerPath = inner)
+            ZipCrypto.openEntryInputStream(z, f, entry, archive, pwLookup?.password, verifyCrc = true, targetInnerPath = inner)
         } catch (e: ZipPasswordRequiredException) {
             runCatching { z.close() }
             if (e.wrongPassword) clearPassword(archive, inner)
-            throw e
+            throw e.withArchiveFallback(isFallbackPw)
         } catch (e: Exception) {
             runCatching { z.close() }
             throw if (e is IOException) e else IOException("Can't read ${FsPath.name(path)}: ${e.message}", e)
@@ -374,7 +417,7 @@ class ZipFileSystem : FileSystem {
                 super.read()
             } catch (e: ZipPasswordRequiredException) {
                 if (e.wrongPassword) clearPassword(archive, e.targetInnerPath ?: inner)
-                throw e
+                throw e.withArchiveFallback(isFallbackPw)
             } catch (e: IOException) {
                 throw e
             } catch (e: Exception) {
@@ -385,7 +428,7 @@ class ZipFileSystem : FileSystem {
                 super.read(b, off, len)
             } catch (e: ZipPasswordRequiredException) {
                 if (e.wrongPassword) clearPassword(archive, e.targetInnerPath ?: inner)
-                throw e
+                throw e.withArchiveFallback(isFallbackPw)
             } catch (e: IOException) {
                 throw e
             } catch (e: Exception) {
@@ -489,7 +532,7 @@ class ZipFileSystem : FileSystem {
                         val e = en.nextElement()
                         if (!ZipCrypto.isSafeZipEntry(e)) continue
                         safeCount++
-                        if (!e.isDirectory && e.generalPurposeBit.usesEncryption()) encrypted = true
+                        if (!e.isDirectory && (e.generalPurposeBit.usesEncryption() || e.method == ZipCrypto.METHOD_WINZIP_AES)) encrypted = true
                         val s = e.size.coerceAtLeast(0)
                         bytes = if (Long.MAX_VALUE - bytes < s) Long.MAX_VALUE else bytes + s
                         if (listed.size < maxListed) listed += Triple(ZipCrypto.decodeEntryName(e), e.size, e.isDirectory)

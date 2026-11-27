@@ -70,6 +70,48 @@ class FileOperations(
     companion object {
         /** Upper bound on remote/SAF encrypted archive size staged to local cache for decryption. */
         const val MAX_REMOTE_ARCHIVE_BYTES: Long = 512L shl 20
+
+        /**
+         * Builds a hidden sibling staging/backup filename that preserves [targetName]'s file extension
+         * (so MIME-inferring providers never stamp `application/octet-stream`) while keeping total
+         * UTF-8 length within [FsPath.MAX_NAME_BYTES] without splitting surrogate pairs.
+         */
+        internal fun buildTempSiblingName(prefixTag: String, targetName: String): String {
+            val prefix = ".$prefixTag-${System.nanoTime()}-"
+            val full = prefix + targetName
+            if (full.toByteArray(Charsets.UTF_8).size <= FsPath.MAX_NAME_BYTES) return full
+            val ext = when {
+                targetName.endsWith(".tar.gz", ignoreCase = true) && targetName.length > 7 ->
+                    targetName.substring(targetName.length - 7)
+                else -> {
+                    val dot = targetName.lastIndexOf('.')
+                    if (dot > 0 && targetName.length - dot <= 32) targetName.substring(dot) else ""
+                }
+            }
+            val stem = if (ext.isNotEmpty()) targetName.substring(0, targetName.length - ext.length) else targetName
+            val budget = (
+                FsPath.MAX_NAME_BYTES -
+                    prefix.toByteArray(Charsets.UTF_8).size -
+                    ext.toByteArray(Charsets.UTF_8).size
+                ).coerceAtLeast(0)
+            val sb = StringBuilder()
+            var used = 0
+            var i = 0
+            while (i < stem.length) {
+                val cp = stem.codePointAt(i)
+                val cpBytes = when {
+                    cp <= 0x7F -> 1
+                    cp <= 0x7FF -> 2
+                    cp <= 0xFFFF -> 3
+                    else -> 4
+                }
+                if (used + cpBytes > budget) break
+                sb.appendCodePoint(cp)
+                used += cpBytes
+                i += Character.charCount(cp)
+            }
+            return prefix + sb.toString() + ext
+        }
     }
 
     private suspend fun check() = currentCoroutineContext().ensureActive()
@@ -173,13 +215,26 @@ class FileOperations(
             var done = false
             if (move && repo.fs(src) === destFs) {
                 if (replaceExisting) {
-                    if (FsPath.isLocal(target) && FileRepository.localTestOverride == null && File(src).isFile && File(target).isFile) {
+                    if (FsPath.isLocal(target) && FileRepository.localTestOverride == null && File(src).isFile && File(target).isFile && !FileInfo.isSymlink(target)) {
                         Files.move(File(src).toPath(), File(target).toPath(), StandardCopyOption.REPLACE_EXISTING)
                         done = true
-                    } else {
-                        destFs.delete(target)
-                        replaceExisting = false
-                        done = destFs.move(src, target)
+                    } else if (!usesInPlaceFileReplace(target)) {
+                        val backupName = uniqueName(destDir, buildTempSiblingName("wf-old", name))
+                        val backupPath = runCatching { destFs.rename(target, backupName) }.getOrNull()
+                        if (backupPath != null) {
+                            val moved = try {
+                                destFs.move(src, target)
+                            } catch (t: Throwable) {
+                                runCatching { destFs.rename(backupPath, name) }
+                                throw t
+                            }
+                            if (moved) {
+                                runCatching { destFs.delete(backupPath) }
+                                done = true
+                            } else {
+                                runCatching { destFs.rename(backupPath, name) }
+                            }
+                        }
                     }
                 } else {
                     done = destFs.move(src, target)
@@ -187,15 +242,42 @@ class FileOperations(
             }
             if (!done) {
                 if (replaceExisting) {
-                    // Stage into a hidden sibling path first so a failed read (wrong ZIP password,
-                    // tampered HMAC, I/O error, or cancellation) leaves the existing destination intact.
-                    val stagedTarget = FsPath.child(destDir, uniqueName(destDir, ".wf-stage-${System.nanoTime()}"))
-                    try {
-                        state = copyTree(src, stagedTarget, state, onProgress)
-                        commitStagedReplacement(destFs, destDir, stagedTarget, target, name)
-                    } catch (t: Throwable) {
-                        runCatching { destFs.delete(stagedTarget) }
-                        throw t
+                    val srcStat = repo.fs(src).stat(src) ?: throw IOException("${FsPath.name(src)} no longer exists")
+                    val dstStat = destFs.stat(target)
+                    if (usesInPlaceFileReplace(target) && !srcStat.isDir && dstStat?.isDir != true) {
+                        state = replaceFileViaLocalStage(src, target, destFs, state, onProgress)
+                    } else if (usesInPlaceFileReplace(target)) {
+                        // Directory replacement on document-ID backed providers where sibling rename is unsupported:
+                        // stage the full source tree into local cache first so encrypted ZIP / remote reads complete
+                        // and verify before touching the destination directory.
+                        val localTree = File(stagingDir(), "wf-replace-tree-${System.nanoTime()}").apply { mkdirs() }
+                        try {
+                            state = copyTreeToLocalStage(src, localTree, state, onProgress)
+                            destFs.delete(target)
+                            copyLocalStageTreeToDest(localTree, target, destFs)
+                        } finally {
+                            FileInfo.deleteTree(localTree)
+                        }
+                    } else {
+                        // Stage into a sibling path preserving extension first so a failed read (wrong ZIP password,
+                        // tampered HMAC, I/O error, or cancellation) leaves the existing destination intact.
+                        val stagedName = uniqueName(destDir, buildTempSiblingName("wf-stage", name))
+                        val stagedTarget = FsPath.child(destDir, stagedName)
+                        try {
+                            state = copyTree(src, stagedTarget, state, onProgress)
+                            commitStagedReplacement(
+                                destFs = destFs,
+                                destDir = destDir,
+                                stagedTarget = stagedTarget,
+                                target = target,
+                                targetName = name,
+                                srcIsDir = srcStat.isDir,
+                                targetIsDir = dstStat?.isDir == true,
+                            )
+                        } catch (t: Throwable) {
+                            runCatching { destFs.delete(stagedTarget) }
+                            throw t
+                        }
                     }
                 } else {
                     state = copyTree(src, target, state, onProgress)
@@ -209,12 +291,139 @@ class FileOperations(
         return results
     }
 
+    /**
+     * True for document-ID / provider-backed destinations (`saf://`, `doc://`, `phone://`, `gdrive://`)
+     * where `DocumentsContract.renameDocument` is optional (MTP, Cross-Device, cloud providers) and
+     * MIME types are stamped permanently at document-creation time.
+     */
+    private fun usesInPlaceFileReplace(target: String): Boolean =
+        FsPath.isSaf(target) || FsPath.isDoc(target) || FsPath.isPhone(target) || FsPath.isGdrive(target)
+
+    private suspend fun replaceFileViaLocalStage(
+        src: String,
+        target: String,
+        destFs: FileSystem,
+        start: Progress,
+        onProgress: (Progress) -> Unit,
+    ): Progress {
+        var state = start
+        val localTemp = File.createTempFile("wf-replace-", ".tmp", stagingDir())
+        try {
+            repo.fs(src).openInput(src).use { input ->
+                localTemp.outputStream().buffered(256 * 1024).use { out ->
+                    val buf = ByteArray(256 * 1024)
+                    var lastReport = 0L
+                    while (true) {
+                        check()
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        state = state.copy(doneBytes = state.doneBytes + n)
+                        val now = System.nanoTime()
+                        if (now - lastReport > 80_000_000L) {
+                            onProgress(state)
+                            lastReport = now
+                        }
+                    }
+                }
+            }
+            if (FsPath.isGdrive(target)) {
+                destFs.delete(target)
+            }
+            localTemp.inputStream().buffered(256 * 1024).use { verifiedIn ->
+                destFs.openOutput(target).use { out ->
+                    val buf = ByteArray(256 * 1024)
+                    while (true) {
+                        check()
+                        val n = verifiedIn.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                    }
+                }
+            }
+            state = state.copy(doneItems = state.doneItems + 1, current = FsPath.name(src))
+            onProgress(state)
+            return state
+        } finally {
+            runCatching { localTemp.delete() }
+        }
+    }
+
+    private suspend fun copyTreeToLocalStage(
+        src: String,
+        dstFile: File,
+        start: Progress,
+        onProgress: (Progress) -> Unit,
+        depth: Int = 0,
+    ): Progress {
+        check()
+        var state = start
+        val sfs = repo.fs(src)
+        val st = sfs.stat(src) ?: throw IOException("${FsPath.name(src)} no longer exists")
+        if (st.isDir) {
+            if (depth > 0 && st.isLink) return state
+            if (depth >= FsPath.MAX_DEPTH) throw IOException("Folders are nested too deeply")
+            dstFile.mkdirs()
+            for (c in sfs.list(src)) {
+                if (!FsPath.isSafeName(c.name)) continue
+                state = copyTreeToLocalStage(c.path, File(dstFile, c.name), state, onProgress, depth + 1)
+            }
+            return state
+        }
+        dstFile.parentFile?.mkdirs()
+        sfs.openInput(src).use { input ->
+            dstFile.outputStream().buffered(256 * 1024).use { output ->
+                val buf = ByteArray(256 * 1024)
+                var lastReport = 0L
+                while (true) {
+                    check()
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    output.write(buf, 0, n)
+                    state = state.copy(doneBytes = state.doneBytes + n)
+                    val now = System.nanoTime()
+                    if (now - lastReport > 80_000_000L) {
+                        onProgress(state)
+                        lastReport = now
+                    }
+                }
+            }
+        }
+        state = state.copy(doneItems = state.doneItems + 1, current = st.name)
+        onProgress(state)
+        return state
+    }
+
+    private suspend fun copyLocalStageTreeToDest(localNode: File, dst: String, dfs: FileSystem) {
+        check()
+        if (localNode.isDirectory) {
+            dfs.mkdir(dst)
+            for (kid in localNode.listFiles().orEmpty()) {
+                copyLocalStageTreeToDest(kid, FsPath.child(dst, kid.name), dfs)
+            }
+            return
+        }
+        localNode.inputStream().buffered(256 * 1024).use { inp ->
+            dfs.openOutput(dst).use { out ->
+                val buf = ByteArray(256 * 1024)
+                while (true) {
+                    check()
+                    val n = inp.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                }
+            }
+        }
+    }
+
     private fun commitStagedReplacement(
         destFs: FileSystem,
         destDir: String,
         stagedTarget: String,
         target: String,
         targetName: String,
+        srcIsDir: Boolean,
+        targetIsDir: Boolean,
     ) {
         if (FsPath.isLocal(target) && FileRepository.localTestOverride == null) {
             val stagedFile = File(stagedTarget)
@@ -223,7 +432,7 @@ class FileOperations(
                 Files.move(stagedFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
                 return
             }
-            val backupFile = File(destDir, uniqueName(destDir, ".wf-old-${System.nanoTime()}"))
+            val backupFile = File(destDir, uniqueName(destDir, buildTempSiblingName("wf-old", targetName)))
             val backedUp = targetFile.renameTo(backupFile)
             if (!backedUp) {
                 FileInfo.deleteTree(targetFile)
@@ -235,8 +444,31 @@ class FileOperations(
             if (backedUp) FileInfo.deleteTree(backupFile)
             return
         }
-        destFs.delete(target)
-        destFs.rename(stagedTarget, targetName)
+        // Non-local path-addressed filesystems (SMB, WebDAV, FTP, OneDrive, custom test FileSystems):
+        // Never delete `target` before confirming `rename` is supported; swap via a backup name first,
+        // or overwrite regular files in place if `rename` is unsupported by the provider.
+        val backupName = uniqueName(destDir, buildTempSiblingName("wf-old", targetName))
+        val backupPath = try {
+            destFs.rename(target, backupName)
+        } catch (renameErr: Exception) {
+            if (!srcIsDir && !targetIsDir) {
+                destFs.openInput(stagedTarget).use { inp ->
+                    destFs.openOutput(target).use { out ->
+                        inp.copyTo(out, 128 * 1024)
+                    }
+                }
+                runCatching { destFs.delete(stagedTarget) }
+                return
+            }
+            throw IOException("Couldn't replace $targetName: ${renameErr.message}", renameErr)
+        }
+        try {
+            destFs.rename(stagedTarget, targetName)
+        } catch (t: Throwable) {
+            runCatching { destFs.rename(backupPath, targetName) }
+            throw t
+        }
+        runCatching { destFs.delete(backupPath) }
     }
 
     /** Copies each source next to itself as "name copy.ext" ("name copy 2.ext", …); returns the created paths. */
@@ -594,8 +826,10 @@ class FileOperations(
         isDir: Boolean,
         seenFiles: MutableSet<String>,
         seenDirs: MutableSet<String>,
+        caseInsensitive: Boolean,
     ) {
-        var prefix = rel.substringBeforeLast('/', "")
+        val key = if (caseInsensitive) rel.lowercase(java.util.Locale.ROOT) else rel
+        var prefix = key.substringBeforeLast('/', "")
         while (prefix.isNotEmpty()) {
             if (prefix in seenFiles) {
                 throw IOException("Duplicate or conflicting entry path in archive: $rel")
@@ -604,14 +838,40 @@ class FileOperations(
             prefix = prefix.substringBeforeLast('/', "")
         }
         if (isDir) {
-            if (rel in seenFiles) {
+            if (key in seenFiles) {
                 throw IOException("Duplicate or conflicting entry path in archive: $rel")
             }
-            seenDirs += rel
+            seenDirs += key
         } else {
-            if (rel in seenDirs || !seenFiles.add(rel)) {
+            if (key in seenDirs || !seenFiles.add(key)) {
                 throw IOException("Duplicate or conflicting entry path in archive: $rel")
             }
+        }
+    }
+
+    /**
+     * Ensures [dirPath] and its ancestors beneath [outDir] exist on a local extraction directory,
+     * rejecting case-colliding regular files or symlinks on case-insensitive mounts (FUSE/exFAT/VFAT).
+     */
+    private fun ensureExtractDir(outDir: String, dirPath: String, relForError: String, localKernelCheck: Boolean) {
+        if (localKernelCheck) {
+            var cur = dirPath
+            while (cur.length > outDir.length && cur.startsWith(outDir)) {
+                val f = File(cur)
+                if (FileInfo.isSymlink(f.path) || (f.exists() && !f.isDirectory)) {
+                    throw IOException("Duplicate or conflicting entry path in archive: $relForError")
+                }
+                cur = FsPath.parent(cur) ?: break
+            }
+        }
+        ensureDir(dirPath)
+    }
+
+    private fun checkLocalExtractFileTarget(target: String, relForError: String, localKernelCheck: Boolean) {
+        if (!localKernelCheck) return
+        val tf = File(target)
+        if (tf.exists() || FileInfo.isSymlink(tf.path)) {
+            throw IOException("Duplicate or conflicting entry path in archive: $relForError")
         }
     }
 
@@ -627,6 +887,8 @@ class FileOperations(
         onProgress: (Progress) -> Unit,
     ) {
         val fs = repo.fs(outDir)
+        val localKernelCheck = FsPath.isLocal(outDir) && FileRepository.localTestOverride == null
+        val foldCase = !localKernelCheck
         var state = Progress("Extracting", 0, total)
         var entries = 0
         var written = 0L
@@ -653,38 +915,47 @@ class FileOperations(
                     if (outCanonical != null && !File(target).canonicalPath.startsWith(outCanonical)) {
                         throw IOException("Unsafe path in archive: $decoded")
                     }
-                    recordNormalizedEntryPath(rel, e.isDirectory, seenFiles, seenDirs)
+                    recordNormalizedEntryPath(rel, e.isDirectory, seenFiles, seenDirs, caseInsensitive = foldCase)
                     if (e.isDirectory) {
-                        ensureDir(target)
+                        ensureExtractDir(outDir, target, rel, localKernelCheck)
                     } else {
-                        FsPath.parent(target)?.let { ensureDir(it) }
-                        val entryPassword = password ?: repo.zip.passwordFor(archivePath, innerPath = rel, remoteStamp = remoteStamp)
-                        ZipCrypto.openEntryInputStream(
-                            zipFile = z,
-                            file = file,
-                            entry = e,
-                            archivePath = archivePath,
-                            password = entryPassword,
-                            verifyCrc = true,
-                            targetInnerPath = rel,
-                        ).use { zin ->
-                            fs.openOutput(target).use { out ->
-                                val buf = ByteArray(128 * 1024)
-                                while (true) {
-                                    check()
-                                    val n = zin.read(buf)
-                                    if (n < 0) break
-                                    written += n
-                                    limits.check(written, total)
-                                    out.write(buf, 0, n)
-                                    state = state.copy(doneBytes = (state.doneBytes + n / 2).coerceAtMost(total), current = segs.last())
-                                    val now = System.nanoTime()
-                                    if (now - lastReport > 60_000_000L) {
-                                        onProgress(state)
-                                        lastReport = now
+                        FsPath.parent(target)?.let { ensureExtractDir(outDir, it, rel, localKernelCheck) }
+                        checkLocalExtractFileTarget(target, rel, localKernelCheck)
+                        val pwLookup = if (password == null) {
+                            repo.zip.lookupPassword(archivePath, innerPath = rel, remoteStamp = remoteStamp)
+                        } else null
+                        val entryPassword = password ?: pwLookup?.password
+                        val isFallbackPw = pwLookup?.isArchiveFallback == true
+                        try {
+                            ZipCrypto.openEntryInputStream(
+                                zipFile = z,
+                                file = file,
+                                entry = e,
+                                archivePath = archivePath,
+                                password = entryPassword,
+                                verifyCrc = true,
+                                targetInnerPath = rel,
+                            ).use { zin ->
+                                fs.openOutput(target).use { out ->
+                                    val buf = ByteArray(128 * 1024)
+                                    while (true) {
+                                        check()
+                                        val n = zin.read(buf)
+                                        if (n < 0) break
+                                        written += n
+                                        limits.check(written, total)
+                                        out.write(buf, 0, n)
+                                        state = state.copy(doneBytes = (state.doneBytes + n / 2).coerceAtMost(total), current = segs.last())
+                                        val now = System.nanoTime()
+                                        if (now - lastReport > 60_000_000L) {
+                                            onProgress(state)
+                                            lastReport = now
+                                        }
                                     }
                                 }
                             }
+                        } catch (pwErr: ZipPasswordRequiredException) {
+                            throw pwErr.withArchiveFallback(isFallbackPw)
                         }
                         onProgress(state)
                     }
@@ -698,6 +969,8 @@ class FileOperations(
         limits: ExtractLimits, onProgress: (Progress) -> Unit,
     ) {
         val fs = repo.fs(outDir)
+        val localKernelCheck = FsPath.isLocal(outDir) && FileRepository.localTestOverride == null
+        val foldCase = !localKernelCheck
         var state = Progress("Extracting", 0, total)
         var entries = 0
         var written = 0L
@@ -720,9 +993,10 @@ class FileOperations(
                         if (outCanonical != null &&
                             !java.io.File(target).canonicalPath.startsWith(outCanonical)
                         ) throw IOException("Unsafe path in archive: ${e.name}")
-                        recordNormalizedEntryPath(rel, e.isDirectory, seenFiles, seenDirs)
-                        if (e.isDirectory) ensureDir(target) else {
-                            FsPath.parent(target)?.let { ensureDir(it) }
+                        recordNormalizedEntryPath(rel, e.isDirectory, seenFiles, seenDirs, caseInsensitive = foldCase)
+                        if (e.isDirectory) ensureExtractDir(outDir, target, rel, localKernelCheck) else {
+                            FsPath.parent(target)?.let { ensureExtractDir(outDir, it, rel, localKernelCheck) }
+                            checkLocalExtractFileTarget(target, rel, localKernelCheck)
                             fs.openOutput(target).use { out ->
                                 val buf = ByteArray(128 * 1024)
                                 while (true) {
@@ -755,6 +1029,8 @@ class FileOperations(
         limits: ExtractLimits, onProgress: (Progress) -> Unit,
     ) {
         val fs = repo.fs(outDir)
+        val localKernelCheck = FsPath.isLocal(outDir) && FileRepository.localTestOverride == null
+        val foldCase = !localKernelCheck
         var state = Progress("Extracting", 0, total)
         var entries = 0
         var written = 0L
@@ -775,9 +1051,10 @@ class FileOperations(
                         if (outCanonical != null &&
                             !java.io.File(target).canonicalPath.startsWith(outCanonical)
                         ) throw IOException("Unsafe path in archive: ${e.name}")
-                        recordNormalizedEntryPath(rel, e.isDirectory, seenFiles, seenDirs)
-                        if (e.isDirectory) ensureDir(target) else {
-                            FsPath.parent(target)?.let { ensureDir(it) }
+                        recordNormalizedEntryPath(rel, e.isDirectory, seenFiles, seenDirs, caseInsensitive = foldCase)
+                        if (e.isDirectory) ensureExtractDir(outDir, target, rel, localKernelCheck) else {
+                            FsPath.parent(target)?.let { ensureExtractDir(outDir, it, rel, localKernelCheck) }
+                            checkLocalExtractFileTarget(target, rel, localKernelCheck)
                             fs.openOutput(target).use { out ->
                                 val buf = ByteArray(128 * 1024)
                                 while (true) {

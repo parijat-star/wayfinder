@@ -3,6 +3,7 @@
 
 package com.droid.wayfinder.qa
 
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
@@ -33,6 +34,7 @@ import com.droid.wayfinder.data.FileOperations
 import com.droid.wayfinder.data.FileRepository
 import com.droid.wayfinder.data.FsPath
 import com.droid.wayfinder.data.LocalFileSystem
+import com.droid.wayfinder.data.WinZipAesCtrCipher
 import com.droid.wayfinder.data.ZipCompressOptions
 import com.droid.wayfinder.data.ZipCompressionLevel
 import com.droid.wayfinder.data.ZipCrypto
@@ -40,19 +42,29 @@ import com.droid.wayfinder.data.ZipEntryEncryption
 import com.droid.wayfinder.ui.AppRoot
 import com.droid.wayfinder.ui.Dialog
 import com.droid.wayfinder.ui.UiEvent
+import com.droid.wayfinder.ui.returnPicked
 import com.droid.wayfinder.ui.theme.WayfinderTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.zip.Deflater
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -61,7 +73,14 @@ class ZipAdvancedUiTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
     private var h: VmHarness? = null
 
-    @Before fun setUp() { MainActivity.hasAccessOverride = { true } }
+    @Before
+    fun setUp() {
+        MainActivity.hasAccessOverride = { true }
+        runCatching {
+            val field = androidx.core.content.FileProvider::class.java.getDeclaredField("sCache").apply { isAccessible = true }
+            (field.get(null) as? MutableMap<*, *>)?.clear()
+        }
+    }
 
     @After fun tearDown() {
         MainActivity.hasAccessOverride = null
@@ -211,6 +230,7 @@ class ZipAdvancedUiTest {
         idle(harness)
         rule.onNodeWithText("Password required").assertIsDisplayed()
         rule.onNodeWithText("“vault.zip” is password-protected.").assertIsDisplayed()
+        rule.onNodeWithText("Entry: alpha.txt").assertIsDisplayed()
 
         // 4. Wrong password keeps dialog open and displays inline error; autofill is opted out and marked sensitive.
         val unlockPwNode = dialogField().fetchSemanticsNode()
@@ -294,6 +314,25 @@ class ZipAdvancedUiTest {
         val pickedPath = harness.events.filterIsInstance<UiEvent.PickResult>().single().paths.single()
         assertTrue("Encrypted picker file must stage under picker/enc/", pickedPath.contains("picker/enc/"))
         assertEquals("picked secret contract", File(pickedPath).readText())
+
+        // Returned picker intent for staged cache files must be strictly read-only, and WayfinderFileProvider
+        // must reject writable modes ("rw") on `picker/` URIs.
+        val pickActivity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        returnPicked(pickActivity, listOf(pickedPath))
+        val resultIntent = shadowOf(pickActivity).resultIntent
+        assertNotNull("Expected picker result intent", resultIntent)
+        val resultUri = resultIntent!!.data!!
+        assertTrue((resultIntent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0)
+        assertEquals(
+            "picker/enc staged files must NOT grant FLAG_GRANT_WRITE_URI_PERMISSION",
+            0,
+            resultIntent.flags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+        )
+        try {
+            pickActivity.contentResolver.openFileDescriptor(resultUri, "rw")?.close()
+            fail("WayfinderFileProvider must reject writable mode on picker/ URIs")
+        } catch (_: SecurityException) {
+        }
     }
 
     @Test
@@ -405,8 +444,125 @@ class ZipAdvancedUiTest {
         idle(harness)
 
         // ZipPasswordDialog.
-        harness.vm.showDialog(Dialog.ZipPassword("/tmp/locked.zip", "locked.zip"))
+        harness.vm.showDialog(Dialog.ZipPassword("/tmp/locked.zip", "locked.zip", targetInnerPath = "secret/report.txt"))
         idle(harness)
         assertDialogControlsAtLeast48dp("ZipPasswordDialog")
+    }
+
+    @Test
+    fun multiWindowSessionIsolationAndMultiPasswordPromptUx() {
+        val pw1 = "window1-alpha-pw"
+        val pw2 = "window1-beta-pw"
+        val harness = launch {
+            val multiZip = File(root, "multi-vault.zip").apply {
+                writeBytes(
+                    buildMultiPasswordAesZip(
+                        "one.txt" to ("one-secret".toByteArray(Charsets.UTF_8) to pw1),
+                        "two.txt" to ("two-secret".toByteArray(Charsets.UTF_8) to pw2),
+                    ),
+                )
+            }
+            navigate(FsPath.zipRoot(multiZip.path))
+        }
+
+        // 1. Unlock `one.txt` in Window 1.
+        val oneEntry = harness.s.active.entries.single { it.name == "one.txt" }
+        harness.vm.open(oneEntry)
+        harness.until(what = "prompt for one.txt") { harness.s.dialog is Dialog.ZipPassword }
+        idle(harness)
+        rule.onNodeWithText("Entry: one.txt").assertIsDisplayed()
+        assertNull((harness.s.dialog as Dialog.ZipPassword).error)
+
+        harness.events.clear()
+        dialogField().performTextInput(pw1)
+        dialogButton("Unlock").performClick()
+        harness.until(what = "OpenFile one.txt") {
+            harness.events.filterIsInstance<UiEvent.OpenFile>().any { it.path.endsWith("one.txt") }
+        }
+        idle(harness)
+        val openedOne = harness.events.filterIsInstance<UiEvent.OpenFile>().single { it.path.endsWith("one.txt") }
+        assertTrue(openedOne.path.contains("zip-open/enc/${harness.vm.vmSessionId}/"))
+        assertTrue(File(openedOne.path).exists())
+
+        // 2. Opening and closing a sibling Window 2 (`VmHarness`) must NOT clobber Window 1's active decrypted file.
+        val siblingWindow = VmHarness()
+        siblingWindow.settle()
+        siblingWindow.close()
+        assertTrue(
+            "Sibling window init/onCleared must not delete active Window 1 decrypted staging",
+            File(openedOne.path).exists(),
+        )
+
+        // 3. Opening `two.txt` (encrypted with a different password `pw2`) prompts cleanly for `two.txt`
+        // WITHOUT a false "Incorrect password" error banner.
+        harness.events.clear()
+        val twoEntry = harness.s.active.entries.single { it.name == "two.txt" }
+        harness.vm.open(twoEntry)
+        harness.until(what = "prompt for two.txt") { harness.s.dialog is Dialog.ZipPassword }
+        idle(harness)
+        val twoDialog = harness.s.dialog as Dialog.ZipPassword
+        assertEquals("two.txt", twoDialog.targetInnerPath)
+        assertNull("Untouched second entry in multi-password ZIP must not show false wrong-password error", twoDialog.error)
+        rule.onNodeWithText("Entry: two.txt").assertIsDisplayed()
+
+        dialogField().performTextInput(pw2)
+        dialogButton("Unlock").performClick()
+        harness.until(what = "OpenFile two.txt") {
+            harness.events.filterIsInstance<UiEvent.OpenFile>().any { it.path.endsWith("two.txt") }
+        }
+        idle(harness)
+        val openedTwo = harness.events.filterIsInstance<UiEvent.OpenFile>().single { it.path.endsWith("two.txt") }
+        assertEquals("two-secret", File(openedTwo.path).readText())
+    }
+
+    private fun buildMultiPasswordAesZip(vararg entries: Pair<String, Pair<ByteArray, String>>): ByteArray {
+        val out = ByteArrayOutputStream()
+        val cd = ByteArrayOutputStream()
+        fun u16(v: Int) = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN).putShort(v.toShort()).array()
+        fun u32(v: Long) = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(v.toInt()).array()
+        val extra = ZipCrypto.buildAesExtraField(AesStrength.AES256, 8, 2)
+        entries.forEachIndexed { idx, (name, pair) ->
+            val (plain, pw) = pair
+            val def = Deflater(Deflater.DEFAULT_COMPRESSION, true)
+            def.setInput(plain)
+            def.finish()
+            val compOut = ByteArrayOutputStream()
+            val buf = ByteArray(4096)
+            while (!def.finished()) {
+                val n = def.deflate(buf)
+                if (n > 0) compOut.write(buf, 0, n)
+            }
+            def.end()
+            val ct = compOut.toByteArray()
+            val salt = ByteArray(16) { ((idx + 1) * 17 + it).toByte() }
+            val derived = ZipCrypto.pbkdf2HmacSha1(pw.toByteArray(Charsets.UTF_8), salt, 1000, 66)
+            WinZipAesCtrCipher(derived.copyOfRange(0, 32)).processInPlace(ct, 0, ct.size)
+            val tag = Mac.getInstance("HmacSHA1")
+                .apply { init(SecretKeySpec(derived.copyOfRange(32, 64), "HmacSHA1")) }
+                .doFinal(ct)
+                .copyOf(10)
+            val payload = salt + derived.copyOfRange(64, 66) + ct + tag
+            val offset = out.size().toLong()
+            val nameBytes = name.toByteArray(Charsets.UTF_8)
+
+            out.write(u32(0x04034B50)); out.write(u16(51)); out.write(u16(0x0801)); out.write(u16(99))
+            out.write(u16(0x4000)); out.write(u16(0x5A21)); out.write(u32(0L)); out.write(u32(payload.size.toLong()))
+            out.write(u32(plain.size.toLong())); out.write(u16(nameBytes.size)); out.write(u16(extra.size))
+            out.write(nameBytes); out.write(extra); out.write(payload)
+
+            cd.write(u32(0x02014B50)); cd.write(u16((3 shl 8) or 51)); cd.write(u16(51))
+            cd.write(u16(0x0801)); cd.write(u16(99)); cd.write(u16(0x4000)); cd.write(u16(0x5A21))
+            cd.write(u32(0L)); cd.write(u32(payload.size.toLong())); cd.write(u32(plain.size.toLong()))
+            cd.write(u16(nameBytes.size)); cd.write(u16(extra.size)); cd.write(u16(0))
+            cd.write(u16(0)); cd.write(u16(0)); cd.write(u32(0x81A40000L)); cd.write(u32(offset))
+            cd.write(nameBytes); cd.write(extra)
+        }
+        val cdOffset = out.size().toLong()
+        val cdBytes = cd.toByteArray()
+        out.write(cdBytes)
+        out.write(u32(0x06054B50)); out.write(u16(0)); out.write(u16(0))
+        out.write(u16(entries.size)); out.write(u16(entries.size))
+        out.write(u32(cdBytes.size.toLong())); out.write(u32(cdOffset)); out.write(u16(0))
+        return out.toByteArray()
     }
 }

@@ -567,6 +567,7 @@
     <string name="action_hide_password" description="Accessibility label and tooltip for the eye-off icon button that masks a visible password field. [CHAR_LIMIT=25]">Hide password</string>
     <string name="dialog_zip_password_title" description="Dialog title shown when opening, copying, or extracting a password-protected ZIP archive. [CHAR_LIMIT=30]">Password required</string>
     <string name="dialog_zip_password_message" description="Dialog body identifying the encrypted ZIP archive requiring a password. %1$s is the archive file name (e.g. secrets.zip). [CHAR_LIMIT=70]">“%1$s” is password-protected.</string>
+    <string name="dialog_zip_password_entry" description="Secondary caption in the ZIP password dialog identifying the specific encrypted entry inside the archive. %1$s is the entry path inside the archive (e.g. secret/notes.txt). [CHAR_LIMIT=80]">Entry: %1$s</string>
     <string name="dialog_zip_password_session_note" description="Privacy reassurance subtitle in the ZIP password dialog noting the password is only cached in memory for the session. [CHAR_LIMIT=75]">Password is kept only in memory for this session.</string>
     <string name="dialog_zip_password_incorrect" description="Inline validation error shown in the ZIP password dialog when the entered password fails verification. [CHAR_LIMIT=50]">Incorrect password. Please try again.</string>
     <string name="action_unlock" description="Confirm button label in the ZIP password dialog to verify the password and continue. [CHAR_LIMIT=20]">Unlock</string>

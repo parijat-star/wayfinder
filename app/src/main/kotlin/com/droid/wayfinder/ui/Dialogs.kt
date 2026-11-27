@@ -475,6 +475,13 @@ private fun ZipPasswordDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     color = cs.onSurface,
                 )
+                if (!d.targetInnerPath.isNullOrEmpty()) {
+                    Text(
+                        stringResource(R.string.dialog_zip_password_entry, d.targetInnerPath),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.onSurfaceVariant,
+                    )
+                }
                 val togglePwLabel = stringResource(if (showPassword) R.string.action_hide_password else R.string.action_show_password)
                 OutlinedTextField(
                     value = password,

@@ -221,9 +221,12 @@ internal class ZipWriter(
         checkCancel: suspend () -> Unit,
         onBytesRead: (Int) -> Unit,
     ) {
-        // Following OpenJDK ZipOutputStream and APPNOTE.TXT §4.5.3, bit-3 streaming entries omit the
-        // ZIP64 extra field from the Local File Header (LFH sizes stay 0) and emit a 64-bit Data
-        // Descriptor iff actual compressed or uncompressed length reaches 0xFFFFFFFF.
+        // Following OpenJDK ZipOutputStream / ZipInputStream and APPNOTE.TXT §4.5.3:
+        // Bit-3 streaming entries omit the `0x0001` ZIP64 extra from the Local File Header (LFH sizes
+        // stay 0) because JDK 21 and Android `libcore` `ZipInputStream.readEnd` select a 24-byte 64-bit
+        // Data Descriptor iff `inf.getBytesWritten() > 0xFFFFFFFFL || inf.getBytesRead() > 0xFFFFFFFFL`
+        // (strictly `>`). Emitting a 24-byte descriptor when sizes are <= 0xFFFFFFFFL breaks JDK 21
+        // `ZipInputStream` with `ZipException: invalid entry size`.
         val lfhVersion = if (forceZip64 || expectedSize >= ZIP64_PRE_LIMIT) VERSION_ZIP64 else VERSION_STANDARD
         val flags = FLAG_UTF8 or FLAG_DATA_DESCRIPTOR
         val offset = bytesWritten
@@ -278,10 +281,10 @@ internal class ZipWriter(
             deflater.end()
         }
 
-        val actualZip64 = compSize >= ZIP64_LIMIT || uncompSize >= ZIP64_LIMIT
-        val versionNeeded = if (actualZip64) VERSION_ZIP64 else lfhVersion
+        val useZip64Descriptor = shouldWriteZip64DataDescriptor(compSize, uncompSize)
+        val versionNeeded = if (forceZip64 || compSize >= ZIP64_LIMIT || uncompSize >= ZIP64_LIMIT) VERSION_ZIP64 else lfhVersion
         val crcVal = crc.value
-        writeDataDescriptor(crcVal, compSize, uncompSize, actualZip64)
+        writeDataDescriptor(crcVal, compSize, uncompSize, useZip64Descriptor)
 
         entries += CdEntry(
             nameBytes = nameBytes,
@@ -315,8 +318,8 @@ internal class ZipWriter(
         val aesExtra = ZipCrypto.buildAesExtraField(AesStrength.AES256, actualMethod, version = 2)
         val offset = bytesWritten
 
-        // Bit-3 streaming entry: LFH carries only the 0x9901 AES extra field (no 0x0001 placeholder);
-        // 64-bit Data Descriptor & CDH ZIP64 extra are emitted automatically if sizes reach 4 GiB.
+        // Bit-3 streaming entry: LFH carries only the 0x9901 AES extra field (no 0x0001 placeholder)
+        // and emits a 64-bit Data Descriptor iff sizes strictly exceed 0xFFFFFFFFL.
         writeLocalFileHeader(
             versionNeeded = versionNeeded,
             flags = flags,
@@ -345,6 +348,8 @@ internal class ZipWriter(
 
         var uncompSize = 0L
         var compSize = 0L
+        val inBuf = ByteArray(IO_BUF_SIZE)
+        var fullMac: ByteArray? = null
         try {
             writeBytes(salt)
             writeBytes(pvv)
@@ -357,7 +362,6 @@ internal class ZipWriter(
                 compSize += len
             }
 
-            val inBuf = ByteArray(IO_BUF_SIZE)
             if (actualMethod == ZipCrypto.METHOD_STORED) {
                 openInput().use { inp ->
                     while (true) {
@@ -393,11 +397,13 @@ internal class ZipWriter(
                         if (d > 0) encryptAndWrite(defBuf, d)
                     }
                 } finally {
+                    defBuf.fill(0)
                     deflater.end()
                 }
             }
 
-            val tag = mac.doFinal().copyOf(ZipCrypto.AES_HMAC_BYTES)
+            val rawMac = mac.doFinal().also { fullMac = it }
+            val tag = rawMac.copyOf(ZipCrypto.AES_HMAC_BYTES)
             try {
                 writeBytes(tag)
                 compSize += tag.size
@@ -405,6 +411,8 @@ internal class ZipWriter(
                 tag.fill(0)
             }
         } finally {
+            inBuf.fill(0)
+            fullMac?.fill(0)
             ctr.clear()
             derived.fill(0)
             aesKey.fill(0)
@@ -412,9 +420,9 @@ internal class ZipWriter(
             pvv.fill(0)
         }
 
-        val actualZip64 = compSize >= ZIP64_LIMIT || uncompSize >= ZIP64_LIMIT
+        val useZip64Descriptor = shouldWriteZip64DataDescriptor(compSize, uncompSize)
         // Per WinZip AE-2 spec, CRC-32 in standard ZIP headers and data descriptor is always 0.
-        writeDataDescriptor(0L, compSize, uncompSize, actualZip64)
+        writeDataDescriptor(0L, compSize, uncompSize, useZip64Descriptor)
 
         entries += CdEntry(
             nameBytes = nameBytes,
@@ -567,22 +575,7 @@ internal class ZipWriter(
     }
 
     private fun writeDataDescriptor(crc: Long, compSize: Long, uncompSize: Long, zip64: Boolean) {
-        val buf = if (zip64) {
-            ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN)
-                .putInt(SIG_DATA_DESC)
-                .putInt(crc.toInt())
-                .putLong(compSize)
-                .putLong(uncompSize)
-                .array()
-        } else {
-            ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
-                .putInt(SIG_DATA_DESC)
-                .putInt(crc.toInt())
-                .putInt(compSize.toInt())
-                .putInt(uncompSize.toInt())
-                .array()
-        }
-        writeBytes(buf)
+        writeBytes(encodeDataDescriptor(crc, compSize, uncompSize, zip64))
     }
 
     companion object {
@@ -590,6 +583,23 @@ internal class ZipWriter(
         private const val SIG_DATA_DESC = 0x08074B50
         private const val SIG_CDH = 0x02014B50
         private const val SIG_ZIP64_EOCD = 0x06064B50
+
+        internal fun encodeDataDescriptor(crc: Long, compSize: Long, uncompSize: Long, zip64: Boolean): ByteArray =
+            if (zip64) {
+                ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN)
+                    .putInt(SIG_DATA_DESC)
+                    .putInt(crc.toInt())
+                    .putLong(compSize)
+                    .putLong(uncompSize)
+                    .array()
+            } else {
+                ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
+                    .putInt(SIG_DATA_DESC)
+                    .putInt(crc.toInt())
+                    .putInt(compSize.toInt())
+                    .putInt(uncompSize.toInt())
+                    .array()
+            }
         private const val SIG_ZIP64_LOCATOR = 0x07064B50
         private const val SIG_EOCD = 0x06054B50
 
@@ -606,7 +616,7 @@ internal class ZipWriter(
         private const val UNIX_FILE_ATTRS = 0x81A40000L // -rw-r--r--
 
         private const val ZIP64_EXTRA_ID = 0x0001
-        private const val ZIP64_LIMIT = 0xFFFFFFFFL
+        internal const val ZIP64_LIMIT = 0xFFFFFFFFL
         private const val ZIP64_PRE_LIMIT = 0xFFF00000L // 4 GiB - 1 MiB
         private const val ZIP64_COUNT_LIMIT = 0xFFFFL
         private const val MAX_NAME_BYTES = 0xFFFF
@@ -615,6 +625,17 @@ internal class ZipWriter(
         private const val DEFLATE_BUF_SIZE = 64 * 1024
         private val EMPTY_BYTES = ByteArray(0)
         private val SECURE_RANDOM = SecureRandom()
+
+        /**
+         * Returns true when a bit-3 streaming entry must emit a 24-byte 64-bit Data Descriptor.
+         * Because LFH omits `0x0001`, OpenJDK 21 and Android `libcore` `ZipInputStream.readEnd`
+         * read a 64-bit Data Descriptor iff `compSize > 0xFFFFFFFFL || uncompSize > 0xFFFFFFFFL`
+         * (strictly `>`), as `0xFFFFFFFF` fits in an unsigned 32-bit descriptor field.
+         */
+        internal fun shouldWriteZip64DataDescriptor(
+            compSize: Long,
+            uncompSize: Long,
+        ): Boolean = compSize > ZIP64_LIMIT || uncompSize > ZIP64_LIMIT
 
         private fun buildZip64Extra(uncomp: Long?, comp: Long?, offset: Long?): ByteArray {
             val payload = ByteArrayOutputStream(24)

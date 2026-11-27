@@ -935,6 +935,28 @@ class ZipAdvancedAndCryptoTest {
         }
         val outAes = ops.extract(aesZ64.path, File(sandbox, "ext-z64-aes").apply { mkdirs() }.path, {}, password = "z64-secret")
         assertArrayEquals(payload, File(outAes, "vault.txt").readBytes())
+
+        // 3. Exact 0xFFFFFFFFL (4 GiB - 1) Data Descriptor boundary matches OpenJDK 21 / Android ZipInputStream.readEnd (`> 0xFFFFFFFFL`),
+        // and encodeDataDescriptor emits exact 16-byte (32-bit) vs 24-byte (64-bit) little-endian descriptors.
+        assertFalse(ZipWriter.shouldWriteZip64DataDescriptor(0xFFFFFFFFL, 0xFFFFFFFFL))
+        assertTrue(ZipWriter.shouldWriteZip64DataDescriptor(0x1_0000_0000L, 10L))
+        assertTrue(ZipWriter.shouldWriteZip64DataDescriptor(10L, 0x1_0000_0000L))
+
+        val dd32 = ZipWriter.encodeDataDescriptor(0x89ABCDEF, 0xFFFFFFFFL, 0xFFFFFFFFL, zip64 = false)
+        assertEquals(16, dd32.size)
+        val bb32 = ByteBuffer.wrap(dd32).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(0x08074B50, bb32.int)
+        assertEquals(0x89ABCDEF.toInt(), bb32.int)
+        assertEquals(0xFFFFFFFFL, bb32.int.toLong() and 0xFFFFFFFFL)
+        assertEquals(0xFFFFFFFFL, bb32.int.toLong() and 0xFFFFFFFFL)
+
+        val dd64 = ZipWriter.encodeDataDescriptor(0x12345678L, 0x1_0000_0005L, 0x2_0000_0009L, zip64 = true)
+        assertEquals(24, dd64.size)
+        val bb64 = ByteBuffer.wrap(dd64).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(0x08074B50, bb64.int)
+        assertEquals(0x12345678, bb64.int)
+        assertEquals(0x1_0000_0005L, bb64.long)
+        assertEquals(0x2_0000_0009L, bb64.long)
     }
 
     @Test
@@ -1109,6 +1131,462 @@ class ZipAdvancedAndCryptoTest {
         CacheJanitor.wipeEncryptedStaging(cacheDir, includePicker = true)
         assertFalse(encPicker.exists())
         assertTrue(plainOpen.exists())
+    }
+
+    @Test
+    fun conflictReplacePreservesTargetAndMimeOnSafAndProvidersWithoutRename() = runBlocking {
+        val srcPlain = File(sandbox, "report.pdf").apply { writeText("updated-pdf-payload") }
+        val zipFile = File(sandbox, "report-enc.zip")
+        ops.compress(
+            sources = listOf(srcPlain.path),
+            zipPath = zipFile.path,
+            options = ZipCompressOptions(ZipCompressionLevel.Normal, password = "pdf-pw"),
+        ) {}
+        val zipEntryPath = FsPath.child(FsPath.zipRoot(zipFile.path), "report.pdf")
+
+        // 1. SAF-like provider where `rename` throws UnsupportedOperationException and MIME is stamped on creation.
+        val safFiles = LinkedHashMap<String, ByteArray>().apply {
+            put("saf://tree1/report.pdf", "original-pdf".toByteArray(Charsets.UTF_8))
+        }
+        val safMimes = LinkedHashMap<String, String>().apply {
+            put("saf://tree1/report.pdf", "application/pdf")
+        }
+        var safDeletes = 0
+        val fakeSaf = object : FileSystem {
+            override fun list(path: String): List<FileEntry> = safFiles.keys
+                .filter { FsPath.parent(it) == path }
+                .map { FileEntry(it, FsPath.name(it), false, size = safFiles[it]!!.size.toLong(), modified = 1000L) }
+            override fun stat(path: String): FileEntry? =
+                if (path == "saf://tree1") FileEntry(path, "tree1", true, modified = 1000L)
+                else safFiles[path]?.let { FileEntry(path, FsPath.name(path), false, size = it.size.toLong(), modified = 1000L) }
+            override fun mkdir(path: String) {}
+            override fun createFile(path: String) {
+                safFiles[path] = ByteArray(0)
+                safMimes.putIfAbsent(path, if (path.endsWith(".pdf")) "application/pdf" else "application/octet-stream")
+            }
+            override fun delete(path: String) {
+                safDeletes++
+                safFiles.remove(path)
+                safMimes.remove(path)
+            }
+            override fun rename(path: String, newName: String): String =
+                throw UnsupportedOperationException("DocumentsProvider does not support renameDocument")
+            override fun openInput(path: String): InputStream =
+                (safFiles[path] ?: throw IOException("404")).inputStream()
+            override fun openOutput(path: String): OutputStream {
+                safMimes.putIfAbsent(path, if (path.endsWith(".pdf")) "application/pdf" else "application/octet-stream")
+                return object : ByteArrayOutputStream() {
+                    override fun close() {
+                        super.close()
+                        safFiles[path] = toByteArray()
+                    }
+                }
+            }
+        }
+
+        // 2. Path-addressed WebDAV-like provider where `rename` throws UnsupportedOperationException on one share
+        // and succeeds on another, recording created staging filenames so we verify extension preservation.
+        val davFiles = LinkedHashMap<String, ByteArray>().apply {
+            put("dav://nas/no-rename/report.pdf", "dav-original".toByteArray(Charsets.UTF_8))
+            put("dav://nas/with-rename/report.pdf", "dav-rename-orig".toByteArray(Charsets.UTF_8))
+        }
+        val davCreatedNames = ArrayList<String>()
+        val fakeDav = object : FileSystem {
+            override fun list(path: String): List<FileEntry> = emptyList()
+            override fun stat(path: String): FileEntry? = when {
+                path in setOf("dav://nas", "dav://nas/no-rename", "dav://nas/with-rename") ->
+                    FileEntry(path, FsPath.name(path), true, modified = 1000L)
+                davFiles.containsKey(path) ->
+                    FileEntry(path, FsPath.name(path), false, size = davFiles[path]!!.size.toLong(), modified = 1000L)
+                else -> null
+            }
+            override fun mkdir(path: String) {}
+            override fun createFile(path: String) { davFiles[path] = ByteArray(0) }
+            override fun delete(path: String) { davFiles.remove(path) }
+            override fun rename(path: String, newName: String): String {
+                if (path.startsWith("dav://nas/no-rename/")) {
+                    throw UnsupportedOperationException("rename disabled")
+                }
+                val bytes = davFiles.remove(path) ?: throw IOException("missing $path")
+                val dst = FsPath.child(FsPath.parent(path)!!, newName)
+                if (davFiles.containsKey(dst)) throw IOException("exists $dst")
+                davFiles[dst] = bytes
+                return dst
+            }
+            override fun openInput(path: String): InputStream =
+                (davFiles[path] ?: throw IOException("404 $path")).inputStream()
+            override fun openOutput(path: String): OutputStream {
+                if (!davFiles.containsKey(path)) davCreatedNames += FsPath.name(path)
+                return object : ByteArrayOutputStream() {
+                    override fun close() {
+                        super.close()
+                        davFiles[path] = toByteArray()
+                    }
+                }
+            }
+        }
+
+        val customRepo = FileRepository(
+            LocalFileSystem(),
+            LocalFileSystem(),
+            null,
+            byScheme = mapOf("saf" to fakeSaf, "dav" to fakeDav),
+        )
+        val customOps = FileOperations(customRepo, stagingRoot = File(sandbox, "replace-stage"))
+        val entryOnCustom = FsPath.child(FsPath.zipRoot(zipFile.path), "report.pdf")
+
+        // Wrong password on SAF Replace must NOT delete or corrupt the existing SAF document.
+        customRepo.zip.setPassword(zipFile.path, "wrong-pw")
+        try {
+            customOps.transfer(listOf(entryOnCustom), "saf://tree1", move = false, conflict = Conflict.Replace) {}
+            fail("Expected wrong password failure")
+        } catch (e: ZipPasswordRequiredException) {
+            assertTrue(e.wrongPassword)
+        }
+        assertEquals("original-pdf", String(safFiles["saf://tree1/report.pdf"]!!, Charsets.UTF_8))
+        assertEquals("application/pdf", safMimes["saf://tree1/report.pdf"])
+        assertEquals("SAF target must never be deleted on Replace", 0, safDeletes)
+
+        // Valid password on SAF Replace overwrites in place, preserving MIME and never calling rename/delete.
+        customRepo.zip.setPassword(zipFile.path, "pdf-pw")
+        customOps.transfer(listOf(entryOnCustom), "saf://tree1", move = false, conflict = Conflict.Replace) {}
+        assertEquals("updated-pdf-payload", String(safFiles["saf://tree1/report.pdf"]!!, Charsets.UTF_8))
+        assertEquals("application/pdf", safMimes["saf://tree1/report.pdf"])
+        assertEquals(0, safDeletes)
+
+        // Path-addressed provider WITHOUT rename: wrong password leaves target intact; valid password replaces without data loss.
+        customRepo.zip.setPassword(zipFile.path, "wrong-pw")
+        try {
+            customOps.transfer(listOf(entryOnCustom), "dav://nas/no-rename", move = false, conflict = Conflict.Replace) {}
+            fail("Expected wrong password failure")
+        } catch (_: ZipPasswordRequiredException) {
+        }
+        assertEquals("dav-original", String(davFiles["dav://nas/no-rename/report.pdf"]!!, Charsets.UTF_8))
+
+        customRepo.zip.setPassword(zipFile.path, "pdf-pw")
+        customOps.transfer(listOf(entryOnCustom), "dav://nas/no-rename", move = false, conflict = Conflict.Replace) {}
+        assertEquals("updated-pdf-payload", String(davFiles["dav://nas/no-rename/report.pdf"]!!, Charsets.UTF_8))
+        assertEquals(setOf("dav://nas/no-rename/report.pdf"), davFiles.keys.filter { it.startsWith("dav://nas/no-rename/") }.toSet())
+
+        // Path-addressed provider WITH rename: staged sibling name preserves `.pdf` extension and swaps cleanly.
+        customOps.transfer(listOf(entryOnCustom), "dav://nas/with-rename", move = false, conflict = Conflict.Replace) {}
+        assertEquals("updated-pdf-payload", String(davFiles["dav://nas/with-rename/report.pdf"]!!, Charsets.UTF_8))
+        assertTrue("Staged sibling names must preserve .pdf extension: $davCreatedNames", davCreatedNames.all { it.endsWith(".pdf") })
+
+        // Long Unicode filename clamping preserves extension and stays <= 255 UTF-8 bytes.
+        val longName = "𐐷".repeat(90) + ".tar.gz"
+        val clamped = FileOperations.buildTempSiblingName("wf-stage", longName)
+        assertTrue(clamped.endsWith(".tar.gz"))
+        assertTrue(clamped.toByteArray(Charsets.UTF_8).size <= FsPath.MAX_NAME_BYTES)
+    }
+
+    @Test
+    fun caseInsensitiveDuplicateEntryPathsAbortExtractionWithoutOverwritingEncryptedEntry() = runBlocking {
+        val secretBytes = "trusted-authenticated-script".toByteArray(Charsets.UTF_8)
+        val attackerBytes = "unauthenticated-overwrite".toByteArray(Charsets.UTF_8)
+        val pw = "case-secret"
+        val salt = ByteArray(16) { (0x33 + it).toByte() }
+        val derived = ZipCrypto.pbkdf2HmacSha1(pw.toByteArray(Charsets.UTF_8), salt, 1000, 66)
+        val ct = deflateRaw(secretBytes).also { WinZipAesCtrCipher(derived.copyOfRange(0, 32)).processInPlace(it, 0, it.size) }
+        val tag = Mac.getInstance("HmacSHA1").apply { init(SecretKeySpec(derived.copyOfRange(32, 64), "HmacSHA1")) }.doFinal(ct).copyOf(10)
+
+        val collidingZip = File(sandbox, "case-collide.zip").apply {
+            writeBytes(
+                buildMultiEntryZip(
+                    listOf(
+                        RawZipSpec(
+                            name = "bin/deploy.sh",
+                            flags = 0x0801,
+                            method = 99,
+                            crc = 0L,
+                            payload = salt + derived.copyOfRange(64, 66) + ct + tag,
+                            uncompSize = secretBytes.size.toLong(),
+                            extra = ZipCrypto.buildAesExtraField(AesStrength.AES256, 8, 2),
+                            versionNeeded = 51,
+                        ),
+                        RawZipSpec(
+                            name = "BIN/deploy.sh",
+                            flags = 0x0800,
+                            method = 0,
+                            crc = CRC32().apply { update(attackerBytes) }.value,
+                            payload = attackerBytes,
+                            uncompSize = attackerBytes.size.toLong(),
+                            extra = ByteArray(0),
+                            versionNeeded = 20,
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        // Case-insensitive remote/provider FS (`dav://`) must reject `BIN/deploy.sh` colliding with `bin/deploy.sh`
+        // and clean up the extraction target so attacker bytes never survive.
+        val ciFiles = LinkedHashMap<String, ByteArray>()
+        val ciDirs = LinkedHashSet<String>().apply { add("dav://ci") }
+        fun ciKey(p: String) = p.lowercase(java.util.Locale.ROOT)
+        val caseInsensitiveFs = object : FileSystem {
+            override fun list(path: String): List<FileEntry> = emptyList()
+            override fun stat(path: String): FileEntry? {
+                val k = ciKey(path)
+                if (k in ciDirs) return FileEntry(path, FsPath.name(path), true, modified = 1000L)
+                return ciFiles[k]?.let { FileEntry(path, FsPath.name(path), false, size = it.size.toLong(), modified = 1000L) }
+            }
+            override fun mkdir(path: String) { ciDirs += ciKey(path) }
+            override fun createFile(path: String) { ciFiles[ciKey(path)] = ByteArray(0) }
+            override fun delete(path: String) {
+                val k = ciKey(path)
+                ciDirs.removeIf { it == k || it.startsWith("$k/") }
+                ciFiles.keys.removeIf { it == k || it.startsWith("$k/") }
+            }
+            override fun rename(path: String, newName: String): String = throw IOException("ro")
+            override fun openInput(path: String): InputStream = (ciFiles[ciKey(path)] ?: throw IOException("404")).inputStream()
+            override fun openOutput(path: String): OutputStream = object : ByteArrayOutputStream() {
+                override fun close() {
+                    super.close()
+                    ciFiles[ciKey(path)] = toByteArray()
+                }
+            }
+        }
+        val ciRepo = FileRepository(LocalFileSystem(), LocalFileSystem(), null, byScheme = mapOf("dav" to caseInsensitiveFs))
+        val ciOps = FileOperations(ciRepo, stagingRoot = File(sandbox, "ci-stage"))
+        try {
+            ciOps.extract(collidingZip.path, "dav://ci", {}, password = pw)
+            fail("Expected case-colliding entry paths to abort extraction")
+        } catch (e: IOException) {
+            assertTrue("Unexpected error: ${e.message}", e.message.orEmpty().contains("Duplicate", ignoreCase = true))
+        }
+        assertTrue("Partial extracted files must be cleaned up on case collision", ciFiles.isEmpty())
+    }
+
+    @Test
+    fun cachedPasswordConcurrentLookupAndWipeNeverReturnsZeroedNulString() {
+        val zfs = ZipFileSystem()
+        val zipFile = File(sandbox, "race.zip").apply { writeBytes(byteArrayOf(0x50, 0x4B, 0x05, 0x06) + ByteArray(18)) }
+        val validPasswords = setOf("alpha-secret-1234", "bravo-secret-5678", "charlie-secret-9012")
+        val stop = java.util.concurrent.atomic.AtomicBoolean(false)
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+
+        val writers = (0 until 3).map { idx ->
+            Thread {
+                val pws = validPasswords.toList()
+                var i = 0
+                while (!stop.get() && failure.get() == null) {
+                    val pw = pws[(i + idx) % pws.size]
+                    zfs.setPassword(zipFile.path, pw, innerPath = "a.txt")
+                    if (i % 4 == 0) zfs.clearPassword(zipFile.path, innerPath = "a.txt")
+                    if (i % 11 == 0) zfs.clearAllPasswords()
+                    i++
+                }
+            }.apply { start() }
+        }
+        val readers = (0 until 6).map {
+            Thread {
+                repeat(4_000) {
+                    if (failure.get() != null) return@Thread
+                    val got = zfs.passwordFor(zipFile.path, innerPath = "a.txt")
+                    if (got != null && (got.contains('\u0000') || got !in validPasswords)) {
+                        failure.compareAndSet(null, AssertionError("Corrupted concurrent password read: '$got'"))
+                        return@Thread
+                    }
+                }
+            }.apply { start() }
+        }
+        readers.forEach { it.join() }
+        stop.set(true)
+        writers.forEach { it.join() }
+        failure.get()?.let { throw it }
+    }
+
+    @Test
+    fun multiPasswordFallbackFlagsFallbackFailureAndRemoteFirstEncryptedInnerPathFollowsPhysicalOrder() = runBlocking {
+        val largePlain = ByteArray(1024) { (0x41 + (it % 26)).toByte() }
+        val tinyPlain = "tiny".toByteArray(Charsets.UTF_8)
+        val pw1 = "entry-one-pw"
+        val pw2 = "entry-two-pw"
+
+        fun makeAesSpec(name: String, plain: ByteArray, pw: String, saltSeed: Int): RawZipSpec {
+            val salt = ByteArray(16) { (saltSeed + it).toByte() }
+            val d = ZipCrypto.pbkdf2HmacSha1(pw.toByteArray(Charsets.UTF_8), salt, 1000, 66)
+            val ct = deflateRaw(plain).also { WinZipAesCtrCipher(d.copyOfRange(0, 32)).processInPlace(it, 0, it.size) }
+            val tag = Mac.getInstance("HmacSHA1").apply { init(SecretKeySpec(d.copyOfRange(32, 64), "HmacSHA1")) }.doFinal(ct).copyOf(10)
+            return RawZipSpec(name, 0x0801, 99, 0L, salt + d.copyOfRange(64, 66) + ct + tag, plain.size.toLong(), ZipCrypto.buildAesExtraField(AesStrength.AES256, 8, 2), 51)
+        }
+
+        // Physical order: `first-large.bin` (larger!) comes BEFORE `second-tiny.txt` (smaller!).
+        val multiZip = File(sandbox, "ordered-multi.zip").apply {
+            writeBytes(
+                buildMultiEntryZip(
+                    listOf(
+                        makeAesSpec("first-large.bin", largePlain, pw1, 0x20),
+                        makeAesSpec("second-tiny.txt", tinyPlain, pw2, 0x70),
+                    ),
+                ),
+            )
+        }
+
+        val zfs = ZipFileSystem()
+        // 1. firstEncryptedInnerPath picks `first-large.bin` first despite `second-tiny.txt` being smaller.
+        val firstInner = ZipCrypto.firstEncryptedInnerPath(multiZip) { inner -> zfs.passwordFor(multiZip.path, innerPath = inner) == null }
+        assertEquals("first-large.bin", firstInner)
+        ZipCrypto.verifyPassword(multiZip, multiZip.path, pw1, targetInnerPath = firstInner)
+        zfs.setPassword(multiZip.path, pw1, innerPath = firstInner)
+
+        // 2. Opening `second-tiny.txt` tries the archive-wide fallback `pw1`, fails, and marks `fromArchiveFallback = true`
+        // so the UI prompts cleanly for `second-tiny.txt` without showing a false "Incorrect password" error.
+        try {
+            zfs.openInput(FsPath.child(FsPath.zipRoot(multiZip.path), "second-tiny.txt")).use { it.readBytes() }
+            fail("Expected password prompt for second-tiny.txt")
+        } catch (e: ZipPasswordRequiredException) {
+            assertTrue(e.wrongPassword)
+            assertTrue("Expected fromArchiveFallback=true on untouched second entry", e.fromArchiveFallback)
+            assertEquals("second-tiny.txt", e.targetInnerPath)
+        }
+
+        // 3. Now `firstEncryptedInnerPath` advances to `second-tiny.txt` while `first-large.bin` stays unlocked.
+        val secondInner = ZipCrypto.firstEncryptedInnerPath(multiZip) { inner -> zfs.passwordFor(multiZip.path, innerPath = inner) == null }
+        assertEquals("second-tiny.txt", secondInner)
+    }
+
+    @Test
+    fun verifyPasswordHonorsInterruptionAndRejectsMalformedOrMismatchedAesHeaders() = runBlocking {
+        val src = File(sandbox, "interrupt.bin").apply { writeBytes(ByteArray(256 * 1024) { it.toByte() }) }
+        val aesZip = File(sandbox, "interrupt.zip")
+        ops.compress(listOf(src.path), aesZip.path, ZipCompressOptions(ZipCompressionLevel.None, password = "int-pw")) {}
+
+        // 1a. Pre-interrupted thread aborts verifyPassword immediately (either via FileChannel ClosedByInterruptException
+        // or verifyAesHmac InterruptedIOException) without hashing the full archive.
+        val caught = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+        val worker = Thread {
+            Thread.currentThread().interrupt()
+            try {
+                ZipCrypto.verifyPassword(aesZip, aesZip.path, "int-pw")
+            } catch (t: Throwable) {
+                caught.set(t)
+            }
+        }
+        worker.start()
+        worker.join()
+        assertTrue(
+            "Expected interruption IOException when thread is interrupted, got: ${caught.get()}",
+            caught.get() is java.io.InterruptedIOException || caught.get() is java.nio.channels.ClosedByInterruptException,
+        )
+
+        // 1b. Direct verifyAesHmac over a non-channel InputStream aborts immediately with InterruptedIOException.
+        val hmacCaught = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+        val hmacWorker = Thread {
+            Thread.currentThread().interrupt()
+            try {
+                ZipCrypto.verifyAesHmac(
+                    inp = ByteArray(128 * 1024).inputStream(),
+                    cipherLen = 128L * 1024L - 10L,
+                    hmacKey = ByteArray(32) { 1 },
+                    archivePath = aesZip.path,
+                )
+            } catch (t: Throwable) {
+                hmacCaught.set(t)
+            }
+        }
+        hmacWorker.start()
+        hmacWorker.join()
+        assertTrue(
+            "Expected InterruptedIOException from verifyAesHmac, got: ${hmacCaught.get()}",
+            hmacCaught.get() is java.io.InterruptedIOException,
+        )
+
+        // 2. Archive with method=99 (WinZip AES) but GPB bit 0 cleared is flagged encrypted and rejected as malformed.
+        val missingBit0Zip = File(sandbox, "aes-no-bit0.zip").apply {
+            writeBytes(
+                buildSingleEntryZip(
+                    name = "bad.txt",
+                    flags = 0x0800, // bit 0 NOT set!
+                    method = 99,
+                    dosTime = 0x4000,
+                    dosDate = 0x5A21,
+                    crc = 0L,
+                    compSize = 32L,
+                    uncompSize = 4L,
+                    extra = ZipCrypto.buildAesExtraField(AesStrength.AES256, 0, 2),
+                    payload = ByteArray(32),
+                    versionNeeded = 51,
+                ),
+            )
+        }
+        assertTrue(ZipCrypto.isArchiveEncrypted(missingBit0Zip))
+        ZipCrypto.openZipFile(missingBit0Zip).use { z ->
+            val enc = ZipCrypto.detectEncryption(z.getEntry("bad.txt"))
+            assertTrue("Expected Unsupported for method=99 without bit 0, got $enc", enc is ZipEntryEncryption.Unsupported)
+        }
+
+        // 3. Archive where Central Directory `0x9901` disagrees with Local File Header `0x9901` is rejected.
+        val validBytes = aesZip.readBytes()
+        // Mutate the LFH `0x9901` version from 2 (AE-2) to 1 (AE-1) while leaving CD `0x9901` at 2.
+        val lfhAesHeader = byteArrayOf(0x01, 0x99.toByte(), 0x07, 0x00, 0x02, 0x00, 'A'.code.toByte(), 'E'.code.toByte())
+        val firstIdx = indexOfBytes(validBytes, lfhAesHeader)
+        assertTrue(firstIdx >= 0)
+        val mismatched = validBytes.copyOf()
+        mismatched[firstIdx + 4] = 0x01 // LFH says AE-1, CD still says AE-2
+        val mismatchFile = File(sandbox, "aes-mismatch.zip").apply { writeBytes(mismatched) }
+        ZipCrypto.openZipFile(mismatchFile).use { z ->
+            val enc = ZipCrypto.detectEncryption(z.getEntry("interrupt.bin"))
+            assertTrue("Expected Unsupported for mismatched CD vs LFH 0x9901, got $enc", enc is ZipEntryEncryption.Unsupported)
+        }
+    }
+
+    @Test
+    fun sessionScopedCacheJanitorProtectsActiveSiblingWindowsAndExpiresPickerEnc() {
+        val cacheDir = File(sandbox, "multi-win-cache").apply { mkdirs() }
+        val now = 1_800_000_000_000L
+        CacheJanitor.registerSession("win-active-1")
+        CacheJanitor.registerSession("win-active-2")
+        try {
+            val activeOpen1 = File(cacheDir, "zip-open/enc/win-active-1/h1/secret1.txt").apply { parentFile!!.mkdirs(); writeText("w1") }
+            val activeStage1 = File(cacheDir, "zip-stage/win-active-1/remote1.zip").apply { parentFile!!.mkdirs(); writeText("s1") }
+            val activeOpen2 = File(cacheDir, "zip-open/enc/win-active-2/h2/secret2.txt").apply { parentFile!!.mkdirs(); writeText("w2") }
+            val orphanOpen = File(cacheDir, "zip-open/enc/crashed-session/h3/old.txt").apply { parentFile!!.mkdirs(); writeText("old") }
+            val freshPicker = File(cacheDir, "picker/enc/fresh/picked.txt").apply {
+                parentFile!!.mkdirs()
+                writeText("fresh")
+                setLastModified(now - 2 * 60_000L)
+                parentFile!!.setLastModified(now - 2 * 60_000L)
+            }
+            val stalePicker = File(cacheDir, "picker/enc/stale/picked.txt").apply {
+                parentFile!!.mkdirs()
+                writeText("stale")
+                setLastModified(now - CacheJanitor.PICKER_ENC_TTL_MS - 60_000L)
+                parentFile!!.setLastModified(now - CacheJanitor.PICKER_ENC_TTL_MS - 60_000L)
+            }
+
+            // Simulates a new window starting up (`sweepOrphanedEncryptedStaging`): orphans & expired picker/enc are
+            // deleted, while active sibling windows and fresh picker/enc remain untouched.
+            CacheJanitor.sweepOrphanedEncryptedStaging(cacheDir, nowMillis = now)
+            assertTrue(activeOpen1.exists())
+            assertTrue(activeStage1.exists())
+            assertTrue(activeOpen2.exists())
+            assertFalse("Orphaned session dir must be swept", orphanOpen.exists())
+            assertTrue("Fresh picker/enc must survive", freshPicker.exists())
+            assertFalse("Expired picker/enc (>15 min) must be evicted", stalePicker.exists())
+
+            // Closing window 2 (`unregisterSession`) deletes ONLY window 2's staging, keeping window 1 intact.
+            CacheJanitor.unregisterSession(cacheDir, "win-active-2")
+            assertFalse(activeOpen2.exists())
+            assertTrue("Sibling window 1 decrypted open must survive window 2 closing", activeOpen1.exists())
+            assertTrue("Sibling window 1 stage dir must survive window 2 closing", activeStage1.exists())
+            assertTrue(freshPicker.exists())
+        } finally {
+            CacheJanitor.unregisterSession(cacheDir, "win-active-1")
+            CacheJanitor.unregisterSession(cacheDir, "win-active-2")
+        }
+    }
+
+    private fun indexOfBytes(haystack: ByteArray, needle: ByteArray): Int {
+        if (needle.isEmpty() || haystack.size < needle.size) return -1
+        outer@ for (i in 0..(haystack.size - needle.size)) {
+            for (j in needle.indices) {
+                if (haystack[i + j] != needle[j]) continue@outer
+            }
+            return i
+        }
+        return -1
     }
 
     private data class RawZipSpec(
