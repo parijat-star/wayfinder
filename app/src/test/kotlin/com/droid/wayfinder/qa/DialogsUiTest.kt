@@ -7,19 +7,23 @@ import android.app.DownloadManager
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.droid.wayfinder.data.ConnectConfig
 import com.droid.wayfinder.data.Protocol
@@ -269,6 +273,48 @@ class DialogsUiTest {
         rule.onNodeWithText("Artist").assertDoesNotExist()
         rule.onNodeWithText("Copyright").assertDoesNotExist()
         rule.onNodeWithText("Location").assertDoesNotExist()
+        rule.onNodeWithText("Close").performClick(); idle()
+        assertNull(h.s.dialog)
+    }
+
+    @Test fun propertiesDialogAlignsLabelsUniformlyAndKeeps48dpCopyTargets() {
+        launch {
+            file("docs/sample.bin", "payload")
+            navigate(pathOf("docs")); select("docs/sample.bin")
+        }
+        val entry = h.s.active.entries.single { it.name == "sample.bin" }
+        val sha = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+        h.vm.showDialog(
+            Dialog.Properties(
+                entries = listOf(entry),
+                bytes = 7L,
+                checksums = com.droid.wayfinder.data.Checksums(sha256 = sha, crc32 = "352441c2"),
+                imageInfo = com.droid.wayfinder.data.ImageInfo(
+                    exposureBias = "+0.3 EV",
+                    whiteBalance = "Auto",
+                    location = "37.42200° N, 122.08400° W",
+                ),
+            ),
+        ); idle()
+
+        // Non-copyable rows use a fixed label column width so values share the exact same left X.
+        val sizeValBounds = rule.onNodeWithText("7 B (7 bytes)").fetchSemanticsNode().boundsInRoot
+        val wbValBounds = rule.onNodeWithText("Auto").fetchSemanticsNode().boundsInRoot
+        val ebValBounds = rule.onNodeWithText("+0.3 EV").fetchSemanticsNode().boundsInRoot
+        assertEquals(sizeValBounds.left, wbValBounds.left, 1f)
+        assertEquals(sizeValBounds.left, ebValBounds.left, 1f)
+
+        // Copyable rows and section headers preserve >= 48dp touch targets and emit CopyText.
+        for (desc in listOf("Copy Path", "Copy Location", "Copy SHA-256", "Copy CRC32", "Copy EXIF info")) {
+            rule.onNodeWithContentDescription(desc)
+                .assertWidthIsAtLeast(48.dp)
+                .assertHeightIsAtLeast(48.dp)
+        }
+        rule.onNodeWithContentDescription("Copy SHA-256").performClick(); idle()
+        val copied = h.events.filterIsInstance<UiEvent.CopyText>().last()
+        assertEquals("SHA-256", copied.what)
+        assertEquals(sha, copied.text)
+
         rule.onNodeWithText("Close").performClick(); idle()
         assertNull(h.s.dialog)
     }
