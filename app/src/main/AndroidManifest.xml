@@ -24,6 +24,7 @@
         <package android:name="com.google.android.apps.docs" />
         <package android:name="com.google.ambient.streaming" />
         <package android:name="com.android.mtp" />
+        <package android:name="com.google.android.filesapp" />
         <package android:name="com.google.android.documentsui" />
         <package android:name="com.android.documentsui" />
         <intent>
@@ -31,6 +32,18 @@
         </intent>
         <intent>
             <action android:name="android.intent.action.OPEN_DOCUMENT_TREE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="content" android:mimeType="vnd.android.document/directory" />
+        </intent>
+        <intent>
+            <action android:name="android.provider.action.BROWSE" />
+            <data android:scheme="content" android:mimeType="vnd.android.document/directory" />
+        </intent>
+        <intent>
+            <action android:name="android.provider.action.BROWSE" />
+            <data android:scheme="content" />
         </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />

@@ -113,6 +113,11 @@ fun Dialogs(vm: BrowserViewModel, s: AppState) {
         is Dialog.BatchRename -> BatchRenameDialog(d, vm::dismissDialog) { plan -> vm.batchRename(d.dir, plan) }
         Dialog.About -> AboutDialog(vm::dismissDialog)
         Dialog.DefaultHandler -> DefaultHandlerDialog(vm::dismissDialog)
+        is Dialog.ApkInstallUnsupported -> ApkInstallUnsupportedDialog(
+            d = d,
+            onDismiss = vm::dismissDialog,
+            onOpenInFiles = vm::openApkFolderInSystemFiles,
+        )
     }
 }
 
@@ -887,6 +892,47 @@ private fun DefaultHandlerDialog(onDismiss: () -> Unit) {
                         }
                     }
                 }
+            }
+        },
+    )
+}
+
+@Composable
+private fun ApkInstallUnsupportedDialog(
+    d: Dialog.ApkInstallUnsupported,
+    onDismiss: () -> Unit,
+    onOpenInFiles: (android.net.Uri) -> Unit,
+) {
+    val folderUri = d.folderUri
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp).widthIn(max = 520.dp).fillMaxWidth(),
+        icon = { Icon(Icons.Outlined.Info, null) },
+        title = { Text(stringResource(R.string.apk_install_unsupported_title)) },
+        text = {
+            Text(
+                if (folderUri != null) {
+                    stringResource(R.string.apk_install_unsupported_body, d.fileName)
+                } else {
+                    stringResource(R.string.apk_install_unsupported_remote_body, d.fileName)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        dismissButton = if (folderUri != null) {
+            { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) } }
+        } else {
+            null
+        },
+        confirmButton = {
+            if (folderUri != null) {
+                Button(onClick = { onOpenInFiles(folderUri) }) {
+                    Text(stringResource(R.string.apk_install_open_in_files))
+                }
+            } else {
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) }
             }
         },
     )

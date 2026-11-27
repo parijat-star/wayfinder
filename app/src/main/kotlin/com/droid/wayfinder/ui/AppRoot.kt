@@ -430,6 +430,18 @@ fun AppRoot(vm: BrowserViewModel) {
                         vm.requestImportFromPhone()
                     }
                 }
+                is UiEvent.OpenSystemFilesFolder -> {
+                    val sysIntent = com.droid.wayfinder.data.SystemFilesHandoff.buildOpenFolderIntent(ctx, e.folderUri)
+                    if (sysIntent != null) {
+                        try {
+                            ctx.startActivity(sysIntent)
+                        } catch (_: Exception) {
+                            toasts.show(ctx.getString(R.string.apk_install_files_app_unavailable))
+                        }
+                    } else {
+                        toasts.show(ctx.getString(R.string.apk_install_files_app_unavailable))
+                    }
+                }
                 is UiEvent.PickResult -> returnPicked(ctx, e.paths)
                 is UiEvent.PickTreeResult -> returnPickedTree(ctx, e.path, e.uri)
                 is UiEvent.CreateDocumentResult -> returnCreatedDocument(ctx, e.path, e.uri, e.mimeType)
