@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
@@ -281,7 +282,7 @@ private fun FolderPreview(vm: BrowserViewModel, e: FileEntry) {
     }
 }
 
-private data class ZipListing(val entries: List<Triple<String, Long, Boolean>>, val total: Int, val bytes: Long)
+private data class ZipListing(val entries: List<Triple<String, Long, Boolean>>, val total: Int, val bytes: Long, val encrypted: Boolean)
 
 /** Zip archives show their entry list (name, uncompressed size). */
 @Composable
@@ -291,22 +292,34 @@ private fun ZipPreview(e: FileEntry) {
         value = withContext(Dispatchers.IO) {
             runCatching {
                 val s = com.droid.wayfinder.data.ZipFileSystem.summary(File(e.path))
-                ZipListing(s.entries, s.total, s.bytes)
+                ZipListing(s.entries, s.total, s.bytes, s.encrypted)
             }
         }
     }
     val r = listing ?: run { CircularProgressIndicator(); return }
     val l = r.getOrNull() ?: run { BinaryPreview(e, "Couldn't read this archive: ${r.exceptionOrNull()?.message}"); return }
     Column(Modifier.fillMaxSize()) {
-        Text(
-            androidx.compose.ui.res.stringResource(
-                R.string.quicklook_archive_summary,
-                icuStringResource(R.string.archive_entry_count_plural, l.total),
-                formatSize(l.bytes),
-            ),
-            Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp),
-            style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant,
-        )
+        Row(
+            Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                androidx.compose.ui.res.stringResource(
+                    R.string.quicklook_archive_summary,
+                    icuStringResource(R.string.archive_entry_count_plural, l.total),
+                    formatSize(l.bytes),
+                ),
+                style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant,
+            )
+            if (l.encrypted) {
+                Icon(Icons.Outlined.Lock, null, Modifier.size(15.dp), tint = cs.primary)
+                Text(
+                    androidx.compose.ui.res.stringResource(R.string.archive_password_protected),
+                    style = MaterialTheme.typography.labelLarge, color = cs.primary,
+                )
+            }
+        }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
             items(l.entries) { (name, size, dir) ->
                 val k = if (dir) FileKind.Folder else FileKind.fromName(name)

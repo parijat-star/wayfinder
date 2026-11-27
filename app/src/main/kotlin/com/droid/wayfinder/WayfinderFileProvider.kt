@@ -132,7 +132,7 @@ class WayfinderFileProvider : FileProvider() {
 
     companion object {
         private val STAGED_CACHE_SEGMENTS = setOf("remote", "zip", "picker")
-        private val READ_ONLY_OPEN_SEGMENTS = setOf("remote", "zip")
+        private val READ_ONLY_OPEN_SEGMENTS = setOf("remote", "zip", "picker")
         private val DEFAULT_COLUMNS = arrayOf(
             OpenableColumns.DISPLAY_NAME,
             OpenableColumns.SIZE,

@@ -197,12 +197,20 @@ object FileInfo {
 }
 
 /** Fails with an [IOException] once more than [limit] bytes have been read (zip bombs, endless responses). */
-class BoundedInputStream(input: InputStream, private val limit: Long, private val what: String = "Data") : FilterInputStream(input) {
+class BoundedInputStream(
+    input: InputStream,
+    private val limit: Long,
+    private val what: String = "Data",
+    private val archiveSize: Long = 0L,
+    private val limits: ExtractLimits? = null,
+) : FilterInputStream(input) {
     private var count = 0L
 
     private fun add(n: Long) {
-        if (n > 0) count += n
-        if (count > limit) throw IOException("$what is larger than expected")
+        if (n <= 0L) return
+        if (limit < 0L || n > limit - count) throw IOException("$what is larger than expected")
+        count += n
+        limits?.check(count, archiveSize)
     }
 
     override fun read(): Int = super.read().also { if (it >= 0) add(1) }

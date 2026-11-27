@@ -1340,7 +1340,7 @@ internal fun returnPicked(ctx: Context, paths: List<String>) {
         val allDocUris = resolved.all { it.second.second }
         val allWritable = resolved.all { (p, pair) ->
             val (uri, isDoc) = pair
-            val diskWritable = !FsPath.isLocalFile(p) || File(p).canWrite()
+            val diskWritable = !FsPath.isLocalFile(p) || (File(p).canWrite() && !isStagedCacheFile(ctx, File(p)))
             diskWritable && (!isDoc || hasSelfWriteUriGrant(ctx, uri))
         }
         val mime = if (paths.size == 1) {
@@ -1381,7 +1381,11 @@ internal fun returnPickedTree(ctx: Context, path: String, preferredUri: android.
         } else {
             FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", safeFileProviderTarget(path))
         }
-        val writable = if (hasDocGrant) hasSelfWriteUriGrant(ctx, treeUri) else (!FsPath.isLocalFile(path) || File(path).canWrite())
+        val writable = if (hasDocGrant) {
+            hasSelfWriteUriGrant(ctx, treeUri)
+        } else {
+            !FsPath.isLocalFile(path) || (File(path).canWrite() && !isStagedCacheFile(ctx, File(path)))
+        }
         var flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
             (if (writable) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
         val persistable = hasDocGrant &&

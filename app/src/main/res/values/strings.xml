@@ -546,4 +546,31 @@
     <string name="action_collapse" description="Accessibility label on an expanded sidebar folder chevron icon. [CHAR_LIMIT=20]">Collapse</string>
     <string name="action_expand_folder" description="Accessibility click label and hover tooltip to expand a sidebar folder. %1$s is the folder name. [CHAR_LIMIT=45]">Expand %1$s</string>
     <string name="action_collapse_folder" description="Accessibility click label and hover tooltip to collapse a sidebar folder. %1$s is the folder name. [CHAR_LIMIT=45]">Collapse %1$s</string>
+
+    <!-- Advanced ZIP archival & password-protected archive dialogs -->
+    <string name="compress_archive_name_label" description="Text field label for the output ZIP file name in the Compress to ZIP dialog. [CHAR_LIMIT=25]">Archive name</string>
+    <string name="compress_advanced_options" description="Expandable section toggle label in the Compress to ZIP dialog revealing compression level, encryption, and hidden-file options. [CHAR_LIMIT=30]">Advanced options</string>
+    <string name="compress_level_label" description="Section label above compression level filter chips in the Compress to ZIP dialog. [CHAR_LIMIT=30]">Compression level</string>
+    <string name="compress_level_none" description="Filter chip label for uncompressed (STORED) ZIP archiving in the Compress to ZIP dialog. [CHAR_LIMIT=18]">None</string>
+    <string name="compress_level_fast" description="Filter chip label for fast ZIP compression (level 1) in the Compress to ZIP dialog. [CHAR_LIMIT=18]">Fast</string>
+    <string name="compress_level_normal" description="Filter chip label for default balanced ZIP compression (level 6) in the Compress to ZIP dialog. [CHAR_LIMIT=18]">Normal</string>
+    <string name="compress_level_maximum" description="Filter chip label for maximum ZIP compression (level 9) in the Compress to ZIP dialog. [CHAR_LIMIT=18]">Maximum</string>
+    <string name="compress_password_optional_label" description="Text field label for an optional AES-256 password when creating a ZIP archive. [CHAR_LIMIT=35]">Password (optional)</string>
+    <string name="compress_password_confirm_label" description="Text field label to re-enter and confirm the ZIP encryption password. [CHAR_LIMIT=30]">Confirm password</string>
+    <string name="compress_password_hint" description="Helper text under the optional password field in the Compress to ZIP dialog when blank. [CHAR_LIMIT=70]">Optional AES-256 encryption for file contents</string>
+    <string name="compress_password_aes_note" description="Helper text under the password field when a password is entered, clarifying that AES-256 encrypts file contents while ZIP filenames stay visible. [CHAR_LIMIT=75]">Encrypted with AES-256. Filenames remain visible.</string>
+    <string name="compress_password_7zip_note" description="Helper warning under the ZIP password field when the password exceeds 99 UTF-8 bytes, noting 7-Zip compatibility limits. [CHAR_LIMIT=95]">Encrypted with AES-256. Passwords over 99 bytes may not open in 7-Zip.</string>
+    <string name="compress_password_mismatch" description="Inline validation error shown when the password and confirm password fields do not match. [CHAR_LIMIT=40]">Passwords don\'t match</string>
+    <string name="compress_exclude_hidden_label" description="Checkbox label in the Compress to ZIP dialog to skip dotfiles and hidden items. [CHAR_LIMIT=35]">Exclude hidden files</string>
+    <string name="compress_exclude_hidden_desc" description="Helper subtitle under the Exclude hidden files checkbox in the Compress to ZIP dialog. [CHAR_LIMIT=65]">Skip files and folders starting with a dot (.)</string>
+    <string name="action_show_password" description="Accessibility label and tooltip for the eye icon button that reveals a masked password field. [CHAR_LIMIT=25]">Show password</string>
+    <string name="action_hide_password" description="Accessibility label and tooltip for the eye-off icon button that masks a visible password field. [CHAR_LIMIT=25]">Hide password</string>
+    <string name="dialog_zip_password_title" description="Dialog title shown when opening, copying, or extracting a password-protected ZIP archive. [CHAR_LIMIT=30]">Password required</string>
+    <string name="dialog_zip_password_message" description="Dialog body identifying the encrypted ZIP archive requiring a password. %1$s is the archive file name (e.g. secrets.zip). [CHAR_LIMIT=70]">“%1$s” is password-protected.</string>
+    <string name="dialog_zip_password_entry" description="Secondary caption in the ZIP password dialog identifying the specific encrypted entry inside the archive. %1$s is the entry path inside the archive (e.g. secret/notes.txt). [CHAR_LIMIT=80]">Entry: %1$s</string>
+    <string name="dialog_zip_password_session_note" description="Privacy reassurance subtitle in the ZIP password dialog noting the password is only cached in memory for the session. [CHAR_LIMIT=75]">Password is kept only in memory for this session.</string>
+    <string name="dialog_zip_password_incorrect" description="Inline validation error shown in the ZIP password dialog when the entered password fails verification. [CHAR_LIMIT=50]">Incorrect password. Please try again.</string>
+    <string name="action_unlock" description="Confirm button label in the ZIP password dialog to verify the password and continue. [CHAR_LIMIT=20]">Unlock</string>
+    <string name="archive_password_protected" description="Badge text and accessibility label indicating an archive or entry is password-protected. [CHAR_LIMIT=30]">Password-protected</string>
+    <string name="preview_encryption_label" description="Metadata row label in the right-hand Details pane for encrypted archive entries. [CHAR_LIMIT=25]">Encryption</string>
 </resources>

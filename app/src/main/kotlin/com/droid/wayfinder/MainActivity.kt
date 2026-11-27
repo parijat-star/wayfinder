@@ -437,19 +437,24 @@ class MainActivity : ComponentActivity() {
             val dir = java.io.File(context.cacheDir, "view-archive").apply { mkdirs() }
             val dstFile = java.io.File(dir, safeName)
             val maxBytes = 512L * 1024 * 1024 // 512 MB cap for synchronous staging
-            context.contentResolver.openInputStream(uri)?.use { inp ->
-                dstFile.outputStream().use { out ->
-                    val buf = ByteArray(128 * 1024)
-                    var total = 0L
-                    while (true) {
-                        val n = inp.read(buf)
-                        if (n < 0) break
-                        total += n
-                        if (total > maxBytes) throw java.io.IOException("Archive too large to stage")
-                        out.write(buf, 0, n)
+            try {
+                context.contentResolver.openInputStream(uri)?.use { inp ->
+                    dstFile.outputStream().use { out ->
+                        val buf = ByteArray(128 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val n = inp.read(buf)
+                            if (n < 0) break
+                            total += n
+                            if (total > maxBytes) throw java.io.IOException("Archive too large to stage")
+                            out.write(buf, 0, n)
+                        }
                     }
-                }
-            } ?: return null
+                } ?: return null
+            } catch (t: Throwable) {
+                runCatching { dstFile.delete() }
+                throw t
+            }
             com.droid.wayfinder.data.FsPath.zipRoot(dstFile.path)
         }.getOrNull()
     }

@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.draganddrop.DragAndDropEvent
@@ -1260,6 +1261,14 @@ private fun EntryRow(vm: BrowserViewModel, s: AppState, tab: TabState, e: FileEn
                     style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = if (selected) cs.onSecondaryContainer else cs.onSurface,
                 )
+                if (e.isEncrypted) {
+                    Icon(
+                        Icons.Outlined.Lock,
+                        contentDescription = stringResource(R.string.archive_password_protected),
+                        modifier = Modifier.padding(start = 6.dp).size(14.dp),
+                        tint = if (selected) cs.onSecondaryContainer else cs.onSurfaceVariant,
+                    )
+                }
                 MarkBadges(s, e.path, Modifier.padding(start = 8.dp), showTags = !tagsColVisible)
             }
             if (sub != null) Text(

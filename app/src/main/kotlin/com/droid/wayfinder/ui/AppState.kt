@@ -60,6 +60,14 @@ sealed interface Dialog {
     ) : Dialog
     data class ConflictPrompt(val sources: List<String>, val dest: String, val move: Boolean, val names: List<String>) : Dialog
     data class Compress(val sources: List<String>, val suggested: String) : Dialog
+    /** Password prompt shown only when extracting, opening, or copying out of a password-protected ZIP. */
+    data class ZipPassword(
+        val archivePath: String,
+        val archiveName: String,
+        val error: String? = null,
+        val verifying: Boolean = false,
+        val targetInnerPath: String? = null,
+    ) : Dialog
     /** "Connect to Server" (Ctrl+Shift+K); [initial] pre-fills the form (e.g. when reconnecting a saved server). */
     data class Connect(val initial: ConnectConfig? = null) : Dialog
     /** "Connect Microsoft OneDrive"; [reauthAccountId] pre-selects an existing account when re-signing in. */
