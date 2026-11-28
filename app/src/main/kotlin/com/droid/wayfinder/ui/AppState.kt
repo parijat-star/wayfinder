@@ -92,8 +92,19 @@ sealed interface UiEvent {
     /** [what] names the copied value in the confirmation ("Path copied", "SHA-256 copied"). */
     data class CopyText(val text: String, val what: String = "Path") : UiEvent
     data object Finish : UiEvent
-    /** Open an independent window, optionally at [path]. */
-    data class NewWindow(val path: String?) : UiEvent
+    /** Open an independent window, optionally at [path] and/or on [targetDisplayId]. */
+    data class NewWindow(val path: String?, val targetDisplayId: Int? = null) : UiEvent
+    /** Spawn a new window adopting a torn/moved tab stored in [com.droid.wayfinder.data.TabTransferRegistry]. */
+    data class LaunchTransferredTabWindow(
+        val sessionId: String,
+        val fallbackPath: String,
+        val promoteToPrimary: Boolean = false,
+        val targetDisplayId: Int? = null,
+        val dropX: Int? = null,
+        val dropY: Int? = null,
+        val onLaunched: (() -> Unit)? = null,
+        val onLaunchFailed: (() -> Unit)? = null,
+    ) : UiEvent
     /** Open an HTTPS URL in the system browser (e.g. Microsoft OAuth sign-in or OneDrive Web). */
     data class OpenExternalUrl(val url: String) : UiEvent
     /** Launch ACTION_OPEN_DOCUMENT_TREE to mount a cloud / SAF location. */
@@ -213,9 +224,19 @@ data class AppState(
     val activeDetailsWidthDp: Float? = null,
     /** Effective font scale of the active Details-view pane. */
     val activeFontScale: Float = 1f,
+    /** Non-null while a tab is detached during a tear/merge drag gesture (hidden from strip until drop/cancel). */
+    val detachedTabId: Long? = null,
 ) {
-    /** The tab selected in the tab strip (left pane in dual-pane mode). */
-    val mainTab: TabState get() = tabs.firstOrNull { it.id == activeId } ?: tabs.first()
+    /** Tabs currently rendered in the tab strip (excludes [detachedTabId] while torn off mid-drag). */
+    val visibleTabs: List<TabState>
+        get() = if (detachedTabId == null) tabs else tabs.filter { it.id != detachedTabId }
+
+    /** The tab selected in the tab strip (left pane in dual-pane mode), previewing the remaining tab while torn. */
+    val mainTab: TabState
+        get() {
+            val pool = visibleTabs.ifEmpty { tabs }
+            return pool.firstOrNull { it.id == activeId } ?: pool.first()
+        }
     /** The pane that keyboard shortcuts and menus act on. */
     val active: TabState get() = if (dualPane && rightActive && secondary != null) secondary else mainTab
     /** The non-focused pane in dual-pane mode. */

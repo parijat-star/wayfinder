@@ -453,8 +453,9 @@ private fun SmbDialog(
 private val shortcuts = listOf(
     "Tabs & windows" to listOf(
         "New tab" to "Ctrl+T", "Close tab" to "Ctrl+W", "Next / previous tab" to "Ctrl+Tab / Ctrl+Shift+Tab",
-        "Go to tab 1–9" to "Alt+1 … Alt+9", "Reopen closed tab" to "Ctrl+Shift+T", "Open folder in new tab" to "Ctrl+Enter / middle-click",
-        "Command palette" to "Ctrl+K", "New window" to "Ctrl+N",
+        "Move tab left / right" to "Ctrl+Shift+PgUp / PgDn", "Go to tab 1–9" to "Alt+1 … Alt+9",
+        "Reopen closed tab" to "Ctrl+Shift+T", "Open folder in new tab" to "Ctrl+Enter / middle-click",
+        "Move tab to new window" to "Alt+Shift+N", "Command palette" to "Ctrl+K", "New window" to "Ctrl+N",
     ),
     "Navigate" to listOf(
         "Back / forward" to "Alt+← / Alt+→ or Backspace", "Up one level" to "Alt+↑", "Open" to "Enter / double-click", "Quick Look preview" to "Space",

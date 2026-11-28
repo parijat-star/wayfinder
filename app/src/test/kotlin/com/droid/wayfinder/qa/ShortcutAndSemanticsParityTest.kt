@@ -167,8 +167,14 @@ class ShortcutAndSemanticsParityTest {
                 R.string.shortcut_next_tab,
                 R.string.shortcut_previous_tab,
                 R.string.shortcut_go_to_tab,
+                R.string.shortcut_move_tab_left,
+                R.string.shortcut_move_tab_new_window,
                 -> {
                     harness.vm.newTab(otherPath, activate = true)
+                    idle(harness)
+                }
+                R.string.shortcut_move_tab_right -> {
+                    harness.vm.newTab(otherPath, activate = false)
                     idle(harness)
                 }
                 R.string.shortcut_reopen_closed_tab -> {

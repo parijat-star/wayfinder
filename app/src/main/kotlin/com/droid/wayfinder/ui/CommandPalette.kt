@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.automirrored.outlined.NoteAdd
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.automirrored.outlined.ViewList
@@ -70,6 +71,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -96,8 +98,10 @@ import androidx.compose.ui.unit.dp
 import com.droid.wayfinder.R
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.outlined.AppRegistration
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Contrast
+import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.FindInPage
 import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material.icons.outlined.Lock
@@ -125,13 +129,60 @@ data class PaletteItem(
 )
 
 /** Every command the palette offers (labels mirror the menus and the F1 list). */
-fun paletteCommands(vm: BrowserViewModel, s: AppState, hasDesktopCaption: Boolean = false): List<PaletteItem> {
+fun paletteCommands(
+    vm: BrowserViewModel,
+    s: AppState,
+    hasDesktopCaption: Boolean = false,
+    windowId: Int = 0,
+    currentDisplayId: Int = android.view.Display.DEFAULT_DISPLAY,
+    connectedDisplays: List<com.droid.wayfinder.data.DisplayTarget> = emptyList(),
+): List<PaletteItem> {
     val tab = s.active
+    val activeTabIdx = s.tabs.indexOfFirst { it.id == s.activeId }
+    val otherWindows = if (s.picker == null) com.droid.wayfinder.data.TabTransferRegistry.otherMergeableWindows(windowId) else emptyList()
+    val otherDisplays = if (s.picker == null) connectedDisplays.filter { it.displayId != currentDisplayId } else emptyList()
     fun c(name: String, desc: String, shortcut: String?, icon: ImageVector, action: () -> Unit) = PaletteItem(name, desc, shortcut, icon, action)
     return buildList {
         add(c(vm.str(R.string.palette_new_tab), vm.str(R.string.palette_new_tab_desc), "Ctrl+T", Icons.Outlined.Tab) { vm.newTab() })
+        add(c(vm.str(R.string.action_duplicate_tab), vm.str(R.string.palette_duplicate_tab_desc), null, Icons.Outlined.CopyAll) { vm.duplicateTab(s.activeId) })
         add(c(vm.str(R.string.action_close_tab), vm.str(R.string.palette_close_tab_desc), "Ctrl+W", Icons.Outlined.Tab) { vm.closeTab(s.activeId) })
+        if (s.tabs.size > 1) {
+            add(c(vm.str(R.string.action_close_other_tabs), vm.str(R.string.palette_close_other_tabs_desc), null, Icons.Outlined.Close) { vm.closeOtherTabs(s.activeId) })
+        }
+        if (activeTabIdx in 0 until s.tabs.lastIndex) {
+            add(c(vm.str(R.string.action_close_tabs_right), vm.str(R.string.palette_close_tabs_right_desc), null, Icons.Outlined.Close) { vm.closeTabsToRight(s.activeId) })
+        }
         add(c(vm.str(R.string.palette_reopen_closed_tab), vm.str(R.string.palette_reopen_closed_tab_desc), "Ctrl+Shift+T", Icons.Outlined.History) { vm.reopenClosedTab() })
+        if (activeTabIdx > 0) {
+            add(c(vm.str(R.string.action_move_tab_left), vm.str(R.string.palette_move_tab_left_desc), "Ctrl+Shift+PgUp", Icons.AutoMirrored.Outlined.ArrowBack) { vm.moveTabBy(s.activeId, -1) })
+            if (s.tabs.size > 2) {
+                add(c(vm.str(R.string.action_move_tab_start), vm.str(R.string.palette_move_tab_start_desc), null, Icons.AutoMirrored.Outlined.ArrowBack) { vm.moveTabToEdge(s.activeId, toEnd = false) })
+            }
+        }
+        if (activeTabIdx in 0 until s.tabs.lastIndex) {
+            add(c(vm.str(R.string.action_move_tab_right), vm.str(R.string.palette_move_tab_right_desc), "Ctrl+Shift+PgDn", Icons.AutoMirrored.Outlined.ArrowForward) { vm.moveTabBy(s.activeId, 1) })
+            if (s.tabs.size > 2) {
+                add(c(vm.str(R.string.action_move_tab_end), vm.str(R.string.palette_move_tab_end_desc), null, Icons.AutoMirrored.Outlined.ArrowForward) { vm.moveTabToEdge(s.activeId, toEnd = true) })
+            }
+        }
+        if (s.picker == null) {
+            if (s.tabs.size > 1) {
+                add(c(vm.str(R.string.action_move_tab_new_window), vm.str(R.string.palette_move_tab_new_window_desc), "Alt+Shift+N", Icons.AutoMirrored.Outlined.OpenInNew) { vm.moveTabToNewWindow(s.activeId) })
+            }
+            val displayNames = connectedDisplays.associate { it.displayId to it.name }
+            otherWindows.forEach { win ->
+                val winTitle = if (win.displayId != currentDisplayId) {
+                    val dispName = displayNames[win.displayId] ?: "Display ${win.displayId}"
+                    vm.str(R.string.menu_window_target_on_display, win.title, dispName)
+                } else {
+                    win.title
+                }
+                add(c(vm.str(R.string.palette_move_tab_to_window, winTitle), vm.str(R.string.palette_move_tab_to_window_desc), null, Icons.Outlined.Tab) { vm.moveTabToWindow(s.activeId, win.windowId) })
+            }
+            otherDisplays.forEach { disp ->
+                add(c(vm.str(R.string.palette_move_tab_to_display, disp.name), vm.str(R.string.palette_move_tab_to_display_desc, disp.name), null, Icons.Outlined.DesktopWindows) { vm.moveTabToDisplay(s.activeId, disp.displayId) })
+            }
+        }
         add(c(vm.str(R.string.action_new_folder), vm.str(R.string.palette_new_folder_desc), "Ctrl+Shift+N", Icons.Outlined.CreateNewFolder) { vm.requestNewItem(true) })
         add(c(vm.str(R.string.action_new_text_file), vm.str(R.string.palette_new_text_file_desc), "Ctrl+Shift+M", Icons.AutoMirrored.Outlined.NoteAdd) { vm.requestNewItem(false) })
         add(c(vm.str(R.string.action_copy), vm.str(R.string.palette_copy_desc), "Ctrl+C", Icons.Outlined.ContentCopy) { vm.copy() })
@@ -277,14 +328,23 @@ fun paletteFolders(vm: BrowserViewModel, s: AppState): List<PaletteItem> {
 }
 
 @Composable
-fun CommandPalette(vm: BrowserViewModel, s: AppState) {
+fun CommandPalette(
+    vm: BrowserViewModel,
+    s: AppState,
+    windowId: Int = 0,
+    currentDisplayId: Int = android.view.Display.DEFAULT_DISPLAY,
+    connectedDisplays: List<com.droid.wayfinder.data.DisplayTarget> = emptyList(),
+) {
     val cs = MaterialTheme.colorScheme
     val hasDesktopCaption = WindowInsets.captionBar.getTop(LocalDensity.current) > 0
+    val registryRev by com.droid.wayfinder.data.TabTransferRegistry.revision.collectAsState()
     var query by remember { mutableStateOf("") }
     var index by remember { mutableIntStateOf(0) }
     val fr = remember { FocusRequester() }
     val listState = rememberLazyListState()
     val commands = remember(
+        s.tabs,
+        s.activeId,
         s.active.path,
         s.active.entries,
         s.active.selection,
@@ -310,8 +370,12 @@ fun CommandPalette(vm: BrowserViewModel, s: AppState) {
         s.statusBarVisible,
         s.hideStatusBar,
         hasDesktopCaption,
+        windowId,
+        currentDisplayId,
+        connectedDisplays,
+        registryRev,
     ) {
-        paletteCommands(vm, s, hasDesktopCaption) to paletteFolders(vm, s)
+        paletteCommands(vm, s, hasDesktopCaption, windowId, currentDisplayId, connectedDisplays) to paletteFolders(vm, s)
     }
     val results = remember(query, commands) {
         val (cmds, folders) = commands
