@@ -3,12 +3,25 @@
 
 package com.droid.wayfinder.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.automirrored.outlined.NoteAdd
@@ -51,28 +64,54 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AddToDrive
+import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.Web
 import androidx.compose.material.icons.outlined.FindInPage
 import androidx.compose.ui.graphics.Color
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import com.droid.wayfinder.R
 import com.droid.wayfinder.data.ColorTag
 import com.droid.wayfinder.data.FileEntry
@@ -115,34 +154,260 @@ private fun List<MenuEntry>.trimDividers(): List<MenuEntry> {
 
 val LocalMenu = staticCompositionLocalOf { MenuController() }
 
+internal const val CONTEXT_SUBMENU_CARD_TAG = "wayfinder_context_submenu_card"
+
+private val FullWindowPopupPositionProvider = object : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset = IntOffset.Zero
+}
+
 @Composable
 fun MenuHost(menu: MenuController) {
     val at = menu.offset ?: return
-    Box(Modifier.offset { IntOffset(at.x.toInt(), at.y.toInt()) }) {
-        DropdownMenu(
-            expanded = true,
-            onDismissRequest = { if (!menu.openingGestureActive) menu.dismiss() },
-            offset = DpOffset(0.dp, 0.dp),
-        ) {
-            menu.items.forEach { e ->
-                when (e) {
-                    MenuEntry.Divider -> HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                    is MenuEntry.Item -> DropdownMenuItem(
-                        text = { Text(e.label) },
-                        leadingIcon = e.icon?.let { { Icon(it, null, Modifier.size(20.dp), tint = e.tint ?: androidx.compose.material3.LocalContentColor.current) } },
-                        trailingIcon = when {
-                            e.checked -> ({ Icon(Icons.Filled.Check, "On", Modifier.size(18.dp)) })
-                            e.submenu != null -> ({ Text("›", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) })
-                            e.shortcut != null -> ({ Text(e.shortcut, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) })
-                            else -> null
+    val density = LocalDensity.current
+    val cs = MaterialTheme.colorScheme
+    val scope = rememberCoroutineScope()
+
+    var activeSubmenuIndex by remember(at, menu.items) { mutableStateOf<Int?>(null) }
+    var pointerInsideSubmenu by remember(at, menu.items) { mutableStateOf(false) }
+    var closeSubmenuJob by remember(at, menu.items) { mutableStateOf<Job?>(null) }
+    val itemTopInColumn = remember(at, menu.items) { mutableStateMapOf<Int, Int>() }
+    val parentScroll = rememberScrollState()
+
+    val activeParentItem = activeSubmenuIndex?.let { idx ->
+        (menu.items.getOrNull(idx) as? MenuEntry.Item)?.takeIf { it.enabled && it.submenu != null }
+    }
+    val activeSubmenuItems = remember(activeParentItem) {
+        activeParentItem?.submenu?.invoke()
+            ?.filterNot { it is MenuEntry.Item && it.submenu != null && it.icon == Icons.AutoMirrored.Outlined.ArrowBack }
+            ?.trimDividers()
+            .orEmpty()
+    }
+
+    Popup(
+        popupPositionProvider = FullWindowPopupPositionProvider,
+        onDismissRequest = { if (!menu.openingGestureActive) menu.dismiss() },
+        properties = PopupProperties(focusable = true),
+    ) {
+        val marginPx = with(density) { 8.dp.roundToPx() }
+        val gapPx = with(density) { 2.dp.roundToPx() }
+        val menuShape = RoundedCornerShape(8.dp)
+
+        Layout(
+            modifier = Modifier
+                .fillMaxSize()
+                .onPreviewKeyEvent { ev ->
+                    if (ev.type == KeyEventType.KeyDown && ev.key == Key.Escape) {
+                        if (activeSubmenuIndex != null) {
+                            closeSubmenuJob?.cancel()
+                            activeSubmenuIndex = null
+                        } else {
+                            menu.dismiss()
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                },
+            content = {
+                // 0: Transparent outside-tap / outside-click dismiss backdrop (no semantics role).
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(menu) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown()
+                                down.consume()
+                                waitForUpOrCancellation()?.consume()
+                                if (!menu.openingGestureActive) menu.dismiss()
+                            }
                         },
-                        enabled = e.enabled,
-                        onClick = {
-                            val sub = e.submenu
-                            if (sub != null) menu.items = sub() else { menu.dismiss(); e.action() }
-                        },
-                    )
+                )
+
+                // 1: Primary context menu card.
+                Surface(
+                    shape = menuShape,
+                    color = cs.surfaceContainer,
+                    tonalElevation = 3.dp,
+                    shadowElevation = 6.dp,
+                ) {
+                    Column(
+                        Modifier
+                            .width(IntrinsicSize.Max)
+                            .widthIn(min = 204.dp, max = 320.dp)
+                            .heightIn(max = 520.dp)
+                            .verticalScroll(parentScroll)
+                            .padding(vertical = 8.dp),
+                    ) {
+                        menu.items.forEachIndexed { idx, e ->
+                            when (e) {
+                                MenuEntry.Divider -> HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                                is MenuEntry.Item -> {
+                                    val isSubOpen = activeSubmenuIndex == idx
+                                    DropdownMenuItem(
+                                        modifier = Modifier
+                                            .background(if (isSubOpen) cs.onSurface.copy(alpha = 0.08f) else Color.Transparent)
+                                            .onGloballyPositioned { coords ->
+                                                itemTopInColumn[idx] = coords.positionInParent().y.roundToInt()
+                                            }
+                                            .pointerInput(idx, e.submenu != null, e.enabled) {
+                                                awaitPointerEventScope {
+                                                    while (true) {
+                                                        val pev = awaitPointerEvent(PointerEventPass.Initial)
+                                                        if (pev.type == PointerEventType.Enter || pev.type == PointerEventType.Move) {
+                                                            if (e.submenu != null && e.enabled) {
+                                                                closeSubmenuJob?.cancel()
+                                                                activeSubmenuIndex = idx
+                                                            } else if (activeSubmenuIndex != null && activeSubmenuIndex != idx) {
+                                                                if (closeSubmenuJob?.isActive != true) {
+                                                                    closeSubmenuJob = scope.launch {
+                                                                        delay(180L)
+                                                                        if (!pointerInsideSubmenu) {
+                                                                            activeSubmenuIndex = null
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                        text = { Text(e.label) },
+                                        leadingIcon = e.icon?.let {
+                                            { Icon(it, null, Modifier.size(20.dp), tint = e.tint ?: androidx.compose.material3.LocalContentColor.current) }
+                                        },
+                                        trailingIcon = when {
+                                            e.checked -> ({ Icon(Icons.Filled.Check, "On", Modifier.size(18.dp)) })
+                                            e.submenu != null -> ({ Text("›", style = MaterialTheme.typography.titleMedium, color = cs.onSurfaceVariant) })
+                                            e.shortcut != null -> ({ Text(e.shortcut, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant) })
+                                            else -> null
+                                        },
+                                        enabled = e.enabled,
+                                        onClick = {
+                                            if (e.submenu != null) {
+                                                closeSubmenuJob?.cancel()
+                                                activeSubmenuIndex = idx
+                                            } else {
+                                                menu.dismiss()
+                                                e.action()
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
+
+                // 2: Chrome-style side-by-side cascading submenu card aligned directly next to the hovered parent row.
+                if (activeSubmenuItems.isNotEmpty()) {
+                    val subScroll = rememberScrollState()
+                    Surface(
+                        modifier = Modifier
+                            .testTag(CONTEXT_SUBMENU_CARD_TAG)
+                            .pointerInput(activeSubmenuIndex) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val pev = awaitPointerEvent(PointerEventPass.Initial)
+                                        when (pev.type) {
+                                            PointerEventType.Enter, PointerEventType.Move -> {
+                                                pointerInsideSubmenu = true
+                                                closeSubmenuJob?.cancel()
+                                            }
+                                            PointerEventType.Exit -> {
+                                                pointerInsideSubmenu = false
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                        shape = menuShape,
+                        color = cs.surfaceContainer,
+                        tonalElevation = 4.dp,
+                        shadowElevation = 8.dp,
+                    ) {
+                        Column(
+                            Modifier
+                                .width(IntrinsicSize.Max)
+                                .widthIn(min = 196.dp, max = 320.dp)
+                                .heightIn(max = 460.dp)
+                                .verticalScroll(subScroll)
+                                .padding(vertical = 8.dp),
+                        ) {
+                            activeSubmenuItems.forEach { subEntry ->
+                                when (subEntry) {
+                                    MenuEntry.Divider -> HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                                    is MenuEntry.Item -> DropdownMenuItem(
+                                        text = { Text(subEntry.label) },
+                                        leadingIcon = subEntry.icon?.let {
+                                            { Icon(it, null, Modifier.size(20.dp), tint = subEntry.tint ?: androidx.compose.material3.LocalContentColor.current) }
+                                        },
+                                        trailingIcon = when {
+                                            subEntry.checked -> ({ Icon(Icons.Filled.Check, "On", Modifier.size(18.dp)) })
+                                            subEntry.submenu != null -> ({ Text("›", style = MaterialTheme.typography.titleMedium, color = cs.onSurfaceVariant) })
+                                            subEntry.shortcut != null -> ({ Text(subEntry.shortcut, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant) })
+                                            else -> null
+                                        },
+                                        enabled = subEntry.enabled,
+                                        onClick = {
+                                            val nested = subEntry.submenu
+                                            if (nested != null) {
+                                                menu.items = nested().trimDividers()
+                                                activeSubmenuIndex = null
+                                            } else {
+                                                menu.dismiss()
+                                                subEntry.action()
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+        ) { measurables, constraints ->
+            val w = constraints.maxWidth
+            val h = constraints.maxHeight
+            val loose = Constraints(
+                minWidth = 0,
+                maxWidth = (w - marginPx * 2).coerceAtLeast(1),
+                minHeight = 0,
+                maxHeight = (h - marginPx * 2).coerceAtLeast(1),
+            )
+            val backdrop = measurables[0].measure(Constraints.fixed(w, h))
+            val parent = measurables[1].measure(loose)
+            val sub = measurables.getOrNull(2)?.measure(loose)
+
+            val maxParentX = (w - parent.width - marginPx).coerceAtLeast(marginPx)
+            val maxParentY = (h - parent.height - marginPx).coerceAtLeast(marginPx)
+            val parentX = at.x.roundToInt().coerceIn(marginPx, maxParentX)
+            val parentY = at.y.roundToInt().coerceIn(marginPx, maxParentY)
+
+            var subX = 0
+            var subY = 0
+            if (sub != null) {
+                val maxSubX = (w - sub.width - marginPx).coerceAtLeast(marginPx)
+                val maxSubY = (h - sub.height - marginPx).coerceAtLeast(marginPx)
+                val rightCandidate = parentX + parent.width + gapPx
+                val leftCandidate = parentX - sub.width - gapPx
+                subX = if (layoutDirection == LayoutDirection.Rtl) {
+                    if (leftCandidate >= marginPx) leftCandidate else rightCandidate.coerceIn(marginPx, maxSubX)
+                } else {
+                    if (rightCandidate + sub.width <= w - marginPx) rightCandidate else leftCandidate.coerceIn(marginPx, maxSubX)
+                }
+                val itemTop = (itemTopInColumn[activeSubmenuIndex] ?: 0) - parentScroll.value
+                subY = (parentY + itemTop).coerceIn(marginPx, maxSubY)
+            }
+
+            layout(w, h) {
+                backdrop.placeRelative(0, 0)
+                parent.place(parentX, parentY)
+                sub?.place(subX, subY)
             }
         }
     }
@@ -347,11 +612,92 @@ fun mountMenu(vm: BrowserViewModel, m: Mount): List<MenuEntry> = buildList {
     add(item(vm.str(R.string.action_forget), Icons.Outlined.Close) { vm.forgetMount(m) })
 }
 
-fun tabMenu(vm: BrowserViewModel, tabId: Long): List<MenuEntry> = listOf(
-    item(vm.str(R.string.action_duplicate_tab), Icons.Outlined.CopyAll) { vm.duplicateTab(tabId) },
-    item(vm.str(R.string.action_close_tab), Icons.Outlined.Close, "Ctrl+W") { vm.closeTab(tabId) },
-    item(vm.str(R.string.action_close_other_tabs), Icons.Outlined.Close) { vm.closeOtherTabs(tabId) },
-)
+fun tabMenu(
+    vm: BrowserViewModel,
+    tabId: Long,
+    windowId: Int = 0,
+    currentDisplayId: Int = android.view.Display.DEFAULT_DISPLAY,
+    connectedDisplays: List<com.droid.wayfinder.data.DisplayTarget> = emptyList(),
+): List<MenuEntry> {
+    val s = vm.state.value
+    val idx = s.tabs.indexOfFirst { it.id == tabId }
+    val targetTab = s.tabs.getOrNull(idx)
+    val canMoveLeft = idx > 0
+    val canMoveRight = idx in 0 until s.tabs.lastIndex
+    val otherWindows = if (s.picker == null) com.droid.wayfinder.data.TabTransferRegistry.otherMergeableWindows(windowId) else emptyList()
+    val otherDisplays = if (s.picker == null) connectedDisplays.filter { it.displayId != currentDisplayId } else emptyList()
+    val canDrainLastTab = s.tabs.size > 1 || s.ops.isEmpty()
+
+    val entries = buildList {
+        add(item(vm.str(R.string.action_new_tab_right), Icons.Outlined.Add) { vm.newTabAfter(tabId) })
+        add(item(vm.str(R.string.action_duplicate_tab), Icons.Outlined.CopyAll) { vm.duplicateTab(tabId) })
+        add(MenuEntry.Divider)
+        add(item(vm.str(R.string.action_move_tab_left), Icons.AutoMirrored.Outlined.ArrowBack, "Ctrl+Shift+PgUp", enabled = canMoveLeft) { vm.moveTabBy(tabId, -1) })
+        add(item(vm.str(R.string.action_move_tab_right), Icons.AutoMirrored.Outlined.ArrowForward, "Ctrl+Shift+PgDn", enabled = canMoveRight) { vm.moveTabBy(tabId, 1) })
+        if (s.tabs.size > 2) {
+            add(item(vm.str(R.string.action_move_tab_start), Icons.AutoMirrored.Outlined.ArrowBack, enabled = canMoveLeft) { vm.moveTabToEdge(tabId, toEnd = false) })
+            add(item(vm.str(R.string.action_move_tab_end), Icons.AutoMirrored.Outlined.ArrowForward, enabled = canMoveRight) { vm.moveTabToEdge(tabId, toEnd = true) })
+        }
+        if (s.picker == null) {
+            add(MenuEntry.Divider)
+            add(
+                item(
+                    vm.str(R.string.action_move_tab_new_window),
+                    Icons.AutoMirrored.Outlined.OpenInNew,
+                    "Alt+Shift+N",
+                    enabled = s.tabs.size > 1 && targetTab != null,
+                ) { vm.moveTabToNewWindow(tabId) },
+            )
+            add(
+                item(
+                    vm.str(R.string.action_open_in_new_window),
+                    Icons.Outlined.Web,
+                    enabled = targetTab != null,
+                ) { targetTab?.let { vm.newWindow(it.path) } },
+            )
+            if (otherWindows.isNotEmpty()) {
+                val displayNames = connectedDisplays.associate { it.displayId to it.name }
+                add(
+                    MenuEntry.Item(
+                        label = vm.str(R.string.action_move_tab_other_window),
+                        icon = Icons.Outlined.Tab,
+                        enabled = canDrainLastTab && targetTab != null,
+                        submenu = {
+                            otherWindows.map { win ->
+                                val winLabel = if (win.displayId != currentDisplayId) {
+                                    val dispName = displayNames[win.displayId] ?: "Display ${win.displayId}"
+                                    vm.str(R.string.menu_window_target_on_display, win.title, dispName)
+                                } else {
+                                    win.title
+                                }
+                                item(winLabel, Icons.Outlined.Web) { vm.moveTabToWindow(tabId, win.windowId) }
+                            }
+                        },
+                    ) {},
+                )
+            }
+            if (otherDisplays.isNotEmpty()) {
+                add(
+                    MenuEntry.Item(
+                        label = vm.str(R.string.action_move_tab_to_display),
+                        icon = Icons.Outlined.DesktopWindows,
+                        enabled = canDrainLastTab && targetTab != null,
+                        submenu = {
+                            otherDisplays.map { disp ->
+                                item(disp.name, Icons.Outlined.DesktopWindows) { vm.moveTabToDisplay(tabId, disp.displayId) }
+                            }
+                        },
+                    ) {},
+                )
+            }
+        }
+        add(MenuEntry.Divider)
+        add(item(vm.str(R.string.action_close_tab), Icons.Outlined.Close, "Ctrl+W") { vm.closeTab(tabId) })
+        add(item(vm.str(R.string.action_close_other_tabs), Icons.Outlined.Close, enabled = s.tabs.size > 1) { vm.closeOtherTabs(tabId) })
+        add(item(vm.str(R.string.action_close_tabs_right), Icons.Outlined.Close, enabled = canMoveRight) { vm.closeTabsToRight(tabId) })
+    }
+    return entries.trimDividersPublic()
+}
 
 fun driveAccountMenu(vm: BrowserViewModel, acc: com.droid.wayfinder.data.DriveAccount, mount: Mount?): List<MenuEntry> = buildList {
     if (acc.isMounted && acc.mountPath != null) {

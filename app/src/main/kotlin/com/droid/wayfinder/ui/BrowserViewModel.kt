@@ -125,8 +125,9 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     private val settings = Settings(app)
-    private val secondaryWindow: Boolean = handle.get<Any>(EXTRA_NEW_WINDOW) as? Boolean == true
+    private var secondaryWindow: Boolean = handle.get<Any>(EXTRA_NEW_WINDOW) as? Boolean == true
     private val startPath: String? = (handle.get<Any>(EXTRA_PATH) as? String)?.takeIf { it.isNotBlank() && !it.contains('\u0000') }
+    private val initialTearSessionId: String? = (handle.get<Any>(com.droid.wayfinder.data.EXTRA_TEAR_SESSION_ID) as? String)
     private val picker: PickerRequest? = if (handle.get<Any>(EXTRA_PICKER) as? Boolean == true) {
         val rawMode = handle.get<Any>(EXTRA_PICKER_MODE) as? String
         val mode = runCatching { com.droid.wayfinder.data.PickerMode.valueOf(rawMode.orEmpty()) }
@@ -210,13 +211,24 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                     (!FsPath.isOneDrive(it) || oneDriveStore.getAccount(it.removePrefix("onedrive://").substringBefore('/')) != null)) ||
                 File(it).isDirectory || FsPath.zipSplit(it)?.let { z -> File(z.first).isFile } == true
         }
+        // A torn/moved tab transferred from another Wayfinder window brings its full TabState snapshot.
+        val claimedTransfer = if (picker == null) {
+            com.droid.wayfinder.data.TabTransferRegistry.claimForNewWindow(initialTearSessionId)
+        } else null
+        if (claimedTransfer?.promoteTargetToPrimary == true) {
+            secondaryWindow = false
+        }
         // A requested file (e.g. an .apk from another app) opens its enclosing folder with the file selected.
         val startNorm = startPath?.let { localizeDocPath(FsPath.normalize(it)) }
-        val startFile = startNorm?.let { fileTarget(it) }
+        val startFile = if (claimedTransfer == null) startNorm?.let { fileTarget(it) } else null
         val start = startFile?.first ?: startNorm?.let { p -> archiveTarget(p) ?: p }
-        val startShowsHidden = start != null &&
-            (hasHiddenSegment(start) || startFile?.second?.let { hasHiddenSegment(it) } == true)
+        val startShowsHidden = if (claimedTransfer != null) {
+            hasHiddenSegment(claimedTransfer.path) || claimedTransfer.selection.any { hasHiddenSegment(it) }
+        } else {
+            start != null && (hasHiddenSegment(start) || startFile?.second?.let { hasHiddenSegment(it) } == true)
+        }
         val startPaths = when {
+            claimedTransfer != null -> listOf(claimedTransfer.path)
             picker != null -> listOf(start ?: File(primary, Environment.DIRECTORY_DOWNLOADS).path.takeIf { File(it).isDirectory } ?: primary)
             secondaryWindow -> listOf(start ?: FsPath.RECENTS_ROOT)
             start != null -> listOf(start)
@@ -226,7 +238,11 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             settings.sortKey = SortKey.Name
             settings.sortAsc = true
         }
-        val tabs = startPaths.map { newTabState(it) }
+        val tabs = if (claimedTransfer != null) {
+            listOf(tabStateFromTransfer(claimedTransfer))
+        } else {
+            startPaths.map { newTabState(it) }
+        }
         val initialDrive = GoogleDriveManager.discoverAccounts(app, safMounts)
         val initialPhone = detectPhone(emptyList(), safMounts)
         val initialBtGranted = PhoneDetector.hasBluetoothConnectPermission(app)
@@ -236,7 +252,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         val initialWorkProfiles = GooglebookEcosystem.discoverWorkProfiles(app)
         _state.value = AppState(
             tabs = tabs,
-            activeId = tabs[(if (secondaryWindow || picker != null || startPath != null) 0 else settings.activeTab).coerceIn(0, tabs.lastIndex)].id,
+            activeId = tabs[(if (claimedTransfer != null || secondaryWindow || picker != null || startPath != null) 0 else settings.activeTab).coerceIn(0, tabs.lastIndex)].id,
             roots = roots, pins = pins, showHidden = settings.showHidden || startShowsHidden,
             sidebarVisible = settings.sidebarVisible, previewVisible = settings.previewVisible,
             sidebarWidth = settings.sidebarWidth, gridSize = settings.gridSize,
@@ -265,7 +281,15 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
             workProfiles = initialWorkProfiles,
         )
         refreshMounts()
-        tabs.forEachIndexed { i, t -> load(t.id, select = startFile?.second?.takeIf { i == 0 }) }
+        if (claimedTransfer != null) {
+            persist()
+            load(tabs[0].id, keepSelection = true)
+            if (claimedTransfer.wasSearching && claimedTransfer.query.isNotBlank()) {
+                setQuery(claimedTransfer.query)
+            }
+        } else {
+            tabs.forEachIndexed { i, t -> load(t.id, select = startFile?.second?.takeIf { i == 0 }) }
+        }
         revealInTree(_state.value.active.path)
         roots.firstOrNull()?.let { ensureChildren(it.path) }
         discovery.start()
@@ -634,6 +658,33 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         viewMode = settings.viewMode, sortKey = settings.sortKey, sortAsc = settings.sortAsc,
     )
 
+    private fun tabStateFromTransfer(transferred: com.droid.wayfinder.data.TransferredTab): TabState {
+        val safeSortKey = if (!settings.isColumnVisible(transferred.sortKey) && transferred.viewMode == ViewMode.Details) {
+            SortKey.Name
+        } else {
+            transferred.sortKey
+        }
+        return TabState(
+            id = nextTabId++,
+            path = FsPath.normalize(transferred.path),
+            back = transferred.back,
+            forward = transferred.forward,
+            entries = transferred.entries,
+            loading = false,
+            error = null,
+            selection = transferred.selection,
+            anchor = transferred.anchor,
+            focused = transferred.focused,
+            viewMode = transferred.viewMode,
+            sortKey = safeSortKey,
+            sortAsc = if (safeSortKey != transferred.sortKey) true else transferred.sortAsc,
+            query = transferred.query,
+            searchResults = transferred.searchResults,
+            searching = false,
+            searchFilter = transferred.searchFilter,
+        )
+    }
+
     /** Saved (mounted) servers and SAF mounts for the sidebar's "Network & cloud" section. */
     private fun computeMounts(
         saved: List<SavedServer>,
@@ -954,7 +1005,7 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     fun newTab(path: String? = null, activate: Boolean = true) {
         val t = newTabState(path ?: roots().first().path)
         _state.update { s ->
-            val idx = s.tabs.indexOfFirst { it.id == s.activeId } + 1
+            val idx = (s.tabs.indexOfFirst { it.id == s.activeId } + 1).coerceIn(0, s.tabs.size)
             s.copy(
                 tabs = s.tabs.toMutableList().also { it.add(if (activate) idx else s.tabs.size, t) },
                 activeId = if (activate) t.id else s.activeId,
@@ -964,11 +1015,46 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (activate) revealInTree(t.path)
     }
 
+    fun newTabAfter(anchorTabId: Long, path: String? = null, activate: Boolean = true) {
+        val t = newTabState(path ?: roots().first().path)
+        _state.update { s ->
+            val anchorIdx = s.tabs.indexOfFirst { it.id == anchorTabId }
+            val insertAt = if (anchorIdx >= 0) anchorIdx + 1 else (s.tabs.indexOfFirst { it.id == s.activeId } + 1).coerceIn(0, s.tabs.size)
+            s.copy(
+                tabs = s.tabs.toMutableList().also { it.add(insertAt.coerceIn(0, s.tabs.size), t) },
+                activeId = if (activate) t.id else s.activeId,
+                rightActive = if (activate) false else s.rightActive,
+            )
+        }
+        load(t.id); persist()
+        if (activate) revealInTree(t.path)
+    }
+
     private fun roots() = _state.value.roots
 
     fun duplicateTab(id: Long) {
-        val src = _state.value.tabs.firstOrNull { it.id == id } ?: return
-        newTab(src.path)
+        val s = _state.value
+        val srcIdx = s.tabs.indexOfFirst { it.id == id }
+        if (srcIdx < 0) return
+        val src = s.tabs[srcIdx]
+        val dup = newTabState(src.path).copy(
+            back = src.back,
+            forward = src.forward,
+            viewMode = src.viewMode,
+            sortKey = src.sortKey,
+            sortAsc = src.sortAsc,
+        )
+        _state.update { st ->
+            val curIdx = st.tabs.indexOfFirst { it.id == id }
+            val insertAt = if (curIdx >= 0) curIdx + 1 else st.tabs.size
+            st.copy(
+                tabs = st.tabs.toMutableList().also { it.add(insertAt.coerceIn(0, st.tabs.size), dup) },
+                activeId = dup.id,
+                rightActive = false,
+            )
+        }
+        load(dup.id); persist()
+        revealInTree(dup.path)
     }
 
     fun closeTab(id: Long) {
@@ -984,15 +1070,48 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
                 tabs = remaining,
                 activeId = if (it.activeId == id) remaining[idx.coerceAtMost(remaining.lastIndex)].id else it.activeId,
                 closedTabs = (it.closedTabs + closing.path).takeLast(20),
+                detachedTabId = if (it.detachedTabId == id) null else it.detachedTabId,
             )
         }
         activateStale(_state.value.activeId); persist()
     }
 
     fun closeOtherTabs(id: Long) {
-        val keep = _state.value.tabs.firstOrNull { it.id == id } ?: return
-        _state.update { it.copy(tabs = listOf(keep), activeId = id, closedTabs = (it.closedTabs + it.tabs.filter { t -> t.id != id }.map { t -> t.path }).takeLast(20)) }
-        persist()
+        val s = _state.value
+        val keep = s.tabs.firstOrNull { it.id == id } ?: return
+        val others = s.tabs.filter { it.id != id }
+        if (others.isEmpty()) return
+        others.forEach { loadJobs.remove(it.id)?.cancel() }
+        _state.update {
+            it.copy(
+                tabs = listOf(keep),
+                activeId = id,
+                rightActive = false,
+                closedTabs = (it.closedTabs + others.map { t -> t.path }).takeLast(20),
+                detachedTabId = if (it.detachedTabId != id) null else it.detachedTabId,
+            )
+        }
+        activateStale(id); persist(); revealInTree(keep.path)
+    }
+
+    fun closeTabsToRight(id: Long) {
+        val s = _state.value
+        val idx = s.tabs.indexOfFirst { it.id == id }
+        if (idx < 0 || idx >= s.tabs.lastIndex) return
+        val closing = s.tabs.subList(idx + 1, s.tabs.size)
+        closing.forEach { loadJobs.remove(it.id)?.cancel() }
+        val remaining = s.tabs.subList(0, idx + 1)
+        val nextActive = if (remaining.any { it.id == s.activeId }) s.activeId else id
+        _state.update {
+            it.copy(
+                tabs = remaining,
+                activeId = nextActive,
+                rightActive = if (nextActive != s.activeId) false else it.rightActive,
+                closedTabs = (it.closedTabs + closing.map { t -> t.path }).takeLast(20),
+                detachedTabId = it.detachedTabId?.takeIf { d -> remaining.any { r -> r.id == d } },
+            )
+        }
+        activateStale(nextActive); persist(); revealInTree(_state.value.active.path)
     }
 
     fun reopenClosedTab() {
@@ -1011,7 +1130,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
 
     fun cycleTab(delta: Int) {
         val s = _state.value
-        val i = s.tabs.indexOfFirst { it.id == s.activeId }
+        if (s.tabs.isEmpty()) return
+        val i = s.tabs.indexOfFirst { it.id == s.activeId }.coerceAtLeast(0)
         selectTab(s.tabs[(i + delta).mod(s.tabs.size)].id)
     }
 
@@ -1025,12 +1145,231 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
         if (i >= 0) moveTab(i, i + delta)
     }
 
+    fun moveTabToEdge(id: Long, toEnd: Boolean) {
+        val s = _state.value
+        val i = s.tabs.indexOfFirst { it.id == id }
+        if (i >= 0) moveTab(i, if (toEnd) s.tabs.lastIndex else 0)
+    }
+
     fun moveTab(from: Int, to: Int) {
         _state.update { s ->
-            if (from !in s.tabs.indices || to !in s.tabs.indices) s
+            if (from !in s.tabs.indices || to !in s.tabs.indices || from == to) s
             else s.copy(tabs = s.tabs.toMutableList().also { it.add(to, it.removeAt(from)) })
         }
         persist()
+    }
+
+    /** Re-attaches [id] at [slotInRemaining] (`0..remainingCount`) inside this window's tab strip. */
+    fun moveTabToInsertionSlot(id: Long, slotInRemaining: Int) {
+        _state.update { s ->
+            val curIdx = s.tabs.indexOfFirst { it.id == id }
+            if (curIdx < 0) return@update s.copy(detachedTabId = null)
+            val list = s.tabs.toMutableList()
+            val item = list.removeAt(curIdx)
+            list.add(slotInRemaining.coerceIn(0, list.size), item)
+            s.copy(tabs = list, activeId = id, rightActive = false, detachedTabId = null)
+        }
+        persist(); revealInTree(tab.path)
+    }
+
+    fun setDetachedTab(id: Long?) {
+        _state.update { s ->
+            if (id != null && s.tabs.none { it.id == id }) s else s.copy(detachedTabId = id)
+        }
+    }
+
+    fun snapshotTabForTransfer(
+        id: Long,
+        willDrainWindow: Boolean = _state.value.tabs.size <= 1,
+    ): com.droid.wayfinder.data.TransferredTab? {
+        val t = _state.value.tabs.firstOrNull { it.id == id } ?: return null
+        return com.droid.wayfinder.data.TransferredTab(
+            path = t.path,
+            back = t.back,
+            forward = t.forward,
+            entries = t.entries,
+            selection = t.selection,
+            anchor = t.anchor,
+            focused = t.focused,
+            viewMode = t.viewMode,
+            sortKey = t.sortKey,
+            sortAsc = t.sortAsc,
+            query = t.query,
+            searchResults = t.searchResults,
+            wasSearching = t.searching,
+            searchFilter = t.searchFilter,
+            promoteTargetToPrimary = willDrainWindow && !secondaryWindow && picker == null,
+        )
+    }
+
+    private fun restoreRemovedTab(saved: TabState, originalIndex: Int, makeActive: Boolean) {
+        _state.update { s ->
+            if (s.tabs.any { it.id == saved.id }) return@update s.copy(detachedTabId = null)
+            val list = s.tabs.toMutableList()
+            list.add(originalIndex.coerceIn(0, list.size), saved)
+            s.copy(
+                tabs = list,
+                activeId = if (makeActive) saved.id else s.activeId,
+                rightActive = if (makeActive) false else s.rightActive,
+                detachedTabId = null,
+            )
+        }
+        load(saved.id, keepSelection = true)
+        persist()
+        if (makeActive) revealInTree(saved.path)
+    }
+
+    /** Commits removal of a tab that was merged into another window or torn into a newly spawned window. */
+    fun commitDetachedTab(id: Long) {
+        val s = _state.value
+        val idx = s.tabs.indexOfFirst { it.id == id }
+        if (idx < 0) {
+            if (s.detachedTabId == id) _state.update { it.copy(detachedTabId = null) }
+            return
+        }
+        loadJobs.remove(id)?.cancel()
+        val remaining = s.tabs.filter { it.id != id }
+        if (remaining.isEmpty()) {
+            if (_state.value.ops.isNotEmpty()) {
+                val fallback = newTabState(roots().firstOrNull()?.path ?: primary)
+                _state.update { it.copy(tabs = listOf(fallback), activeId = fallback.id, rightActive = false, detachedTabId = null) }
+                load(fallback.id); persist(); revealInTree(fallback.path)
+            } else {
+                // Do not overwrite saved primary-window tabs with an empty list; the target window inherits persistence.
+                _state.update { it.copy(detachedTabId = null) }
+                emit(UiEvent.Finish)
+            }
+            return
+        }
+        val nextActive = if (s.activeId == id) remaining[idx.coerceAtMost(remaining.lastIndex)].id else s.activeId
+        _state.update {
+            it.copy(
+                tabs = remaining,
+                activeId = nextActive,
+                rightActive = if (s.activeId == id) false else it.rightActive,
+                detachedTabId = if (it.detachedTabId == id) null else it.detachedTabId,
+            )
+        }
+        activateStale(nextActive); persist(); revealInTree(_state.value.active.path)
+    }
+
+    /** Adopts a [com.droid.wayfinder.data.TransferredTab] merged from another Wayfinder window. */
+    fun adoptTransferredTab(
+        transferred: com.droid.wayfinder.data.TransferredTab,
+        insertIndex: Int? = null,
+    ): Boolean {
+        if (picker != null) return false
+        if (transferred.promoteTargetToPrimary && secondaryWindow) {
+            secondaryWindow = false
+        }
+        val adopted = tabStateFromTransfer(transferred)
+        revealHiddenFor(adopted.path, adopted.selection.firstOrNull())
+        _state.update { s ->
+            val list = s.tabs.toMutableList()
+            val targetIdx = (insertIndex ?: list.size).coerceIn(0, list.size)
+            list.add(targetIdx, adopted)
+            s.copy(
+                tabs = list,
+                activeId = adopted.id,
+                rightActive = false,
+                secondaryWindow = secondaryWindow,
+            )
+        }
+        load(adopted.id, keepSelection = true)
+        if (transferred.wasSearching && adopted.query.isNotBlank()) {
+            setQuery(adopted.query)
+        }
+        persist()
+        revealInTree(adopted.path)
+        return true
+    }
+
+    /**
+     * Detaches tab [id] into its own window (optionally on [targetDisplayId] or at `[dropX, dropY]`).
+     * Single-tab windows only allow moving to a different connected display (preventing pointless self-cloning).
+     */
+    fun moveTabToNewWindow(
+        id: Long = _state.value.activeId,
+        targetDisplayId: Int? = null,
+        dropX: Int? = null,
+        dropY: Int? = null,
+    ): Boolean {
+        if (picker != null) return false
+        val s = _state.value
+        val idx = s.tabs.indexOfFirst { it.id == id }
+        if (idx < 0) return false
+        val singleTab = s.tabs.size <= 1
+        if (singleTab && s.ops.isNotEmpty()) {
+            toast(str(com.droid.wayfinder.R.string.toast_wait_file_ops_before_moving_tab))
+            return false
+        }
+        if (singleTab && targetDisplayId == null) return false
+        val snap = snapshotTabForTransfer(id, willDrainWindow = singleTab) ?: return false
+        val sessionId = com.droid.wayfinder.data.TabTransferRegistry.createDirectNewWindowSession(snap)
+        val savedTab = s.tabs[idx]
+        val wasActive = s.activeId == id
+        if (!singleTab) {
+            commitDetachedTab(id)
+        }
+        emit(
+            UiEvent.LaunchTransferredTabWindow(
+                sessionId = sessionId,
+                fallbackPath = snap.path,
+                promoteToPrimary = snap.promoteTargetToPrimary,
+                targetDisplayId = targetDisplayId,
+                dropX = dropX,
+                dropY = dropY,
+                onLaunched = if (singleTab) ({ commitDetachedTab(id) }) else null,
+                onLaunchFailed = {
+                    com.droid.wayfinder.data.TabTransferRegistry.claimForNewWindow(sessionId)
+                    if (!singleTab) restoreRemovedTab(savedTab, idx, wasActive)
+                },
+            ),
+        )
+        return true
+    }
+
+    fun moveTabToDisplay(id: Long, targetDisplayId: Int): Boolean =
+        moveTabToNewWindow(id = id, targetDisplayId = targetDisplayId)
+
+    /** Merges tab [id] into an already-running Wayfinder window [targetWindowId]. */
+    fun moveTabToWindow(id: Long, targetWindowId: Int): Boolean {
+        if (picker != null) return false
+        val s = _state.value
+        if (s.tabs.none { it.id == id }) return false
+        if (s.tabs.size <= 1 && s.ops.isNotEmpty()) {
+            toast(str(com.droid.wayfinder.R.string.toast_wait_file_ops_before_moving_tab))
+            return false
+        }
+        val snap = snapshotTabForTransfer(id, willDrainWindow = s.tabs.size <= 1) ?: return false
+        if (!com.droid.wayfinder.data.TabTransferRegistry.mergeIntoRegisteredWindow(targetWindowId, snap, insertIndex = null, bringToFront = true)) {
+            return false
+        }
+        commitDetachedTab(id)
+        return true
+    }
+
+    /** Emits a window launch for an active drag session that was dropped into tear-off space. */
+    internal fun launchDetachedSessionWindow(
+        sessionId: String,
+        fallbackPath: String,
+        promoteToPrimary: Boolean,
+        targetDisplayId: Int? = null,
+        dropX: Int? = null,
+        dropY: Int? = null,
+        onLaunchFailed: (() -> Unit)? = null,
+    ) {
+        emit(
+            UiEvent.LaunchTransferredTabWindow(
+                sessionId = sessionId,
+                fallbackPath = fallbackPath,
+                promoteToPrimary = promoteToPrimary,
+                targetDisplayId = targetDisplayId,
+                dropX = dropX,
+                dropY = dropY,
+                onLaunchFailed = onLaunchFailed,
+            ),
+        )
     }
 
     // ---------------------------------------------------------------- dual pane
@@ -1670,7 +2009,8 @@ class BrowserViewModel(private val app: Application, handle: SavedStateHandle) :
     }
 
     /** Ctrl+N / "Open in new window". */
-    fun newWindow(path: String? = null) = emit(UiEvent.NewWindow(path ?: FsPath.RECENTS_ROOT))
+    fun newWindow(path: String? = null, targetDisplayId: Int? = null) =
+        emit(UiEvent.NewWindow(path ?: FsPath.RECENTS_ROOT, targetDisplayId))
 
     // ---------------------------------------------------------------- stars & color tags
 

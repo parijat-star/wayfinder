@@ -546,4 +546,33 @@
     <string name="action_collapse" description="Accessibility label on an expanded sidebar folder chevron icon. [CHAR_LIMIT=20]">Collapse</string>
     <string name="action_expand_folder" description="Accessibility click label and hover tooltip to expand a sidebar folder. %1$s is the folder name. [CHAR_LIMIT=45]">Expand %1$s</string>
     <string name="action_collapse_folder" description="Accessibility click label and hover tooltip to collapse a sidebar folder. %1$s is the folder name. [CHAR_LIMIT=45]">Collapse %1$s</string>
+
+    <!-- Tab reordering, tearing, cross-window merging, and connected displays -->
+    <string name="action_new_tab_right" description="Tab strip right-click menu action to open a new tab immediately to the right of the clicked tab. [CHAR_LIMIT=35]">New tab to the right</string>
+    <string name="action_move_tab_left" description="Tab strip right-click menu and command palette action to move a tab one position to the left. [CHAR_LIMIT=30]">Move tab left</string>
+    <string name="action_move_tab_right" description="Tab strip right-click menu and command palette action to move a tab one position to the right. [CHAR_LIMIT=30]">Move tab right</string>
+    <string name="action_move_tab_start" description="Tab strip right-click menu and command palette action to move a tab to the first position in the strip. [CHAR_LIMIT=30]">Move tab to start</string>
+    <string name="action_move_tab_end" description="Tab strip right-click menu and command palette action to move a tab to the last position in the strip. [CHAR_LIMIT=30]">Move tab to end</string>
+    <string name="action_move_tab_new_window" description="Tab strip right-click menu and command palette action to detach a tab into its own separate window. [CHAR_LIMIT=35]">Move tab to new window</string>
+    <string name="action_move_tab_other_window" description="Tab strip right-click submenu title to merge a tab into another open Wayfinder window. [CHAR_LIMIT=38]">Move tab to another window</string>
+    <string name="action_move_tab_to_display" description="Tab strip right-click submenu title to move a tab into a window on another connected display. [CHAR_LIMIT=35]">Move tab to display</string>
+    <string name="action_close_tabs_right" description="Tab strip right-click menu and command palette action to close all tabs to the right of a tab. [CHAR_LIMIT=35]">Close tabs to the right</string>
+    <string name="menu_window_target_on_display" description="Submenu label for another Wayfinder window located on a different connected display. %1$s is the window title, %2$s is the display name. [CHAR_LIMIT=60]">%1$s (%2$s)</string>
+    <string name="palette_duplicate_tab_desc" description="Command palette subtitle describing Duplicate tab. [CHAR_LIMIT=50]">Open a copy of the active tab next to it</string>
+    <string name="palette_close_other_tabs_desc" description="Command palette subtitle describing Close other tabs. [CHAR_LIMIT=45]">Close every tab except the active one</string>
+    <string name="palette_close_tabs_right_desc" description="Command palette subtitle describing Close tabs to the right. [CHAR_LIMIT=55]">Close every tab to the right of the active tab</string>
+    <string name="palette_move_tab_left_desc" description="Command palette subtitle describing Move tab left. [CHAR_LIMIT=45]">Reorder the active tab one slot earlier</string>
+    <string name="palette_move_tab_right_desc" description="Command palette subtitle describing Move tab right. [CHAR_LIMIT=45]">Reorder the active tab one slot later</string>
+    <string name="palette_move_tab_start_desc" description="Command palette subtitle describing Move tab to start. [CHAR_LIMIT=50]">Move the active tab to the first slot</string>
+    <string name="palette_move_tab_end_desc" description="Command palette subtitle describing Move tab to end. [CHAR_LIMIT=50]">Move the active tab to the last slot</string>
+    <string name="palette_move_tab_new_window_desc" description="Command palette subtitle describing Move tab to new window. [CHAR_LIMIT=50]">Tear off the active tab into its own window</string>
+    <string name="palette_move_tab_to_window" description="Command palette command title to merge the active tab into another open Wayfinder window. %1$s is the target window title. [CHAR_LIMIT=55]">Move tab to window: %1$s</string>
+    <string name="palette_move_tab_to_window_desc" description="Command palette subtitle describing moving a tab to another open Wayfinder window. [CHAR_LIMIT=55]">Merge the active tab into an open Wayfinder window</string>
+    <string name="palette_move_tab_to_display" description="Command palette command title to move the active tab to a connected display. %1$s is the display name. [CHAR_LIMIT=55]">Move tab to display: %1$s</string>
+    <string name="palette_move_tab_to_display_desc" description="Command palette subtitle describing moving a tab to a connected display. %1$s is the display name. [CHAR_LIMIT=60]">Move the active tab to a new window on %1$s</string>
+    <string name="shortcut_move_tab_left" description="System Keyboard Shortcuts Helper label for moving the active tab left (Ctrl+Shift+PageUp). [CHAR_LIMIT=35]">Move tab left</string>
+    <string name="shortcut_move_tab_right" description="System Keyboard Shortcuts Helper label for moving the active tab right (Ctrl+Shift+PageDown). [CHAR_LIMIT=35]">Move tab right</string>
+    <string name="shortcut_move_tab_new_window" description="System Keyboard Shortcuts Helper label for detaching the active tab into a new window (Alt+Shift+N). [CHAR_LIMIT=40]">Move tab to new window</string>
+    <string name="toast_wait_file_ops_before_moving_tab" description="Toast message shown when trying to move the last remaining tab out of a window while file operations are still running in that window. [CHAR_LIMIT=75]">Wait for active file operations to finish before moving the last tab</string>
+    <string name="toast_display_disconnected" description="Toast error shown when the target external display was disconnected before a tab could be moved to it. [CHAR_LIMIT=50]">That display is no longer available</string>
 </resources>

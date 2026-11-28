@@ -76,6 +76,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -112,6 +113,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -232,6 +235,18 @@ internal class TransientSnackbarController(
     }
 }
 
+private class HostedViewFocusTracker {
+    val mountedIds = LinkedHashSet<Int>()
+    var activeWindowId by mutableIntStateOf(0)
+}
+
+private val hostedViewFocusTrackers = java.util.WeakHashMap<android.view.View, HostedViewFocusTracker>()
+
+private fun focusTrackerForView(view: android.view.View): HostedViewFocusTracker =
+    synchronized(hostedViewFocusTrackers) {
+        hostedViewFocusTrackers.getOrPut(view) { HostedViewFocusTracker() }
+    }
+
 private fun Modifier.reclaimFocus(vm: BrowserViewModel, fm: FocusManager, focusCoord: FocusCoordinator, root: FocusRequester): Modifier =
     pointerInput(Unit) {
         awaitEachGesture {
@@ -269,8 +284,36 @@ fun AppRoot(vm: BrowserViewModel) {
     }
     val drag = remember { DragController() }
     val windowDragId = remember(drag) { System.identityHashCode(drag) }
-    CompositionLocalProvider(LocalWindowDragId provides windowDragId) {
-    Box(Modifier.fillMaxSize().sameWindowDragBridge(drag, windowDragId)) {
+    val view = LocalView.current
+    val viewFocusTracker = remember(view) { focusTrackerForView(view) }
+    DisposableEffect(viewFocusTracker, windowDragId) {
+        viewFocusTracker.mountedIds.add(windowDragId)
+        if (viewFocusTracker.activeWindowId == 0 || viewFocusTracker.activeWindowId !in viewFocusTracker.mountedIds) {
+            viewFocusTracker.activeWindowId = windowDragId
+        }
+        onDispose {
+            viewFocusTracker.mountedIds.remove(windowDragId)
+            if (viewFocusTracker.activeWindowId == windowDragId) {
+                viewFocusTracker.activeWindowId = viewFocusTracker.mountedIds.firstOrNull() ?: 0
+            }
+        }
+    }
+    val (currentDisplayId, connectedDisplays) = rememberConnectedDisplays(view)
+    val isWindowFocused = LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(isWindowFocused, windowDragId) {
+        if (isWindowFocused) com.droid.wayfinder.data.TabTransferRegistry.markWindowFocused(windowDragId)
+    }
+    val tabStripDropController = remember { TabStripDropController() }
+    CompositionLocalProvider(
+        LocalWindowDragId provides windowDragId,
+        LocalTabStripDropController provides tabStripDropController,
+    ) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .sameWindowDragBridge(drag, windowDragId)
+            .tabDragSessionHost(vm, s, windowDragId, currentDisplayId, tabStripDropController),
+    ) {
     val snackbar = remember { SnackbarHostState() }
     val accessibilityManager = LocalAccessibilityManager.current
     val rootFocus = remember { FocusRequester() }
@@ -340,9 +383,16 @@ fun AppRoot(vm: BrowserViewModel) {
             if (uris.isNotEmpty()) vm.importExternalUrisToDownloads(uris)
         }
     }
-    SideEffect { drag.onDrop = { t, p, copy -> vm.dropOn(t, p, copy) } }
-    LaunchedEffect(anyChildFocused, s.dialog == null, s.addressEditing, s.paletteOpen) {
-        if (!anyChildFocused && s.dialog == null && !s.addressEditing && !s.paletteOpen) {
+    SideEffect {
+        drag.onDrop = { t, p, copy -> vm.dropOn(t, p, copy) }
+        if (anyChildFocused && viewFocusTracker.activeWindowId != windowDragId) {
+            viewFocusTracker.activeWindowId = windowDragId
+        }
+    }
+    val ownsViewFocus = viewFocusTracker.mountedIds.size <= 1 || viewFocusTracker.activeWindowId == windowDragId
+    LaunchedEffect(anyChildFocused, ownsViewFocus, s.dialog == null, s.addressEditing, s.paletteOpen) {
+        val isOwnerNow = viewFocusTracker.mountedIds.size <= 1 || viewFocusTracker.activeWindowId == windowDragId
+        if (isOwnerNow && !anyChildFocused && s.dialog == null && !s.addressEditing && !s.paletteOpen) {
             if (!focusCoord.focusFileList()) runCatching { rootFocus.requestFocus() }
         }
     }
@@ -368,7 +418,8 @@ fun AppRoot(vm: BrowserViewModel) {
                     ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(e.what, e.text))
                     toasts.show("${e.what} copied")
                 }
-                is UiEvent.NewWindow -> openNewWindow(ctx, e.path)
+                is UiEvent.NewWindow -> openNewWindowOnDisplay(ctx, e.path, e.targetDisplayId)
+                is UiEvent.LaunchTransferredTabWindow -> openTransferredTabWindow(ctx, e)
                 is UiEvent.OpenExternalUrl -> {
                     val uri = runCatching { android.net.Uri.parse(e.url) }.getOrNull()
                     val scheme = uri?.scheme?.lowercase()
@@ -508,6 +559,8 @@ fun AppRoot(vm: BrowserViewModel) {
                 k == Key.T && shift -> { vm.reopenClosedTab(); return true }
                 k == Key.W -> { vm.closeTab(st.activeId); return true }
                 k == Key.Tab -> { vm.cycleTab(if (shift) -1 else 1); return true }
+                k == Key.PageDown && shift -> { vm.moveTabBy(st.activeId, 1); return true }
+                k == Key.PageUp && shift -> { vm.moveTabBy(st.activeId, -1); return true }
                 k == Key.PageDown -> { vm.cycleTab(1); return true }
                 k == Key.PageUp -> { vm.cycleTab(-1); return true }
                 k == Key.L -> { vm.setAddressEditing(true); return true }
@@ -521,6 +574,7 @@ fun AppRoot(vm: BrowserViewModel) {
             }
         }
         if (alt && !ctrl && !shift && digitIndex(k) >= 0) { vm.selectTabIndex(digitIndex(k)); return true }
+        if (alt && !ctrl && shift && k == Key.N) { vm.moveTabToNewWindow(st.activeId); return true }
         if (alt && !ctrl && k == Key.D) { vm.setAddressEditing(true); return true }
         if (k == Key.F1) { vm.showDialog(Dialog.Shortcuts); return true }
         if (st.dialog != null) return false
@@ -817,8 +871,13 @@ fun AppRoot(vm: BrowserViewModel) {
                             val ev = awaitPointerEvent(PointerEventPass.Initial)
                             ev.changes.firstOrNull()?.let { ch ->
                                 lastPointer = ch.position
-                                if (ch.pressed && focusCoord.keyboardFocusVisible) {
-                                    focusCoord.keyboardFocusVisible = false
+                                if (ch.pressed) {
+                                    if (viewFocusTracker.activeWindowId != windowDragId) {
+                                        viewFocusTracker.activeWindowId = windowDragId
+                                    }
+                                    if (focusCoord.keyboardFocusVisible) {
+                                        focusCoord.keyboardFocusVisible = false
+                                    }
                                 }
                             }
                         }
@@ -894,7 +953,15 @@ fun AppRoot(vm: BrowserViewModel) {
             Box(Modifier.onFocusChanged { quickLookZoneFocused = it.hasFocus }) {
                 QuickLook(vm, s)
             }
-            if (s.paletteOpen) CommandPalette(vm, s)
+            if (s.paletteOpen) {
+                CommandPalette(
+                    vm = vm,
+                    s = s,
+                    windowId = windowDragId,
+                    currentDisplayId = currentDisplayId,
+                    connectedDisplays = connectedDisplays,
+                )
+            }
             MenuHost(menu)
             Dialogs(vm, s)
             SnackbarHost(
@@ -948,6 +1015,7 @@ fun AppRoot(vm: BrowserViewModel) {
                 }
             }
             if (drag.active) DragGhost(drag)
+            InProcessTabDragBus.activeVisual?.takeIf { it.sourceWindowId == windowDragId }?.let { DetachedTabGhost(it) }
         }
     }
     }
@@ -1428,16 +1496,7 @@ internal tailrec fun Context.findActivity(): Activity? = when (this) {
 
 /** Opens a new independent window (own task and view model), optionally showing [path]. */
 private fun openNewWindow(ctx: Context, path: String?) {
-    val i = Intent(ctx, MainActivity::class.java)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_NEW_TASK)
-        .putExtra(BrowserViewModel.EXTRA_NEW_WINDOW, true)
-    if (path != null) i.putExtra(BrowserViewModel.EXTRA_PATH, path)
-    com.droid.wayfinder.IntentGuard.sign(ctx, i)
-    try {
-        ctx.startActivity(i)
-    } catch (_: Exception) {
-        android.widget.Toast.makeText(ctx, "Couldn't open a new window", android.widget.Toast.LENGTH_SHORT).show()
-    }
+    openNewWindowOnDisplay(ctx, path)
 }
 
 internal fun buildOpenWithSystemIntent(

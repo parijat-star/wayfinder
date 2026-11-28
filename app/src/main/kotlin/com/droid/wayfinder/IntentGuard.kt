@@ -25,6 +25,8 @@ object IntentGuard {
         BrowserViewModel.EXTRA_PATH, BrowserViewModel.EXTRA_NEW_WINDOW, BrowserViewModel.EXTRA_PICKER,
         BrowserViewModel.EXTRA_PICKER_MULTIPLE, BrowserViewModel.EXTRA_PICKER_MIME,
         BrowserViewModel.EXTRA_PICKER_MODE, BrowserViewModel.EXTRA_PICKER_TITLE,
+        com.droid.wayfinder.data.EXTRA_TEAR_SESSION_ID,
+        com.droid.wayfinder.data.EXTRA_TARGET_DISPLAY_ID,
     )
 
     @Volatile private var cached: String? = null
